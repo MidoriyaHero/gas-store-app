@@ -7,3 +7,4 @@ frontend/dist/
 .DS_Store
 backend/.pytest_cache
 backend/.venv-test
+__pycache__/*

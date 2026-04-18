@@ -1,4 +1,4 @@
-"""REST API aligned with Bright Order Boss frontend."""
+"""REST API routes for the gas store application."""
 
 import csv
 import io

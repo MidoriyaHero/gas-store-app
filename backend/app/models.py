@@ -1,4 +1,4 @@
-"""SQLAlchemy models aligned with the Bright Order Boss UI (products + VAT orders)."""
+"""SQLAlchemy models for products, sales orders, users, and related data."""
 
 from datetime import date, datetime
 from decimal import Decimal

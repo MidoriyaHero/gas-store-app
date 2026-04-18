@@ -1,4 +1,4 @@
-"""Pydantic schemas for catalog products and VAT sales orders (Bright UI)."""
+"""Pydantic request/response schemas for catalog, sales orders, auth, and templates."""
 
 from datetime import date, datetime
 from decimal import Decimal

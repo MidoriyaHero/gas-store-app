@@ -1,4 +1,4 @@
-"""Smoke tests for Bright-aligned API."""
+"""Smoke tests for the gas store HTTP API."""
 
 from fastapi.testclient import TestClient
 from sqlalchemy import select
