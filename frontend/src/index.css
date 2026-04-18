@@ -1,0 +1,78 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Gas Huy Hoàng design system — light theme, Vietnamese-first */
+@layer base {
+  :root {
+    --background: 210 40% 99%;
+    --foreground: 222 25% 14%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 25% 14%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 25% 14%;
+
+    --primary: 174 72% 36%;
+    --primary-foreground: 0 0% 100%;
+    --primary-glow: 174 78% 46%;
+
+    --secondary: 210 40% 96%;
+    --secondary-foreground: 222 25% 14%;
+
+    --muted: 210 30% 95%;
+    --muted-foreground: 215 16% 45%;
+
+    --accent: 174 60% 94%;
+    --accent-foreground: 174 72% 26%;
+
+    --success: 142 71% 38%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 50%;
+    --warning-foreground: 30 60% 14%;
+
+    --destructive: 0 78% 56%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 215 25% 90%;
+    --input: 215 25% 90%;
+    --ring: 174 72% 36%;
+
+    --radius: 0.75rem;
+
+    --gradient-primary: linear-gradient(135deg, hsl(174 72% 36%), hsl(190 80% 48%));
+    --gradient-soft: linear-gradient(180deg, hsl(174 60% 97%), hsl(210 40% 99%));
+    --shadow-card: 0 1px 2px hsl(220 30% 14% / 0.04), 0 8px 24px -12px hsl(220 30% 14% / 0.08);
+    --shadow-elegant: 0 10px 40px -12px hsl(174 72% 36% / 0.25);
+
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 222 25% 22%;
+    --sidebar-primary: 174 72% 36%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 174 60% 96%;
+    --sidebar-accent-foreground: 174 72% 26%;
+    --sidebar-border: 215 25% 92%;
+    --sidebar-ring: 174 72% 36%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html, body {
+    font-family: "Be Vietnam Pro", system-ui, -apple-system, "Segoe UI", sans-serif;
+    @apply bg-background text-foreground antialiased;
+  }
+  h1, h2, h3, h4 {
+    @apply font-semibold tracking-tight;
+  }
+}
+
+@layer components {
+  .stat-card {
+    @apply rounded-xl border bg-card p-5 shadow-[var(--shadow-card)] transition-all hover:shadow-[var(--shadow-elegant)];
+  }
+}

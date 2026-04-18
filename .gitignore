@@ -1,0 +1,9 @@
+backend/.venv/
+backend/gas_store.db
+backend/.env
+.env
+frontend/node_modules/
+frontend/dist/
+.DS_Store
+backend/.pytest_cache
+backend/.venv-test
