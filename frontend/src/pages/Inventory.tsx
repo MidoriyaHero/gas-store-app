@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { AppLayout } from "@/components/AppLayout";
+import { DestructiveConfirmDialog } from "@/components/DestructiveConfirmDialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -8,6 +9,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Plus, Pencil, Trash2, Search, Download } from "lucide-react";
 import { formatVND } from "@/lib/format";
 import { toast } from "sonner";
@@ -22,9 +24,11 @@ interface Product {
   sell_price: string | number;
   stock_quantity: number;
   low_stock_threshold: number;
+  is_active: boolean;
 }
 
 const empty = { name: "", sku: "", description: "", cost_price: 0, sell_price: 0, stock_quantity: 0, low_stock_threshold: 10 };
+type InventoryTab = "active" | "archived";
 
 export default function Inventory() {
   const [products, setProducts] = useState<Product[]>([]);
@@ -33,10 +37,12 @@ export default function Inventory() {
   const [editing, setEditing] = useState<Product | null>(null);
   const [form, setForm] = useState<typeof empty>(empty);
   const [saving, setSaving] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<Product | null>(null);
+  const [tab, setTab] = useState<InventoryTab>("active");
 
   const load = async () => {
     try {
-      const data = await apiGet<Product[]>("/api/products");
+      const data = await apiGet<Product[]>("/api/products?include_inactive=true");
       setProducts(data ?? []);
     } catch {
       toast.error("Không tải được sản phẩm");
@@ -96,12 +102,23 @@ export default function Inventory() {
     setSaving(false);
   };
 
-  const remove = async (p: Product) => {
-    if (!confirm(`Xóa sản phẩm "${p.name}"?`)) return;
+  const performDeleteProduct = async () => {
+    if (!deleteTarget) return;
     try {
-      await apiDelete(`/api/products/${p.id}`);
+      await apiDelete(`/api/products/${deleteTarget.id}`);
       toast.success("Đã xóa");
       load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Lỗi");
+      throw e;
+    }
+  };
+
+  const toggleArchiveProduct = async (p: Product, nextActive: boolean) => {
+    try {
+      await apiPatch<Product>(`/api/products/${p.id}`, { is_active: nextActive });
+      toast.success(nextActive ? "Đã khôi phục sản phẩm" : "Đã lưu trữ sản phẩm");
+      await load();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Lỗi");
     }
@@ -109,14 +126,16 @@ export default function Inventory() {
 
   const filtered = products.filter(
     (p) =>
-      p.name.toLowerCase().includes(search.toLowerCase()) ||
-      (p.sku ?? "").toLowerCase().includes(search.toLowerCase()),
+      (tab === "active" ? p.is_active : !p.is_active) &&
+      (p.name.toLowerCase().includes(search.toLowerCase()) || (p.sku ?? "").toLowerCase().includes(search.toLowerCase())),
   );
+  const activeCount = products.filter((p) => p.is_active).length;
+  const archivedCount = products.length - activeCount;
 
   return (
     <AppLayout
       title="Kho hàng"
-      description={`${products.length} sản phẩm`}
+      description={`${tab === "active" ? activeCount : archivedCount} sản phẩm`}
       actions={
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" className="gap-1" asChild>
@@ -131,14 +150,22 @@ export default function Inventory() {
       }
     >
       <Card className="shadow-card">
-        <div className="flex items-center gap-2 border-b p-4">
-          <Search className="h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Tìm theo tên hoặc SKU..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="border-0 shadow-none focus-visible:ring-0"
-          />
+        <div className="flex flex-col gap-3 border-b p-4 sm:flex-row sm:items-center sm:justify-between">
+          <Tabs value={tab} onValueChange={(value) => setTab(value as InventoryTab)}>
+            <TabsList>
+              <TabsTrigger value="active">Đang bán</TabsTrigger>
+              <TabsTrigger value="archived">Lưu trữ</TabsTrigger>
+            </TabsList>
+          </Tabs>
+          <div className="flex items-center gap-2">
+            <Search className="h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Tìm theo tên hoặc SKU..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="h-9 border-0 shadow-none focus-visible:ring-0"
+            />
+          </div>
         </div>
         <div className="overflow-x-auto">
           <Table>
@@ -156,7 +183,9 @@ export default function Inventory() {
               {filtered.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={6} className="py-10 text-center text-sm text-muted-foreground">
-                    Chưa có sản phẩm. Bấm &quot;Thêm sản phẩm&quot; để bắt đầu.
+                    {tab === "active"
+                      ? "Chưa có sản phẩm đang bán. Bấm \"Thêm sản phẩm\" để bắt đầu."
+                      : "Chưa có sản phẩm lưu trữ."}
                   </TableCell>
                 </TableRow>
               ) : (
@@ -179,9 +208,19 @@ export default function Inventory() {
                           <Button variant="ghost" size="icon" onClick={() => openEdit(p)}>
                             <Pencil className="h-4 w-4" />
                           </Button>
-                          <Button variant="ghost" size="icon" onClick={() => remove(p)}>
-                            <Trash2 className="h-4 w-4 text-destructive" />
+                          <Button variant="ghost" size="sm" onClick={() => toggleArchiveProduct(p, !p.is_active)}>
+                            {p.is_active ? "Lưu trữ" : "Khôi phục"}
                           </Button>
+                          {!p.is_active && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => setDeleteTarget(p)}
+                              aria-label={`Xóa sản phẩm ${p.name}`}
+                            >
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          )}
                         </div>
                       </TableCell>
                     </TableRow>
@@ -192,6 +231,20 @@ export default function Inventory() {
           </Table>
         </div>
       </Card>
+
+      <DestructiveConfirmDialog
+        open={deleteTarget !== null}
+        onOpenChange={(v) => {
+          if (!v) setDeleteTarget(null);
+        }}
+        title="Xóa sản phẩm?"
+        description={
+          deleteTarget
+            ? `Mặt hàng "${deleteTarget.name}" sẽ bị gỡ khỏi kho. Thao tác này không hoàn tác.`
+            : ""
+        }
+        onConfirm={performDeleteProduct}
+      />
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-lg">

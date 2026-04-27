@@ -60,8 +60,9 @@ need_json
 ORDER_ID=$(jq -r '.id' /tmp/e2e_body.out)
 [[ "${ORDER_ID}" =~ ^[0-9]+$ ]] || fail "missing order id"
 
-code=$(http_code "${PREFIX}/orders")
+code=$(http_code "${PREFIX}/orders?limit=10&offset=0")
 [[ "${code}" == "200" ]] || fail "GET /api/orders expected 200 got ${code}"
+jq -e '(.items | type == "array") and (.total | type == "number")' /tmp/e2e_body.out >/dev/null 2>&1 || fail "GET /api/orders must return JSON {items,total}"
 
 code=$(http_code "${PREFIX}/orders/${ORDER_ID}")
 [[ "${code}" == "200" ]] || fail "GET /api/orders/:id expected 200 got ${code}"

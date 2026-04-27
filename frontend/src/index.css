@@ -62,12 +62,24 @@
   * {
     @apply border-border;
   }
+  *:focus-visible {
+    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
+  }
   html, body {
     font-family: "Be Vietnam Pro", system-ui, -apple-system, "Segoe UI", sans-serif;
     @apply bg-background text-foreground antialiased;
   }
   h1, h2, h3, h4 {
     @apply font-semibold tracking-tight;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
 

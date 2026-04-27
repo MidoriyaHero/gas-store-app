@@ -39,7 +39,7 @@ export default function GasLedger() {
   return (
     <AppLayout
       title="Sổ gas"
-      description="Theo dõi chai LPG (theo mẫu sổ Excel)"
+      description="Chỉ hiển thị các dòng đơn đã đủ thông tin theo mẫu sổ Excel"
       actions={
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" className="gap-2" asChild>
@@ -79,7 +79,8 @@ export default function GasLedger() {
               {rows.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={10} className="py-12 text-center text-muted-foreground">
-                    Chưa có dòng nào — nhập chi tiết chai khi tạo đơn hàng.
+                    Chưa có dòng đủ điều kiện sổ gas. Chỉ các dòng đơn đã điền đầy đủ SĐT, địa chỉ, ngày giao và toàn bộ
+                    trường chai (chủ sở hữu, loại, số sê ri, hạn kiểm định, nơi nhập, ngày nhập) mới xuất hiện ở đây.
                   </TableCell>
                 </TableRow>
               ) : (

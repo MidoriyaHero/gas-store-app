@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { AppLayout } from "@/components/AppLayout";
+import { DestructiveConfirmDialog } from "@/components/DestructiveConfirmDialog";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,6 +30,7 @@ export default function UsersPage() {
   const [editing, setEditing] = useState<UserRow | null>(null);
   const [form, setForm] = useState(empty);
   const [saving, setSaving] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<UserRow | null>(null);
 
   const load = async () => {
     try {
@@ -91,14 +93,15 @@ export default function UsersPage() {
     setSaving(false);
   };
 
-  const remove = async (row: UserRow) => {
-    if (!confirm(`Xóa user "${row.username}"?`)) return;
+  const performDeleteUser = async () => {
+    if (!deleteTarget) return;
     try {
-      await apiDelete(`/api/users/${row.id}`);
+      await apiDelete(`/api/users/${deleteTarget.id}`);
       toast.success("Đã xóa user");
       void load();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Lỗi");
+      throw e;
     }
   };
 
@@ -147,7 +150,12 @@ export default function UsersPage() {
                         <Button variant="ghost" size="icon" onClick={() => openEdit(row)}>
                           <Pencil className="h-4 w-4" />
                         </Button>
-                        <Button variant="ghost" size="icon" onClick={() => void remove(row)}>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => setDeleteTarget(row)}
+                          aria-label={`Xóa user ${row.username}`}
+                        >
                           <Trash2 className="h-4 w-4 text-destructive" />
                         </Button>
                       </div>
@@ -159,6 +167,20 @@ export default function UsersPage() {
           </Table>
         </div>
       </Card>
+
+      <DestructiveConfirmDialog
+        open={deleteTarget !== null}
+        onOpenChange={(v) => {
+          if (!v) setDeleteTarget(null);
+        }}
+        title="Xóa user?"
+        description={
+          deleteTarget
+            ? `Tài khoản "${deleteTarget.username}" sẽ bị gỡ vĩnh viễn. Thao tác này không hoàn tác.`
+            : ""
+        }
+        onConfirm={performDeleteUser}
+      />
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-lg">

@@ -9,6 +9,8 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.models import Product, SalesOrder, SalesOrderItem
 from app.schemas import SalesOrderCreate, SalesOrderItemOut, SalesOrderLineIn, SalesOrderResponse
+from app.services.gas_ledger_rules import gas_ledger_gap_messages, order_fully_ready_for_gas_ledger
+from app.services.phone import normalize_phone
 
 
 def _assign_order_code_after_flush(order_id: int) -> str:
@@ -25,7 +27,9 @@ def _strip_opt(val: str | None) -> str | None:
     return t or None
 
 
-def create_sales_order(db: Session, payload: SalesOrderCreate) -> SalesOrderResponse:
+def create_sales_order(
+    db: Session, payload: SalesOrderCreate, *, created_by_user_id: int | None = None
+) -> SalesOrderResponse:
     """
     Persist header + lines, decrement product stock, compute VAT totals.
 
@@ -61,10 +65,22 @@ def create_sales_order(db: Session, payload: SalesOrderCreate) -> SalesOrderResp
     )
     grand_total = cart_subtotal + vat_amount
 
+    phone = normalize_phone(payload.phone)
+    payment_mode = payload.payment_mode
+    if payment_mode == "cash":
+        paid_amount = grand_total
+    elif payment_mode == "debt":
+        paid_amount = Decimal("0")
+    else:
+        paid_amount = Decimal(str(payload.paid_amount or 0))
+        if paid_amount > grand_total:
+            raise ValueError("Paid amount cannot exceed order total")
+    outstanding_amount = grand_total - paid_amount
+
     header = SalesOrder(
         order_code="TEMP",
         customer_name=payload.customer_name.strip(),
-        phone=(payload.phone or "").strip() or None,
+        phone=phone,
         address=(payload.address or "").strip() or None,
         note=(payload.note or "").strip() or None,
         delivery_date=payload.delivery_date,
@@ -73,6 +89,10 @@ def create_sales_order(db: Session, payload: SalesOrderCreate) -> SalesOrderResp
         vat_rate=payload.vat_rate,
         vat_amount=vat_amount,
         total=grand_total,
+        payment_mode=payment_mode,
+        paid_amount=paid_amount,
+        outstanding_amount=outstanding_amount,
+        created_by_user_id=created_by_user_id,
     )
     db.add(header)
     db.flush()
@@ -161,8 +181,17 @@ def update_sales_order(db: Session, order_id: int, payload: SalesOrderCreate) ->
         db.delete(li)
     db.flush()
 
+    payment_mode = payload.payment_mode
+    if payment_mode == "cash":
+        paid_amount = grand_total
+    elif payment_mode == "debt":
+        paid_amount = Decimal("0")
+    else:
+        paid_amount = Decimal(str(payload.paid_amount or 0))
+        if paid_amount > grand_total:
+            raise ValueError("Paid amount cannot exceed order total")
     order.customer_name = payload.customer_name.strip()
-    order.phone = _strip_opt(payload.phone)
+    order.phone = normalize_phone(payload.phone)
     order.address = _strip_opt(payload.address)
     order.note = _strip_opt(payload.note)
     order.delivery_date = payload.delivery_date
@@ -171,6 +200,9 @@ def update_sales_order(db: Session, order_id: int, payload: SalesOrderCreate) ->
     order.vat_rate = payload.vat_rate
     order.vat_amount = vat_amount
     order.total = grand_total
+    order.payment_mode = payment_mode
+    order.paid_amount = paid_amount
+    order.outstanding_amount = grand_total - paid_amount
 
     for p, qty, unit, line_tot, ln_in in built_lines:
         db.add(
@@ -242,8 +274,13 @@ def order_to_response(order: SalesOrder) -> SalesOrderResponse:
         vat_rate=order.vat_rate,
         vat_amount=Decimal(str(order.vat_amount)),
         total=Decimal(str(order.total)),
+        payment_mode=order.payment_mode,
+        paid_amount=Decimal(str(order.paid_amount)),
+        outstanding_amount=Decimal(str(order.outstanding_amount)),
         created_at=order.created_at,
         order_items=items_out,
+        gas_ledger_ready=order_fully_ready_for_gas_ledger(order),
+        gas_ledger_gaps=gas_ledger_gap_messages(order),
     )
 
 

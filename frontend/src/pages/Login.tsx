@@ -18,7 +18,7 @@ export default function Login() {
   const [submitting, setSubmitting] = useState(false);
 
   if (!loading && user) {
-    return <Navigate to={user.role === "admin" ? "/" : "/tao-don"} replace />;
+    return <Navigate to={user.role === "admin" ? "/" : "/ghi-chu-giao"} replace />;
   }
 
   if (loading) {

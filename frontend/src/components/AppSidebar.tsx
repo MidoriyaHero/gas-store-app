@@ -1,5 +1,5 @@
 import { NavLink, useLocation } from "react-router-dom";
-import { LayoutDashboard, ShoppingCart, Package, FileBarChart, Store, BookOpen, LogOut, Users } from "lucide-react";
+import { LogOut, Store } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -15,24 +15,14 @@ import {
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth";
+import { adminNavGroups } from "@/lib/navGroups";
 
-const adminItems = [
-  { title: "Tổng quan", url: "/", icon: LayoutDashboard },
-  { title: "Đơn hàng", url: "/don-hang", icon: ShoppingCart },
-  { title: "Sổ gas", url: "/so-gas", icon: BookOpen },
-  { title: "Kho hàng", url: "/kho", icon: Package },
-  { title: "Báo cáo thuế", url: "/bao-cao-thue", icon: FileBarChart },
-  { title: "Người dùng", url: "/nguoi-dung", icon: Users },
-];
-
-const userItems = [{ title: "Tạo đơn hàng", url: "/tao-don", icon: ShoppingCart }];
-
+/** Sidebar is only mounted for admin layout; staff uses `StaffPrimaryNav` in `AppLayout`. */
 export function AppSidebar() {
   const { state } = useSidebar();
   const collapsed = state === "collapsed";
   const { pathname } = useLocation();
-  const { user, logout } = useAuth();
-  const items = user?.role === "admin" ? adminItems : userItems;
+  const { logout } = useAuth();
 
   return (
     <Sidebar collapsible="icon">
@@ -49,27 +39,29 @@ export function AppSidebar() {
           )}
         </div>
       </SidebarHeader>
-      <SidebarContent>
-        <SidebarGroup>
-          <SidebarGroupLabel>Điều hướng</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {items.map((item) => {
-                const isActive = item.url === "/" ? pathname === "/" : pathname.startsWith(item.url);
-                return (
-                  <SidebarMenuItem key={item.url}>
-                    <SidebarMenuButton asChild isActive={isActive}>
-                      <NavLink to={item.url} end={item.url === "/"}>
-                        <item.icon className="h-4 w-4" />
-                        {!collapsed && <span>{item.title}</span>}
-                      </NavLink>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                );
-              })}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+      <SidebarContent className="gap-0.5">
+        {adminNavGroups.map((group) => (
+          <SidebarGroup key={group.id} className="py-1">
+            {!collapsed && <SidebarGroupLabel className="h-7">{group.title}</SidebarGroupLabel>}
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {group.items.map((item) => {
+                  const isActive = item.url === "/" ? pathname === "/" : pathname.startsWith(item.url);
+                  return (
+                    <SidebarMenuItem key={item.url}>
+                      <SidebarMenuButton asChild isActive={isActive}>
+                        <NavLink to={item.url} end={item.url === "/"}>
+                          <item.icon className="h-4 w-4" />
+                          {!collapsed && <span>{item.title}</span>}
+                        </NavLink>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  );
+                })}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        ))}
       </SidebarContent>
       <SidebarFooter className="border-t p-2">
         <Button

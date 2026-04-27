@@ -12,6 +12,13 @@ import GasLedger from "./pages/GasLedger";
 import DeliverySlip from "./pages/DeliverySlip";
 import Login from "./pages/Login";
 import UsersPage from "./pages/Users";
+import CylinderTemplatesPage from "./pages/CylinderTemplates";
+import StaffOrderHistory from "./pages/StaffOrderHistory";
+import OrderNotes from "./pages/OrderNotes";
+import CoreOperations from "./pages/CoreOperations";
+import FinanceGovernance from "./pages/FinanceGovernance";
+import CustomerExperience from "./pages/CustomerExperience";
+import SafetyCompliance from "./pages/SafetyCompliance";
 import NotFound from "./pages/NotFound.tsx";
 import { AuthProvider, useAuth } from "@/lib/auth";
 
@@ -21,7 +28,7 @@ const queryClient = new QueryClient();
 function HomeRedirect() {
   const { user } = useAuth();
   if (!user) return <Navigate to="/login" replace />;
-  return <Navigate to={user.role === "admin" ? "/" : "/tao-don"} replace />;
+  return <Navigate to={user.role === "admin" ? "/" : "/ghi-chu-giao"} replace />;
 }
 
 /** Protect route and enforce optional allowed roles. */
@@ -30,7 +37,7 @@ function GuardedRoute({ allowedRoles, children }: { allowedRoles?: Array<"admin"
   if (loading) return <div className="p-6 text-sm text-muted-foreground">Đang tải phiên đăng nhập...</div>;
   if (!user) return <Navigate to="/login" replace />;
   if (allowedRoles && !allowedRoles.includes(user.role)) {
-    return <Navigate to={user.role === "admin" ? "/" : "/tao-don"} replace />;
+    return <Navigate to={user.role === "admin" ? "/" : "/ghi-chu-giao"} replace />;
   }
   return children;
 }
@@ -65,6 +72,22 @@ const App = () => (
               element={
                 <GuardedRoute allowedRoles={["user"]}>
                   <Orders creationOnly />
+                </GuardedRoute>
+              }
+            />
+            <Route
+              path="/don-cua-toi"
+              element={
+                <GuardedRoute allowedRoles={["user"]}>
+                  <StaffOrderHistory />
+                </GuardedRoute>
+              }
+            />
+            <Route
+              path="/ghi-chu-giao"
+              element={
+                <GuardedRoute allowedRoles={["admin", "user"]}>
+                  <OrderNotes />
                 </GuardedRoute>
               }
             />
@@ -105,6 +128,46 @@ const App = () => (
               element={
                 <GuardedRoute allowedRoles={["admin"]}>
                   <UsersPage />
+                </GuardedRoute>
+              }
+            />
+            <Route
+              path="/mau-chai"
+              element={
+                <GuardedRoute allowedRoles={["admin"]}>
+                  <CylinderTemplatesPage />
+                </GuardedRoute>
+              }
+            />
+            <Route
+              path="/dieu-hanh"
+              element={
+                <GuardedRoute allowedRoles={["admin"]}>
+                  <CoreOperations />
+                </GuardedRoute>
+              }
+            />
+            <Route
+              path="/tai-chinh-quan-tri"
+              element={
+                <GuardedRoute allowedRoles={["admin"]}>
+                  <FinanceGovernance />
+                </GuardedRoute>
+              }
+            />
+            <Route
+              path="/trai-nghiem-khach-hang"
+              element={
+                <GuardedRoute allowedRoles={["admin"]}>
+                  <CustomerExperience />
+                </GuardedRoute>
+              }
+            />
+            <Route
+              path="/an-toan-tuan-thu"
+              element={
+                <GuardedRoute allowedRoles={["admin"]}>
+                  <SafetyCompliance />
                 </GuardedRoute>
               }
             />

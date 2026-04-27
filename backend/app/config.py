@@ -22,6 +22,8 @@ class Settings(BaseSettings):
     auth_cookie_samesite: str = "lax"
     seed_admin_username: str = "admin"
     seed_admin_password: str = "admin123"
+    media_root: str = "data/media"
+    order_note_audio_max_bytes: int = 20 * 1024 * 1024
 
 
 def get_settings() -> Settings:

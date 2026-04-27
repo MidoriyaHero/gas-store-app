@@ -69,3 +69,15 @@ export async function apiDelete(path: string): Promise<void> {
   const r = await request(path, { method: "DELETE" });
   if (!r.ok) throw new Error(await errorBody(r));
 }
+
+/**
+ * POST multipart form (e.g. voice note upload) with cookie auth and refresh retry.
+ */
+export async function apiPostFormData<T>(path: string, formData: FormData): Promise<T> {
+  const r = await request(path, {
+    method: "POST",
+    body: formData,
+  });
+  if (!r.ok) throw new Error(await errorBody(r));
+  return r.json();
+}

@@ -1,9 +1,11 @@
 """FastAPI entrypoint: CORS, DB bootstrap, and API routes."""
 
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
 
 from app.api.auth import router as auth_router
@@ -78,6 +80,8 @@ async def lifespan(_: FastAPI):
     """Create tables on startup and optional seed data."""
     Base.metadata.create_all(bind=engine)
     ensure_gas_schema()
+    media_root = Path(get_settings().media_root).resolve()
+    (media_root / "order-notes").mkdir(parents=True, exist_ok=True)
     _seed_demo_products()
     _seed_admin_user()
     yield
@@ -96,6 +100,9 @@ def create_app() -> FastAPI:
     )
     app.include_router(auth_router, prefix="/api")
     app.include_router(router, prefix="/api")
+    media_dir = Path(get_settings().media_root).resolve()
+    media_dir.mkdir(parents=True, exist_ok=True)
+    app.mount("/media", StaticFiles(directory=str(media_dir)), name="media")
     return app
 
 
