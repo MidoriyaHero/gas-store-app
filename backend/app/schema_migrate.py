@@ -31,6 +31,14 @@ def ensure_gas_schema() -> None:
                 conn.execute(text("ALTER TABLE sales_orders ADD COLUMN store_contact TEXT"))
         if "created_by_user_id" not in so:
             conn.execute(text("ALTER TABLE sales_orders ADD COLUMN created_by_user_id INTEGER"))
+        if "assigned_to_user_id" not in so:
+            conn.execute(text("ALTER TABLE sales_orders ADD COLUMN assigned_to_user_id INTEGER"))
+        if "delivery_latitude" not in so:
+            lat_type = "REAL" if dialect == "sqlite" else "DOUBLE PRECISION"
+            conn.execute(text(f"ALTER TABLE sales_orders ADD COLUMN delivery_latitude {lat_type}"))
+        if "delivery_longitude" not in so:
+            lng_type = "REAL" if dialect == "sqlite" else "DOUBLE PRECISION"
+            conn.execute(text(f"ALTER TABLE sales_orders ADD COLUMN delivery_longitude {lng_type}"))
         if "payment_mode" not in so:
             default = "'cash'"
             conn.execute(text(f"ALTER TABLE sales_orders ADD COLUMN payment_mode VARCHAR(16) NOT NULL DEFAULT {default}"))
@@ -38,6 +46,13 @@ def ensure_gas_schema() -> None:
             conn.execute(text("ALTER TABLE sales_orders ADD COLUMN paid_amount NUMERIC(14,2) NOT NULL DEFAULT 0"))
         if "outstanding_amount" not in so:
             conn.execute(text("ALTER TABLE sales_orders ADD COLUMN outstanding_amount NUMERIC(14,2) NOT NULL DEFAULT 0"))
+        if "delivery_status" not in so:
+            conn.execute(
+                text(
+                    "ALTER TABLE sales_orders ADD COLUMN delivery_status VARCHAR(24) NOT NULL DEFAULT 'in_transit'"
+                )
+            )
+            conn.execute(text("UPDATE sales_orders SET delivery_status = 'completed'"))
 
         table_names = set(inspect(engine).get_table_names())
         if "cylinder_templates" not in table_names:
@@ -390,6 +405,7 @@ def ensure_gas_schema() -> None:
             ("template_import_source", "TEXT"),
             ("template_inspection_expiry", "DATE"),
             ("template_import_date", "DATE"),
+            ("map_location", "JSONB" if dialect != "sqlite" else "TEXT"),
         ]
         for name, sqltype in user_adds:
             if name not in users:
@@ -425,6 +441,206 @@ def ensure_gas_schema() -> None:
                         else "ALTER TABLE order_notes ADD COLUMN mime_type TEXT"
                     )
                 )
+        if "stock_receipts" not in table_names:
+            if dialect == "sqlite":
+                conn.execute(
+                    text(
+                        """
+                        CREATE TABLE stock_receipts (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            product_id INTEGER NOT NULL REFERENCES products(id),
+                            receipt_date DATE NOT NULL,
+                            quantity INTEGER NOT NULL,
+                            receipt_kind VARCHAR(24) NOT NULL DEFAULT 'inbound',
+                            note TEXT,
+                            created_by_user_id INTEGER REFERENCES users(id),
+                            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                        )
+                        """
+                    )
+                )
+            else:
+                conn.execute(
+                    text(
+                        """
+                        CREATE TABLE stock_receipts (
+                            id SERIAL PRIMARY KEY,
+                            product_id INTEGER NOT NULL REFERENCES products(id),
+                            receipt_date DATE NOT NULL,
+                            quantity INTEGER NOT NULL,
+                            receipt_kind VARCHAR(24) NOT NULL DEFAULT 'inbound',
+                            note TEXT,
+                            created_by_user_id INTEGER REFERENCES users(id),
+                            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                        )
+                        """
+                    )
+                )
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_stock_receipts_product ON stock_receipts(product_id)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_stock_receipts_date ON stock_receipts(receipt_date)"))
+            n = conn.scalar(text("SELECT COUNT(*) FROM stock_receipts"))
+            if n == 0:
+                if dialect == "sqlite":
+                    conn.execute(
+                        text(
+                            """
+                            INSERT INTO stock_receipts (product_id, receipt_date, quantity, receipt_kind, note, created_by_user_id)
+                            SELECT id, date(created_at), stock_quantity, 'opening', 'Tồn đầu kỳ (dữ liệu cũ)', NULL
+                            FROM products
+                            """
+                        )
+                    )
+                else:
+                    conn.execute(
+                        text(
+                            """
+                            INSERT INTO stock_receipts (product_id, receipt_date, quantity, receipt_kind, note, created_by_user_id)
+                            SELECT id, (created_at AT TIME ZONE 'UTC')::date, stock_quantity, 'opening', 'Tồn đầu kỳ (dữ liệu cũ)', NULL
+                            FROM products
+                            """
+                        )
+                    )
+
+        names_now = set(inspect(engine).get_table_names())
+        if "stock_receipts" in names_now:
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_stock_receipts_product ON stock_receipts(product_id)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_stock_receipts_date ON stock_receipts(receipt_date)"))
+        if "stock_receipts" in names_now and "products" in names_now:
+            if dialect == "sqlite":
+                conn.execute(
+                    text(
+                        """
+                        INSERT INTO stock_receipts (product_id, receipt_date, quantity, receipt_kind, note, created_by_user_id)
+                        SELECT p.id, date(p.created_at), p.stock_quantity, 'opening', 'Tồn đầu kỳ (hệ thống)', NULL
+                        FROM products p
+                        WHERE p.stock_quantity > 0
+                          AND NOT EXISTS (
+                            SELECT 1 FROM stock_receipts r
+                            WHERE r.product_id = p.id AND r.receipt_kind = 'opening'
+                          )
+                        """
+                    )
+                )
+            else:
+                conn.execute(
+                    text(
+                        """
+                        INSERT INTO stock_receipts (product_id, receipt_date, quantity, receipt_kind, note, created_by_user_id)
+                        SELECT p.id, (p.created_at AT TIME ZONE 'UTC')::date, p.stock_quantity, 'opening', 'Tồn đầu kỳ (hệ thống)', NULL
+                        FROM products p
+                        WHERE p.stock_quantity > 0
+                          AND NOT EXISTS (
+                            SELECT 1 FROM stock_receipts r
+                            WHERE r.product_id = p.id AND r.receipt_kind = 'opening'
+                          )
+                        """
+                    )
+                )
+
+        snap_names = set(inspect(engine).get_table_names())
+        if "cylinder_inventory_snapshots" not in snap_names:
+            if dialect == "sqlite":
+                conn.execute(
+                    text(
+                        """
+                        CREATE TABLE cylinder_inventory_snapshots (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            snapshot_date DATE NOT NULL,
+                            full_units INTEGER NOT NULL DEFAULT 0,
+                            empty_shells INTEGER NOT NULL DEFAULT 0,
+                            note TEXT,
+                            debt_account_id INTEGER REFERENCES debt_accounts(id),
+                            created_by_user_id INTEGER REFERENCES users(id),
+                            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                        )
+                        """
+                    )
+                )
+            else:
+                conn.execute(
+                    text(
+                        """
+                        CREATE TABLE cylinder_inventory_snapshots (
+                            id SERIAL PRIMARY KEY,
+                            snapshot_date DATE NOT NULL,
+                            full_units INTEGER NOT NULL DEFAULT 0,
+                            empty_shells INTEGER NOT NULL DEFAULT 0,
+                            note TEXT,
+                            debt_account_id INTEGER REFERENCES debt_accounts(id),
+                            created_by_user_id INTEGER REFERENCES users(id),
+                            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                        )
+                        """
+                    )
+                )
+            conn.execute(
+                text("CREATE INDEX IF NOT EXISTS idx_cylinder_snap_date ON cylinder_inventory_snapshots(snapshot_date)")
+            )
+
+        so_cols2 = cols("sales_orders")
+        if "borrowed_shell_units" not in so_cols2:
+            conn.execute(text("ALTER TABLE sales_orders ADD COLUMN borrowed_shell_units INTEGER NOT NULL DEFAULT 0"))
+
+        dp_cols = cols("debt_payments")
+        if "returned_shell_units" not in dp_cols:
+            conn.execute(text("ALTER TABLE debt_payments ADD COLUMN returned_shell_units INTEGER NOT NULL DEFAULT 0"))
+
+        audit_names = set(inspect(engine).get_table_names())
+        if "daily_cylinder_audit" not in audit_names:
+            if dialect == "sqlite":
+                conn.execute(
+                    text(
+                        """
+                        CREATE TABLE daily_cylinder_audit (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            business_date DATE NOT NULL UNIQUE,
+                            morning_full INTEGER NOT NULL DEFAULT 0,
+                            morning_shell INTEGER NOT NULL DEFAULT 0,
+                            import_full INTEGER NOT NULL DEFAULT 0,
+                            supplier_shell_units INTEGER NOT NULL DEFAULT 0,
+                            evening_full INTEGER NOT NULL DEFAULT 0,
+                            evening_shell INTEGER NOT NULL DEFAULT 0,
+                            note TEXT,
+                            created_by_user_id INTEGER REFERENCES users(id),
+                            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                        )
+                        """
+                    )
+                )
+            else:
+                conn.execute(
+                    text(
+                        """
+                        CREATE TABLE daily_cylinder_audit (
+                            id SERIAL PRIMARY KEY,
+                            business_date DATE NOT NULL UNIQUE,
+                            morning_full INTEGER NOT NULL DEFAULT 0,
+                            morning_shell INTEGER NOT NULL DEFAULT 0,
+                            import_full INTEGER NOT NULL DEFAULT 0,
+                            supplier_shell_units INTEGER NOT NULL DEFAULT 0,
+                            evening_full INTEGER NOT NULL DEFAULT 0,
+                            evening_shell INTEGER NOT NULL DEFAULT 0,
+                            note TEXT,
+                            created_by_user_id INTEGER REFERENCES users(id),
+                            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                        )
+                        """
+                    )
+                )
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_daily_cylinder_audit_date ON daily_cylinder_audit(business_date)"))
+
+        try:
+            dca_cols_now = {c["name"] for c in inspect(engine).get_columns("daily_cylinder_audit")}
+        except Exception:
+            dca_cols_now = set()
+        if dca_cols_now and "supplier_shell_units" not in dca_cols_now:
+            conn.execute(
+                text("ALTER TABLE daily_cylinder_audit ADD COLUMN supplier_shell_units INTEGER NOT NULL DEFAULT 0")
+            )
+            conn.execute(text("UPDATE daily_cylinder_audit SET supplier_shell_units = import_full"))
+
         conn.execute(text("CREATE INDEX IF NOT EXISTS idx_debt_accounts_balance ON debt_accounts(current_balance)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS idx_debt_accounts_status ON debt_accounts(status)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS idx_debt_ledger_account ON debt_ledger_entries(debt_account_id)"))

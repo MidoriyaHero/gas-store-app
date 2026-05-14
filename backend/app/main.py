@@ -1,6 +1,7 @@
 """FastAPI entrypoint: CORS, DB bootstrap, and API routes."""
 
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -15,6 +16,7 @@ from app.database import Base, SessionLocal, engine
 from app.models import Product, User, UserRole
 from app.schema_migrate import ensure_gas_schema
 from app.services.auth import hash_password
+from app.services.stock_receipts import record_opening_receipt
 
 settings = get_settings()
 
@@ -55,6 +57,17 @@ def _seed_demo_products() -> None:
             ),
         ]
         db.add_all(samples)
+        db.flush()
+        d = datetime.now(tz=UTC).date()
+        for p in samples:
+            record_opening_receipt(
+                db,
+                product_id=p.id,
+                receipt_date=d,
+                quantity=p.stock_quantity,
+                note="Tồn đầu kỳ (seed demo)",
+                created_by_user_id=None,
+            )
         db.commit()
 
 

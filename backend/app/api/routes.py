@@ -2,24 +2,28 @@
 
 import csv
 import io
-from datetime import datetime, timedelta, UTC
+import urllib.error
+from datetime import date, datetime, timedelta, UTC
 from decimal import Decimal
 from pathlib import Path
+from typing import Literal
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import Response
-from sqlalchemy import func, select
+from sqlalchemy import and_, cast, func, or_, select
 from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.types import Date as CastDate
 
-from app.api.auth import get_current_user, require_admin_user
-from app.database import get_db
+from app.api.auth import get_current_user, require_admin_user, require_any_role
 from app.config import get_settings
+from app.database import get_db
 from app.models import (
     AuditLogEntry,
     CapaItem,
     ComplaintTicket,
     CylinderTemplate,
+    DailyCylinderAudit,
     DebtAccount,
     DebtLedgerEntry,
     DebtPayment,
@@ -35,6 +39,7 @@ from app.models import (
     SalesOrder,
     SalesOrderItem,
     ShiftSettlement,
+    StockReceipt,
     User,
     UserRole,
 )
@@ -52,6 +57,10 @@ from app.schemas import (
     CylinderTemplateUpdate,
     CustomerJourneyEventIn,
     CustomerJourneyEventResponse,
+    DailyCylinderAuditComputed,
+    DailyCylinderAuditPayload,
+    DailyCylinderAuditRecord,
+    DailyCylinderAuditUpdate,
     DebtAccountDetailResponse,
     DebtAccountResponse,
     DebtAgingBucket,
@@ -60,14 +69,20 @@ from app.schemas import (
     DebtPaymentUpdateIn,
     DebtWriteOffIn,
     DashboardPayload,
+    DeliveryDaySummaryResponse,
     FinanceKpiBaselineIn,
     FinanceKpiBaselineResponse,
+    GeocodeHit,
+    GeocodeListResponse,
+    MapPasteIn,
+    MeOrderDeliveryPatch,
     GasLedgerRow,
     OrderNoteCreate,
     OrderNoteResponse,
     OrderNoteStructuredPayload,
     OrderNoteUpdate,
     ProductCreate,
+    ProductQtyRollup,
     ProductResponse,
     ProductUpdate,
     SafetyChecklistRunIn,
@@ -77,6 +92,8 @@ from app.schemas import (
     SalesOrderResponse,
     ShiftSettlementIn,
     ShiftSettlementResponse,
+    StockReceiptCreate,
+    StockReceiptResponse,
     TaxReportRow,
     UserCreate,
     UserResponse,
@@ -84,11 +101,14 @@ from app.schemas import (
 )
 from app.services.auth import hash_password, normalize_role
 from app.services import sales
+from app.services.stock_receipts import apply_inbound_receipt, record_opening_receipt
 from app.services.delivery_export import render_delivery_slip_html
 from app.services.gas_ledger_rules import order_line_eligible_for_gas_ledger
 from app.services.invoice_filename import content_disposition_filename, invoice_filename_stem
 from app.services.order_note_media import delete_voice_blob_if_any, public_audio_url
 from app.services.phone import normalize_phone
+from app.services.geocode import nominatim_reverse, nominatim_row_to_geocode_hit, nominatim_search
+from app.services.map_paste_resolve import resolve_paste_to_lat_lng
 
 
 router = APIRouter(dependencies=[Depends(get_current_user)])
@@ -105,6 +125,87 @@ def _strip_opt_text(value: str | None) -> str | None:
         return None
     out = value.strip()
     return out or None
+
+
+@router.get("/geocode", response_model=GeocodeListResponse)
+def geocode_search(
+    q: str = Query(..., min_length=2, max_length=400),
+    limit: int = Query(default=5, ge=1, le=10),
+) -> GeocodeListResponse:
+    """Resolve a free-text address to coordinate candidates using OSM Nominatim."""
+    settings = get_settings()
+    try:
+        raw = nominatim_search(q.strip(), limit=limit, user_agent=settings.nominatim_user_agent)
+    except urllib.error.URLError as exc:
+        raise HTTPException(status_code=503, detail="Geocoding service unreachable") from exc
+    items: list[GeocodeHit] = []
+    for row in raw:
+        if not isinstance(row, dict):
+            continue
+        hit = nominatim_row_to_geocode_hit(row, place_id_mode="search")
+        if hit:
+            items.append(hit)
+    return GeocodeListResponse(items=items)
+
+
+@router.get("/geocode/reverse", response_model=GeocodeHit)
+def geocode_reverse(
+    lat: float = Query(..., ge=-90, le=90),
+    lng: float = Query(..., ge=-180, le=180),
+) -> GeocodeHit:
+    """Resolve coordinates to a place label using OSM Nominatim reverse lookup."""
+    settings = get_settings()
+    try:
+        row = nominatim_reverse(lat, lng, user_agent=settings.nominatim_user_agent)
+    except urllib.error.URLError as exc:
+        raise HTTPException(status_code=503, detail="Geocoding service unreachable") from exc
+    if not isinstance(row, dict):
+        raise HTTPException(status_code=404, detail="No reverse result")
+    hit = nominatim_row_to_geocode_hit(row, place_id_mode="reverse")
+    if not hit:
+        raise HTTPException(status_code=404, detail="No reverse result")
+    return hit
+
+
+@router.post("/geocode/from-paste", response_model=GeocodeHit)
+def geocode_from_paste(body: MapPasteIn) -> GeocodeHit:
+    """Parse pasted Maps text (link, Plus Code, DMS, decimals) then return one OSM-labelled point."""
+    settings = get_settings()
+    raw = body.raw.strip()
+    ua = settings.nominatim_user_agent
+    try:
+        ll = resolve_paste_to_lat_lng(raw, user_agent=ua)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if ll:
+        la, lo = ll
+        try:
+            row = nominatim_reverse(la, lo, user_agent=ua)
+        except urllib.error.URLError as exc:
+            raise HTTPException(status_code=503, detail="Geocoding service unreachable") from exc
+        if isinstance(row, dict):
+            hit = nominatim_row_to_geocode_hit(row, place_id_mode="reverse")
+            if hit:
+                return hit
+        la_r = round(la, 6)
+        lo_r = round(lo, 6)
+        return GeocodeHit(lat=la_r, lng=lo_r, display_name=f"{la_r}, {lo_r}", place_id="paste-coords")
+    try:
+        raw_rows = nominatim_search(raw[:400], limit=1, user_agent=ua)
+    except urllib.error.URLError as exc:
+        raise HTTPException(status_code=503, detail="Geocoding service unreachable") from exc
+    if not raw_rows:
+        raise HTTPException(
+            status_code=422,
+            detail="Không đọc được vị trí — thử link Google Maps, Plus Code, tọa độ số, hoặc dòng địa chỉ rõ hơn",
+        )
+    first = raw_rows[0]
+    if not isinstance(first, dict):
+        raise HTTPException(status_code=422, detail="Không đọc được vị trí từ nội dung dán")
+    hit = nominatim_row_to_geocode_hit(first, place_id_mode="search")
+    if not hit:
+        raise HTTPException(status_code=422, detail="Không đọc được vị trí từ nội dung dán")
+    return hit
 
 
 def _cylinder_template_to_response(row: CylinderTemplate) -> CylinderTemplateResponse:
@@ -139,9 +240,30 @@ def _debt_account_to_response(row: DebtAccount) -> DebtAccountResponse:
     return DebtAccountResponse.model_validate(row)
 
 
-def _debt_ledger_to_response(row: DebtLedgerEntry) -> DebtLedgerEntryResponse:
-    """Map debt ledger ORM row to response schema."""
-    return DebtLedgerEntryResponse.model_validate(row)
+def _debt_ledger_to_response(db: Session, row: DebtLedgerEntry) -> DebtLedgerEntryResponse:
+    """Map debt ledger ORM row; attach ``returned_shell_units`` for payment-linked rows."""
+    shells = 0
+    if row.reference_type == "debt_payment" and row.reference_id:
+        try:
+            pid = int(row.reference_id)
+        except ValueError:
+            pid = 0
+        if pid:
+            pay = db.get(DebtPayment, pid)
+            if pay is not None:
+                shells = int(pay.returned_shell_units or 0)
+    return DebtLedgerEntryResponse(
+        id=row.id,
+        debt_account_id=row.debt_account_id,
+        entry_type=row.entry_type,
+        amount_signed=row.amount_signed,
+        note=row.note,
+        reference_type=row.reference_type,
+        reference_id=row.reference_id,
+        created_by_user_id=row.created_by_user_id,
+        created_at=row.created_at,
+        returned_shell_units=shells,
+    )
 
 
 def _recompute_debt_balance(db: Session, account: DebtAccount) -> None:
@@ -360,19 +482,55 @@ def delete_cylinder_template(template_id: int, db: Session = Depends(get_db)) ->
 @router.get("/me/orders", response_model=list[SalesOrderResponse])
 def list_my_orders(
     limit: int = Query(default=100, ge=1, le=500),
+    delivery_status: Literal["in_transit", "completed"] | None = Query(
+        default=None,
+        description="Lọc theo trạng thái giao: đang giao / hoàn thành (bỏ qua để lấy tất cả).",
+    ),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> list[SalesOrderResponse]:
-    """List orders created by the current user (newest first)."""
-    stmt = (
-        select(SalesOrder)
-        .where(SalesOrder.created_by_user_id == user.id)
-        .options(joinedload(SalesOrder.lines))
-        .order_by(SalesOrder.created_at.desc())
-        .limit(limit)
+    """List orders assigned to the current user, or legacy rows they created before assignment existed."""
+    mine = or_(
+        SalesOrder.assigned_to_user_id == user.id,
+        and_(SalesOrder.assigned_to_user_id.is_(None), SalesOrder.created_by_user_id == user.id),
     )
+    stmt = select(SalesOrder).where(mine).options(joinedload(SalesOrder.lines), joinedload(SalesOrder.assigned_to))
+    if delivery_status is not None:
+        stmt = stmt.where(SalesOrder.delivery_status == delivery_status)
+    stmt = stmt.order_by(SalesOrder.created_at.desc()).limit(limit)
     orders = db.execute(stmt).unique().scalars().all()
     return [sales.order_to_response(o) for o in orders]
+
+
+@router.patch("/me/orders/{order_id}", response_model=SalesOrderResponse)
+def patch_my_order_delivery_status(
+    order_id: int,
+    body: MeOrderDeliveryPatch,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> SalesOrderResponse:
+    """Staff marks delivery finished (``completed``). Admin điều chỉnh trạng thái qua ``PATCH /api/orders``."""
+    if body.delivery_status != "completed":
+        raise HTTPException(
+            status_code=400,
+            detail="Chỉ có thể đánh dấu hoàn thành giao từ đây — liên hệ admin nếu cần đưa đơn về đang giao",
+        )
+    order = db.scalars(
+        select(SalesOrder)
+        .options(joinedload(SalesOrder.lines), joinedload(SalesOrder.assigned_to))
+        .where(SalesOrder.id == order_id)
+    ).first()
+    if order is None:
+        raise HTTPException(status_code=404, detail="Order not found")
+    allowed = order.assigned_to_user_id == user.id or (
+        order.assigned_to_user_id is None and order.created_by_user_id == user.id
+    )
+    if not allowed:
+        raise HTTPException(status_code=403, detail="Not your order")
+    order.delivery_status = "completed"
+    db.commit()
+    db.refresh(order)
+    return sales.order_to_response(order)
 
 
 @router.get("/order-notes", response_model=list[OrderNoteResponse])
@@ -581,6 +739,16 @@ def create_product(payload: ProductCreate, db: Session = Depends(get_db)) -> Pro
         is_active=True,
     )
     db.add(p)
+    db.flush()
+    if payload.stock_quantity > 0:
+        record_opening_receipt(
+            db,
+            product_id=p.id,
+            receipt_date=datetime.now(tz=UTC).date(),
+            quantity=payload.stock_quantity,
+            note="Tồn khởi tạo sản phẩm",
+            created_by_user_id=None,
+        )
     db.commit()
     db.refresh(p)
     return _product_to_response(p)
@@ -593,6 +761,11 @@ def update_product(product_id: int, payload: ProductUpdate, db: Session = Depend
     if p is None:
         raise HTTPException(status_code=404, detail="Product not found")
     data = payload.model_dump(exclude_unset=True)
+    if "stock_quantity" in data:
+        raise HTTPException(
+            status_code=400,
+            detail="Không cập nhật tồn trực tiếp — dùng POST /api/products/{id}/stock-receipts để nhập kho.",
+        )
     if "sku" in data and data["sku"]:
         exists = db.scalar(select(Product.id).where(Product.sku == data["sku"], Product.id != product_id))
         if exists:
@@ -604,6 +777,54 @@ def update_product(product_id: int, payload: ProductUpdate, db: Session = Depend
     return _product_to_response(p)
 
 
+@router.get(
+    "/products/{product_id}/stock-receipts",
+    response_model=list[StockReceiptResponse],
+    dependencies=[Depends(require_admin_user)],
+)
+def list_stock_receipts(product_id: int, db: Session = Depends(get_db)) -> list[StockReceiptResponse]:
+    """Chronological stock receipts for one product (opening + inbound)."""
+    p = db.get(Product, product_id)
+    if p is None:
+        raise HTTPException(status_code=404, detail="Product not found")
+    rows = db.scalars(
+        select(StockReceipt)
+        .where(StockReceipt.product_id == product_id)
+        .order_by(StockReceipt.receipt_date.desc(), StockReceipt.id.desc())
+    ).all()
+    return [StockReceiptResponse.model_validate(r) for r in rows]
+
+
+@router.post(
+    "/products/{product_id}/stock-receipts",
+    response_model=StockReceiptResponse,
+    dependencies=[Depends(require_admin_user)],
+)
+def create_stock_receipt(
+    product_id: int,
+    payload: StockReceiptCreate,
+    db: Session = Depends(get_db),
+    actor: User = Depends(get_current_user),
+) -> StockReceiptResponse:
+    """Record inbound stock and increment ``Product.stock_quantity``."""
+    try:
+        row = apply_inbound_receipt(
+            db,
+            product_id=product_id,
+            receipt_date=payload.receipt_date,
+            quantity=payload.quantity,
+            note=payload.note,
+            created_by_user_id=actor.id,
+        )
+        db.commit()
+        db.refresh(row)
+        return StockReceiptResponse.model_validate(row)
+    except ValueError as e:
+        detail = str(e)
+        code = 404 if detail == "Product not found" else 400
+        raise HTTPException(status_code=code, detail=detail) from e
+
+
 @router.delete("/products/{product_id}", dependencies=[Depends(require_admin_user)])
 def delete_product(product_id: int, db: Session = Depends(get_db)) -> dict[str, str]:
     """Remove a product if not referenced by order lines."""
@@ -613,6 +834,8 @@ def delete_product(product_id: int, db: Session = Depends(get_db)) -> dict[str, 
     used = db.scalar(select(SalesOrderItem.id).where(SalesOrderItem.product_id == product_id).limit(1))
     if used:
         raise HTTPException(status_code=400, detail="Product is referenced by orders")
+    for r in db.scalars(select(StockReceipt).where(StockReceipt.product_id == product_id)).all():
+        db.delete(r)
     db.delete(p)
     db.commit()
     return {"status": "ok"}
@@ -696,7 +919,7 @@ def list_orders(
     total = int(db.scalar(select(func.count()).select_from(SalesOrder)) or 0)
     stmt = (
         select(SalesOrder)
-        .options(joinedload(SalesOrder.lines))
+        .options(joinedload(SalesOrder.lines), joinedload(SalesOrder.assigned_to))
         .order_by(SalesOrder.created_at.desc())
         .offset(offset)
         .limit(limit)
@@ -705,13 +928,13 @@ def list_orders(
     return SalesOrderListResponse(items=[sales.order_to_response(o) for o in orders], total=total)
 
 
-@router.post("/orders", response_model=SalesOrderResponse)
+@router.post("/orders", response_model=SalesOrderResponse, dependencies=[Depends(require_admin_user)])
 def create_order_route(
     payload: SalesOrderCreate,
     db: Session = Depends(get_db),
     actor: User = Depends(get_current_user),
 ) -> SalesOrderResponse:
-    """Create a VAT sales order and record the authenticated creator."""
+    """Create a VAT sales order (admin only); optional delivery staff assignment."""
     try:
         created = sales.create_sales_order(db, payload, created_by_user_id=actor.id)
         outstanding = Decimal(str(created.outstanding_amount))
@@ -783,7 +1006,11 @@ def delete_order_route(order_id: int, db: Session = Depends(get_db)) -> dict[str
     return {"status": "ok"}
 
 
-@router.get("/debt-accounts", response_model=list[DebtAccountResponse], dependencies=[Depends(require_admin_user)])
+@router.get(
+    "/debt-accounts",
+    response_model=list[DebtAccountResponse],
+    dependencies=[Depends(require_admin_user)],
+)
 def list_debt_accounts(
     status: str = Query(default="active"),
     search: str | None = Query(default=None),
@@ -802,7 +1029,11 @@ def list_debt_accounts(
     return [_debt_account_to_response(r) for r in rows]
 
 
-@router.get("/debt-accounts/{account_id}", response_model=DebtAccountDetailResponse, dependencies=[Depends(require_admin_user)])
+@router.get(
+    "/debt-accounts/{account_id}",
+    response_model=DebtAccountDetailResponse,
+    dependencies=[Depends(require_admin_user)],
+)
 def debt_account_detail(
     account_id: int,
     ledger_limit: int = Query(default=100, ge=1, le=500),
@@ -820,7 +1051,7 @@ def debt_account_detail(
     ).all()
     return DebtAccountDetailResponse(
         account=_debt_account_to_response(account),
-        ledger=[_debt_ledger_to_response(r) for r in ledger],
+        ledger=[_debt_ledger_to_response(db, r) for r in ledger],
     )
 
 
@@ -844,7 +1075,7 @@ def debt_account_ledger(
         .order_by(DebtLedgerEntry.created_at.desc())
         .limit(limit)
     ).all()
-    return [_debt_ledger_to_response(r) for r in rows]
+    return [_debt_ledger_to_response(db, r) for r in rows]
 
 
 @router.post("/debt-payments", response_model=DebtLedgerEntryResponse, dependencies=[Depends(require_admin_user)])
@@ -869,6 +1100,7 @@ def create_debt_payment(
         paid_at=payload.paid_at or datetime.now(UTC),
         collector_name=_strip_opt_text(payload.collector_name),
         note=_strip_opt_text(payload.note),
+        returned_shell_units=int(payload.returned_shell_units or 0),
         created_by_user_id=actor.id,
     )
     db.add(row)
@@ -896,7 +1128,7 @@ def create_debt_payment(
     )
     db.commit()
     db.refresh(entry)
-    return _debt_ledger_to_response(entry)
+    return _debt_ledger_to_response(db, entry)
 
 
 @router.patch("/debt-payments/{payment_id}", response_model=DebtLedgerEntryResponse, dependencies=[Depends(require_admin_user)])
@@ -937,6 +1169,8 @@ def update_debt_payment(
     if "note" in data:
         payment.note = _strip_opt_text(data["note"])
         ledger.note = _strip_opt_text(data["note"])
+    if "returned_shell_units" in data and data["returned_shell_units"] is not None:
+        payment.returned_shell_units = int(data["returned_shell_units"])
     _recompute_debt_balance(db, account)
     _recompute_order_outstanding_from_ledger(db, account=account)
     _write_audit(
@@ -948,7 +1182,7 @@ def update_debt_payment(
     )
     db.commit()
     db.refresh(ledger)
-    return _debt_ledger_to_response(ledger)
+    return _debt_ledger_to_response(db, ledger)
 
 
 @router.delete("/debt-payments/{payment_id}", dependencies=[Depends(require_admin_user)])
@@ -1036,7 +1270,7 @@ def create_debt_write_off(
     )
     db.commit()
     db.refresh(entry)
-    return _debt_ledger_to_response(entry)
+    return _debt_ledger_to_response(db, entry)
 
 
 @router.get("/debt-aging", response_model=list[DebtAgingBucket], dependencies=[Depends(require_admin_user)])
@@ -1595,6 +1829,178 @@ def dashboard_bundle(db: Session = Depends(get_db)) -> DashboardPayload:
         orders=orders_json,
         products=[_product_to_response(p) for p in products],
     )
+
+
+@router.get(
+    "/operations/delivery-day-summary",
+    response_model=DeliveryDaySummaryResponse,
+    dependencies=[Depends(require_admin_user)],
+)
+def delivery_day_summary(
+    dates: str = Query(..., description="Comma-separated YYYY-MM-DD (ngày giao)"),
+    db: Session = Depends(get_db),
+) -> DeliveryDaySummaryResponse:
+    """List orders with ``delivery_date`` in the given set and aggregate money / quantities."""
+    raw_parts = [p.strip() for p in dates.split(",") if p.strip()]
+    if not raw_parts:
+        raise HTTPException(status_code=400, detail="Cần ít nhất một ngày (YYYY-MM-DD)")
+    parsed: list[date] = []
+    for p in raw_parts:
+        try:
+            parsed.append(date.fromisoformat(p))
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=f"Ngày không hợp lệ: {p}") from e
+    unique_dates = sorted(set(parsed))
+    stmt = (
+        select(SalesOrder)
+        .options(joinedload(SalesOrder.lines), joinedload(SalesOrder.assigned_to))
+        .where(SalesOrder.delivery_date.in_(unique_dates))
+        .order_by(SalesOrder.delivery_date.asc(), SalesOrder.id.asc())
+    )
+    rows = db.execute(stmt).unique().scalars().all()
+    orders_out = [sales.order_to_response(o) for o in rows]
+    total_amt = sum((o.total for o in rows), Decimal("0"))
+    line_qty_total = 0
+    by_pid: dict[int, tuple[str, int]] = {}
+    for o in rows:
+        for li in o.lines:
+            line_qty_total += li.quantity
+            prev = by_pid.get(li.product_id)
+            if prev:
+                by_pid[li.product_id] = (prev[0], prev[1] + li.quantity)
+            else:
+                by_pid[li.product_id] = (li.product_name, li.quantity)
+    roll = [ProductQtyRollup(product_id=pid, product_name=name, quantity=qty) for pid, (name, qty) in sorted(by_pid.items())]
+    return DeliveryDaySummaryResponse(
+        dates=[d.isoformat() for d in unique_dates],
+        orders=orders_out,
+        total_amount=total_amt,
+        total_line_quantity=line_qty_total,
+        line_qty_by_product=roll,
+    )
+
+
+def _aggregate_delivered_full(db: Session, business_date: date) -> int:
+    """Sum line quantities for completed orders on ``delivery_date``."""
+    q = (
+        select(func.coalesce(func.sum(SalesOrderItem.quantity), 0))
+        .join(SalesOrder, SalesOrderItem.order_id == SalesOrder.id)
+        .where(SalesOrder.delivery_date == business_date, SalesOrder.delivery_status == "completed")
+    )
+    return int(db.scalar(q) or 0)
+
+
+def _aggregate_borrowed_shells(db: Session, business_date: date) -> int:
+    """Sum ``borrowed_shell_units`` on completed orders for that delivery day."""
+    q = select(func.coalesce(func.sum(SalesOrder.borrowed_shell_units), 0)).where(
+        SalesOrder.delivery_date == business_date, SalesOrder.delivery_status == "completed"
+    )
+    return int(db.scalar(q) or 0)
+
+
+def _aggregate_returned_shells_debt(db: Session, business_date: date) -> int:
+    """Sum vỏ trả kèm trả nợ; calendar date = cast(``paid_at``) in DB (same convention as ``delivery_date``)."""
+    q = select(func.coalesce(func.sum(DebtPayment.returned_shell_units), 0)).where(
+        cast(DebtPayment.paid_at, CastDate) == business_date
+    )
+    return int(db.scalar(q) or 0)
+
+
+def _build_daily_cylinder_computed(db: Session, business_date: date, row: DailyCylinderAudit | None) -> DailyCylinderAuditComputed:
+    """Apply end-of-day reconciliation: water from supplier (``import_full``) and shells to supplier (``supplier_shell_units``) are independent."""
+    delivered = _aggregate_delivered_full(db, business_date)
+    borrowed = _aggregate_borrowed_shells(db, business_date)
+    returned = _aggregate_returned_shells_debt(db, business_date)
+    mf = int(row.morning_full) if row else 0
+    ms = int(row.morning_shell) if row else 0
+    imp = int(row.import_full) if row else 0
+    sup_shell = int(row.supplier_shell_units) if row else 0
+    eve_f = int(row.evening_full) if row else 0
+    eve_s = int(row.evening_shell) if row else 0
+    exp_f = mf + imp - delivered
+    exp_s = ms + delivered - sup_shell - borrowed + returned
+    var_f: int | None = (eve_f - exp_f) if row is not None else None
+    var_s: int | None = (eve_s - exp_s) if row is not None else None
+    return DailyCylinderAuditComputed(
+        delivered_full=delivered,
+        borrowed_shell_total=borrowed,
+        returned_shells_debt=returned,
+        expected_evening_full=exp_f,
+        expected_evening_shell=exp_s,
+        variance_full=var_f,
+        variance_shell=var_s,
+    )
+
+
+@router.get(
+    "/operations/daily-cylinder-audit",
+    response_model=DailyCylinderAuditPayload,
+    dependencies=[Depends(require_admin_user)],
+)
+def get_daily_cylinder_audit(
+    audit_date: str = Query(..., description="YYYY-MM-DD (business_date)"),
+    db: Session = Depends(get_db),
+) -> DailyCylinderAuditPayload:
+    """Kiểm kê nước/vỏ theo ngày + computed đối soát từ đơn và trả nợ."""
+    try:
+        d = date.fromisoformat(audit_date)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail="Ngày không hợp lệ (YYYY-MM-DD)") from e
+    row = db.scalar(select(DailyCylinderAudit).where(DailyCylinderAudit.business_date == d))
+    computed = _build_daily_cylinder_computed(db, d, row)
+    rec = DailyCylinderAuditRecord.model_validate(row) if row is not None else None
+    return DailyCylinderAuditPayload(record=rec, computed=computed)
+
+
+@router.put(
+    "/operations/daily-cylinder-audit/{business_date}",
+    response_model=DailyCylinderAuditPayload,
+    dependencies=[Depends(require_admin_user)],
+)
+def put_daily_cylinder_audit(
+    business_date: str,
+    payload: DailyCylinderAuditUpdate,
+    db: Session = Depends(get_db),
+    actor: User = Depends(get_current_user),
+) -> DailyCylinderAuditPayload:
+    """Upsert morning/evening counts for one calendar day."""
+    try:
+        d = date.fromisoformat(business_date)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail="Ngày không hợp lệ (YYYY-MM-DD)") from e
+    row = db.scalar(select(DailyCylinderAudit).where(DailyCylinderAudit.business_date == d))
+    if row is None:
+        row = DailyCylinderAudit(business_date=d, created_by_user_id=actor.id)
+        db.add(row)
+        db.flush()
+    data = payload.model_dump(exclude_unset=True)
+    if "morning_full" in data and data["morning_full"] is not None:
+        row.morning_full = int(data["morning_full"])
+    if "morning_shell" in data and data["morning_shell"] is not None:
+        row.morning_shell = int(data["morning_shell"])
+    if "import_full" in data and data["import_full"] is not None:
+        row.import_full = int(data["import_full"])
+    if "supplier_shell_units" in data and data["supplier_shell_units"] is not None:
+        row.supplier_shell_units = int(data["supplier_shell_units"])
+    if "evening_full" in data and data["evening_full"] is not None:
+        row.evening_full = int(data["evening_full"])
+    if "evening_shell" in data and data["evening_shell"] is not None:
+        row.evening_shell = int(data["evening_shell"])
+    if "note" in data:
+        row.note = _strip_opt_text(data.get("note"))
+    row.updated_at = datetime.now(UTC)
+    _write_audit(
+        db,
+        actor_user_id=actor.id,
+        action="UPSERT_DAILY_CYLINDER_AUDIT",
+        target_type="daily_cylinder_audit",
+        target_id=business_date,
+        detail=None,
+    )
+    db.commit()
+    db.refresh(row)
+    computed = _build_daily_cylinder_computed(db, d, row)
+    return DailyCylinderAuditPayload(record=DailyCylinderAuditRecord.model_validate(row), computed=computed)
 
 
 @router.get("/orders/tax-report", response_model=list[TaxReportRow], dependencies=[Depends(require_admin_user)])

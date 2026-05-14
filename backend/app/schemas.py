@@ -2,8 +2,9 @@
 
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class ProductCreate(BaseModel):
@@ -19,14 +20,13 @@ class ProductCreate(BaseModel):
 
 
 class ProductUpdate(BaseModel):
-    """Partial update for `Product`."""
+    """Partial update for `Product`; use stock-receipt API instead of ``stock_quantity``."""
 
     name: str | None = Field(default=None, max_length=255)
     sku: str | None = Field(default=None, max_length=64)
     description: str | None = None
     cost_price: Decimal | None = Field(default=None, ge=0)
     sell_price: Decimal | None = Field(default=None, ge=0)
-    stock_quantity: int | None = Field(default=None, ge=0)
     low_stock_threshold: int | None = Field(default=None, ge=0)
     is_active: bool | None = None
 
@@ -46,6 +46,83 @@ class ProductResponse(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class StockReceiptCreate(BaseModel):
+    """Inbound warehouse line (nhập kho)."""
+
+    receipt_date: date
+    quantity: int = Field(gt=0)
+    note: str | None = None
+
+
+class StockReceiptResponse(BaseModel):
+    """Serialized stock receipt row."""
+
+    id: int
+    product_id: int
+    receipt_date: date
+    quantity: int
+    receipt_kind: str
+    note: str | None
+    created_by_user_id: int | None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class DailyCylinderAuditComputed(BaseModel):
+    """Server-side reconciliation for one business_date (UTC calendar date on paid_at cast)."""
+
+    delivered_full: int = Field(description="Tổng SL dòng đơn completed, delivery_date = ngày")
+    borrowed_shell_total: int
+    returned_shells_debt: int
+    expected_evening_full: int = Field(description="morning_full + import_full − delivered_full (nước từ công ty)")
+    expected_evening_shell: int = Field(
+        description="morning_shell + delivered − supplier_shell_units − borrowed + returned_shells_debt"
+    )
+    variance_full: int | None = Field(
+        default=None, description="evening_full - expected; None nếu chưa nhập đủ buổi tối"
+    )
+    variance_shell: int | None = None
+
+
+class DailyCylinderAuditRecord(BaseModel):
+    """Persisted morning/evening counts for one day."""
+
+    id: int
+    business_date: date
+    morning_full: int
+    morning_shell: int
+    import_full: int
+    supplier_shell_units: int
+    evening_full: int
+    evening_shell: int
+    note: str | None
+    created_by_user_id: int | None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class DailyCylinderAuditPayload(BaseModel):
+    """GET response: stored row + computed totals."""
+
+    record: DailyCylinderAuditRecord | None
+    computed: DailyCylinderAuditComputed
+
+
+class DailyCylinderAuditUpdate(BaseModel):
+    """Partial PUT: only sent fields are updated."""
+
+    morning_full: int | None = Field(default=None, ge=0)
+    morning_shell: int | None = Field(default=None, ge=0)
+    import_full: int | None = Field(default=None, ge=0)
+    supplier_shell_units: int | None = Field(default=None, ge=0)
+    evening_full: int | None = Field(default=None, ge=0)
+    evening_shell: int | None = Field(default=None, ge=0)
+    note: str | None = None
 
 
 class SalesOrderLineIn(BaseModel):
@@ -73,7 +150,20 @@ class SalesOrderCreate(BaseModel):
     vat_rate: int = Field(ge=0, le=100, default=10)
     payment_mode: str = Field(default="cash", pattern="^(cash|debt|partial)$")
     paid_amount: Decimal | None = Field(default=None, ge=0)
+    assigned_to_user_id: int | None = None
+    delivery_latitude: float | None = Field(default=None, ge=-90, le=90)
+    delivery_longitude: float | None = Field(default=None, ge=-180, le=180)
+    delivery_status: Literal["in_transit", "completed"] | None = None
+    borrowed_shell_units: int = Field(default=0, ge=0, description="Vỏ cho mượn / nợ vỏ trên đơn")
     lines: list[SalesOrderLineIn] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def delivery_coords_pair(self) -> Self:
+        """Persist GPS only when both latitude and longitude are set."""
+        a, b = self.delivery_latitude, self.delivery_longitude
+        if (a is None) ^ (b is None):
+            raise ValueError("GPS: cần nhập đủ vĩ độ và kinh độ, hoặc để trống cả hai")
+        return self
 
 
 class SalesOrderItemOut(BaseModel):
@@ -112,6 +202,13 @@ class SalesOrderResponse(BaseModel):
     paid_amount: Decimal = Field(default=Decimal("0"))
     outstanding_amount: Decimal = Field(default=Decimal("0"))
     created_at: datetime
+    created_by_user_id: int | None = None
+    assigned_to_user_id: int | None = None
+    assigned_to_username: str | None = None
+    delivery_latitude: float | None = None
+    delivery_longitude: float | None = None
+    delivery_status: Literal["in_transit", "completed"] = "in_transit"
+    borrowed_shell_units: int = Field(default=0, ge=0)
     order_items: list[SalesOrderItemOut]
     gas_ledger_ready: bool = False
     gas_ledger_gaps: list[str] = Field(default_factory=list)
@@ -122,6 +219,30 @@ class SalesOrderListResponse(BaseModel):
 
     items: list[SalesOrderResponse]
     total: int
+
+
+class ProductQtyRollup(BaseModel):
+    """Aggregated line quantities per product for delivery-day summary."""
+
+    product_id: int
+    product_name: str
+    quantity: int
+
+
+class DeliveryDaySummaryResponse(BaseModel):
+    """Orders whose ``delivery_date`` is in the requested day set, plus rollups."""
+
+    dates: list[str]
+    orders: list[SalesOrderResponse]
+    total_amount: Decimal
+    total_line_quantity: int
+    line_qty_by_product: list[ProductQtyRollup]
+
+
+class MeOrderDeliveryPatch(BaseModel):
+    """Staff-only update of delivery lifecycle for an order they may execute."""
+
+    delivery_status: Literal["in_transit", "completed"]
 
 
 class DebtAccountResponse(BaseModel):
@@ -151,6 +272,7 @@ class DebtLedgerEntryResponse(BaseModel):
     reference_id: str | None
     created_by_user_id: int | None
     created_at: datetime
+    returned_shell_units: int = Field(default=0, ge=0, description="Vỏ trả kèm giao dịch payment (từ debt_payments)")
 
     model_config = {"from_attributes": True}
 
@@ -171,6 +293,7 @@ class DebtPaymentIn(BaseModel):
     paid_at: datetime | None = None
     collector_name: str | None = Field(default=None, max_length=255)
     note: str | None = None
+    returned_shell_units: int = Field(default=0, ge=0, description="Số vỏ khách trả kèm thanh toán")
 
 
 class DebtPaymentUpdateIn(BaseModel):
@@ -181,6 +304,7 @@ class DebtPaymentUpdateIn(BaseModel):
     paid_at: datetime | None = None
     collector_name: str | None = Field(default=None, max_length=255)
     note: str | None = None
+    returned_shell_units: int | None = Field(default=None, ge=0)
 
 
 class DebtWriteOffIn(BaseModel):
@@ -244,12 +368,42 @@ class LoginRequest(BaseModel):
     password: str = Field(..., min_length=1, max_length=255)
 
 
+class MapLocationIn(BaseModel):
+    """Geographic point stored on the user row (JSON) for staff map and directions."""
+
+    lat: float = Field(..., ge=-90, le=90)
+    lng: float = Field(..., ge=-180, le=180)
+    label: str | None = Field(default=None, max_length=500)
+
+
+class GeocodeHit(BaseModel):
+    """One forward-geocoding match from the external search provider."""
+
+    lat: float
+    lng: float
+    display_name: str
+    place_id: str
+
+
+class GeocodeListResponse(BaseModel):
+    """Ordered list of geocode candidates for the client to pick from."""
+
+    items: list[GeocodeHit]
+
+
+class MapPasteIn(BaseModel):
+    """Clipboard text from Google Maps (short link, Plus Code, DMS, decimal pair, or address)."""
+
+    raw: str = Field(..., min_length=2, max_length=2500)
+
+
 class AuthUser(BaseModel):
     """Authenticated user identity returned to frontend."""
 
     id: int
     username: str
     role: str
+    map_location: MapLocationIn | None = None
 
 
 class AuthSessionResponse(BaseModel):

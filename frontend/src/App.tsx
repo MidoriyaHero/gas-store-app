@@ -18,11 +18,22 @@ import OrderNotes from "./pages/OrderNotes";
 import CoreOperations from "./pages/CoreOperations";
 import FinanceGovernance from "./pages/FinanceGovernance";
 import CustomerExperience from "./pages/CustomerExperience";
-import SafetyCompliance from "./pages/SafetyCompliance";
+import StaffDeliveryMap from "./pages/StaffDeliveryMap";
+import DebtCollection from "./pages/DebtCollection";
+import CustomerProfilesMock from "./pages/CustomerProfilesMock";
 import NotFound from "./pages/NotFound.tsx";
 import { AuthProvider, useAuth } from "@/lib/auth";
 
 const queryClient = new QueryClient();
+
+/** Admin bookmarks ``/ban-do`` → Đơn hàng tab bản đồ; staff vẫn xem trang bản đồ. */
+function BanDoRedirect() {
+  const { user, loading } = useAuth();
+  if (loading) return <div className="p-6 text-sm text-muted-foreground">Đang tải phiên đăng nhập…</div>;
+  if (!user) return <Navigate to="/login" replace />;
+  if (user.role === "admin") return <Navigate to="/don-hang?tab=map" replace />;
+  return <StaffDeliveryMap />;
+}
 
 /** Redirect authenticated users to their landing page by role. */
 function HomeRedirect() {
@@ -64,14 +75,6 @@ const App = () => (
               element={
                 <GuardedRoute allowedRoles={["admin"]}>
                   <Orders />
-                </GuardedRoute>
-              }
-            />
-            <Route
-              path="/tao-don"
-              element={
-                <GuardedRoute allowedRoles={["user"]}>
-                  <Orders creationOnly />
                 </GuardedRoute>
               }
             />
@@ -164,13 +167,31 @@ const App = () => (
               }
             />
             <Route
-              path="/an-toan-tuan-thu"
+              path="/khach-hang-mock"
               element={
                 <GuardedRoute allowedRoles={["admin"]}>
-                  <SafetyCompliance />
+                  <CustomerProfilesMock />
                 </GuardedRoute>
               }
             />
+            <Route
+              path="/ban-do"
+              element={
+                <GuardedRoute allowedRoles={["admin", "user"]}>
+                  <BanDoRedirect />
+                </GuardedRoute>
+              }
+            />
+            <Route
+              path="/doi-no"
+              element={
+                <GuardedRoute allowedRoles={["admin"]}>
+                  <DebtCollection />
+                </GuardedRoute>
+              }
+            />
+            <Route path="/ban-do-mock" element={<Navigate to="/ban-do" replace />} />
+            <Route path="/doi-no-mock" element={<Navigate to="/doi-no" replace />} />
             <Route path="/home" element={<HomeRedirect />} />
             <Route path="*" element={<NotFound />} />
           </Routes>

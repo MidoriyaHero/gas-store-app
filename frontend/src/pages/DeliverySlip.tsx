@@ -31,6 +31,7 @@ interface OrderDetail {
   store_contact?: string | null;
   created_at: string;
   order_items: OrderLine[];
+  borrowed_shell_units?: number;
 }
 
 const DEFAULT_STORE =
@@ -144,6 +145,12 @@ export default function DeliverySlip() {
                   <dt>Ngày giao chai cho khách hàng:</dt>
                   <dd>{deliveryLabel}</dd>
                 </div>
+                {idx === 0 && Number(order.borrowed_shell_units ?? 0) > 0 && (
+                  <div className="grid grid-cols-[160px_1fr] gap-2 border-b border-border py-2">
+                    <dt>Vỏ cho mượn / nợ vỏ (ghi trên đơn):</dt>
+                    <dd className="font-mono">{order.borrowed_shell_units}</dd>
+                  </div>
+                )}
               </dl>
 
               <div className="rounded border border-dashed p-3 text-xs text-muted-foreground">

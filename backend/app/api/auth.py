@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.database import get_db
 from app.models import User, UserRole
-from app.schemas import AuthSessionResponse, AuthUser, LoginRequest
+from app.schemas import AuthSessionResponse, AuthUser, LoginRequest, MapLocationIn
 from app.services.auth import (
     authenticate_user,
     create_access_token,
@@ -63,7 +63,20 @@ def _clear_auth_cookies(response: Response) -> None:
 
 def _to_auth_user(user: User) -> AuthUser:
     """Map User ORM row into safe response schema."""
-    return AuthUser(id=user.id, username=user.username, role=user.role)
+    loc: MapLocationIn | None = None
+    raw = user.map_location
+    if isinstance(raw, dict):
+        try:
+            lat = float(raw.get("lat"))
+            lng = float(raw.get("lng"))
+            label_raw = raw.get("label")
+            label: str | None = None
+            if isinstance(label_raw, str) and label_raw.strip():
+                label = label_raw.strip()[:500]
+            loc = MapLocationIn(lat=lat, lng=lng, label=label)
+        except (TypeError, ValueError):
+            loc = None
+    return AuthUser(id=user.id, username=user.username, role=user.role, map_location=loc)
 
 
 def get_current_user(
@@ -153,4 +166,20 @@ def logout(
 @router.get("/me", response_model=AuthSessionResponse)
 def me(user: User = Depends(get_current_user)) -> AuthSessionResponse:
     """Return identity for current authenticated session."""
+    return AuthSessionResponse(user=_to_auth_user(user))
+
+
+@router.patch("/me/map-location", response_model=AuthSessionResponse)
+def patch_me_map_location(
+    payload: MapLocationIn,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> AuthSessionResponse:
+    """Persist map point on the signed-in user for map preview and external directions."""
+    loc: dict[str, float | str] = {"lat": payload.lat, "lng": payload.lng}
+    if payload.label is not None and payload.label.strip():
+        loc["label"] = payload.label.strip()[:500]
+    user.map_location = loc
+    db.commit()
+    db.refresh(user)
     return AuthSessionResponse(user=_to_auth_user(user))

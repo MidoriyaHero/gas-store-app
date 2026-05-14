@@ -1,5 +1,7 @@
 """Smoke tests for the gas store HTTP API."""
 
+from datetime import UTC, date, datetime, timedelta
+
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from uuid import uuid4
@@ -368,19 +370,23 @@ def test_admin_can_update_and_delete_order():
         assert client.get(f"/api/orders/{oid}").status_code == 404
 
 
-def test_user_role_only_creates_orders():
-    """Staff user can create order but cannot read admin-only dashboards."""
+def test_staff_cannot_create_orders_sees_assigned():
+    """Staff cannot POST /api/orders; admin-assigned orders appear on GET /api/me/orders."""
     _ensure_user_account()
-    with TestClient(app) as client:
-        login = client.post("/api/auth/login", json={"username": "staff", "password": "staff123"})
+    with TestClient(app) as admin_client:
+        _login_admin(admin_client)
+        pid = _create_test_product(admin_client, "Gas Staff Assigned Test")
+
+    with TestClient(app) as staff_client:
+        login = staff_client.post("/api/auth/login", json={"username": "staff", "password": "staff123"})
         assert login.status_code == 200
-        with TestClient(app) as admin_client:
-            _login_admin(admin_client)
-            pid = _create_test_product(admin_client, "Gas Staff Test")
-        products = client.get("/api/products")
+        staff_id = login.json()["user"]["id"]
+
+        products = staff_client.get("/api/products")
         assert products.status_code == 200
         assert any(p["id"] == pid for p in products.json())
-        created = client.post(
+
+        denied = staff_client.post(
             "/api/orders",
             json={
                 "customer_name": "Khach le",
@@ -389,20 +395,49 @@ def test_user_role_only_creates_orders():
                 "lines": [{"product_id": pid, "quantity": 1}],
             },
         )
-        assert created.status_code == 200
-        oid = created.json()["id"]
-        mine = client.get("/api/me/orders")
+        assert denied.status_code == 403
+
+        with TestClient(app) as admin_client:
+            _login_admin(admin_client)
+            assigned = admin_client.post(
+                "/api/orders",
+                json={
+                    "customer_name": "Khach gan NV",
+                    "phone": "0909000005",
+                    "vat_rate": 10,
+                    "assigned_to_user_id": staff_id,
+                    "lines": [{"product_id": pid, "quantity": 1}],
+                },
+            )
+        assert assigned.status_code == 200
+        oid = assigned.json()["id"]
+        assert assigned.json().get("delivery_status") == "in_transit"
+
+        mine = staff_client.get("/api/me/orders")
         assert mine.status_code == 200
         assert any(o["id"] == oid for o in mine.json())
-        assert client.get("/api/dashboard").status_code == 403
+
+        mine_active = staff_client.get("/api/me/orders", params={"delivery_status": "in_transit"})
+        assert mine_active.status_code == 200
+        assert any(o["id"] == oid for o in mine_active.json())
+
+        done = staff_client.patch(f"/api/me/orders/{oid}", json={"delivery_status": "completed"})
+        assert done.status_code == 200
+        assert done.json()["delivery_status"] == "completed"
+
+        mine_hist = staff_client.get("/api/me/orders", params={"delivery_status": "completed"})
+        assert mine_hist.status_code == 200
+        assert any(o["id"] == oid for o in mine_hist.json())
+
+        assert staff_client.get("/api/dashboard").status_code == 403
         assert (
-            client.patch(
+            staff_client.patch(
                 f"/api/orders/{oid}",
-                json={"customer_name": "x", "phone": "0909000004", "vat_rate": 10, "lines": [{"product_id": pid, "quantity": 1}]},
+                json={"customer_name": "x", "phone": "0909000005", "vat_rate": 10, "lines": [{"product_id": pid, "quantity": 1}]},
             ).status_code
             == 403
         )
-        assert client.get("/api/users").status_code == 403
+        assert staff_client.get("/api/users").status_code == 403
 
 
 def test_backend_governance_endpoints_smoke():
@@ -482,3 +517,132 @@ def test_backend_governance_endpoints_smoke():
         assert client.get("/api/safety-checklist-runs").status_code == 200
         assert client.get("/api/capa-items").status_code == 200
         assert client.get("/api/audit-logs").status_code == 200
+
+
+def test_staff_cannot_read_debt_accounts_but_can_patch_map_location():
+    """Staff must not list debt accounts; map self-service remains allowed."""
+    with TestClient(app) as client:
+        assert client.post("/api/auth/login", json={"username": "staff", "password": "staff123"}).status_code == 200
+        listed = client.get("/api/debt-accounts", params={"status": "all"})
+        assert listed.status_code == 403
+        pay = client.post("/api/debt-payments", json={"debt_account_id": 1, "amount": 1, "payment_method": "cash"})
+        assert pay.status_code == 403
+
+        patch = client.patch("/api/auth/me/map-location", json={"lat": 10.762622, "lng": 106.660172})
+        assert patch.status_code == 200
+        loc = patch.json().get("user", {}).get("map_location")
+        assert loc and abs(float(loc["lat"]) - 10.762622) < 1e-6
+        me = client.get("/api/auth/me")
+        assert me.json()["user"].get("map_location") == loc
+
+        patch2 = client.patch(
+            "/api/auth/me/map-location",
+            json={"lat": 10.8, "lng": 106.7, "label": "Kho test Q1"},
+        )
+        assert patch2.status_code == 200
+        assert patch2.json()["user"]["map_location"]["label"] == "Kho test Q1"
+
+
+def test_geocode_requires_login():
+    """Unauthenticated clients cannot call the geocode proxy."""
+    with TestClient(app) as client:
+        r = client.get("/api/geocode", params={"q": "Ho Chi Minh"})
+        assert r.status_code == 401
+        r2 = client.get("/api/geocode/reverse", params={"lat": 10.77, "lng": 106.69})
+        assert r2.status_code == 401
+        r3 = client.post("/api/geocode/from-paste", json={"raw": "10.77, 106.69"})
+        assert r3.status_code == 401
+
+
+def test_geocode_reverse_returns_place():
+    """Authenticated reverse geocode returns a GeocodeHit-shaped body."""
+    with TestClient(app) as client:
+        _login_admin(client)
+        r = client.get("/api/geocode/reverse", params={"lat": 10.772461, "lng": 106.698055})
+        assert r.status_code == 200
+        body = r.json()
+        assert "lat" in body and "lng" in body and "display_name" in body
+        assert isinstance(body["display_name"], str) and len(body["display_name"]) > 5
+
+
+def test_daily_cylinder_audit_math_and_debt_shell_return():
+    """Daily audit aggregates completed deliveries, borrowed shells on orders, and shells from debt payments."""
+    with TestClient(app) as client:
+        _login_admin(client)
+        audit_d = date(2120, 1, 1) + timedelta(days=int(uuid4().int % (365 * 40)))
+        audit_day = audit_d.isoformat()
+        paid_at = datetime(audit_d.year, audit_d.month, audit_d.day, 12, 0, 0, tzinfo=UTC).isoformat()
+        pid = _create_test_product(client, "Cylinder Audit SKU")
+        addr = "123 Audit Street, District 1"
+        o = client.post(
+            "/api/orders",
+            json={
+                "customer_name": "Audit Shell Customer",
+                "phone": "0912333444",
+                "address": addr,
+                "vat_rate": 0,
+                "payment_mode": "cash",
+                "delivery_date": audit_day,
+                "delivery_status": "completed",
+                "borrowed_shell_units": 1,
+                "lines": [{"product_id": pid, "quantity": 2}],
+            },
+        )
+        assert o.status_code == 200
+
+        put = client.put(
+            f"/api/operations/daily-cylinder-audit/{audit_day}",
+            json={
+                "morning_full": 10,
+                "morning_shell": 5,
+                "import_full": 1,
+                "supplier_shell_units": 1,
+                "evening_full": 9,
+                "evening_shell": 7,
+            },
+        )
+        assert put.status_code == 200
+        c = put.json()["computed"]
+        assert c["delivered_full"] == 2
+        assert c["borrowed_shell_total"] == 1
+        assert c["returned_shells_debt"] == 0
+        assert c["expected_evening_full"] == 9
+        assert c["variance_full"] == 0
+        assert c["expected_evening_shell"] == 5
+        assert c["variance_shell"] == 2
+
+        pid2 = _create_test_product(client, "Cylinder Audit Debt SKU")
+        dord = client.post(
+            "/api/orders",
+            json={
+                "customer_name": "Shell Return Debt",
+                "phone": "0912555666",
+                "address": addr,
+                "vat_rate": 0,
+                "payment_mode": "debt",
+                "lines": [{"product_id": pid2, "quantity": 1}],
+            },
+        )
+        assert dord.status_code == 200
+        accounts = client.get("/api/debt-accounts", params={"status": "all"})
+        assert accounts.status_code == 200
+        acc = next((a for a in accounts.json() if a.get("phone") == "0912555666"), None)
+        assert acc is not None
+        pay = client.post(
+            "/api/debt-payments",
+            json={
+                "debt_account_id": acc["id"],
+                "amount": 50000,
+                "payment_method": "cash",
+                "paid_at": paid_at,
+                "returned_shell_units": 2,
+            },
+        )
+        assert pay.status_code == 200
+
+        g = client.get(f"/api/operations/daily-cylinder-audit?audit_date={audit_day}")
+        assert g.status_code == 200
+        c2 = g.json()["computed"]
+        assert c2["returned_shells_debt"] == 2
+        assert c2["expected_evening_shell"] == 5 + 2 - 1 - 1 + c2["returned_shells_debt"]
+        assert c2["variance_shell"] == 7 - c2["expected_evening_shell"]

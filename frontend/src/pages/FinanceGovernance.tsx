@@ -1,5 +1,20 @@
-import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
-import { BarChart3, FileText, Pencil, Trash2, TrendingUp } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { FileText, Pencil, Trash2, TrendingUp } from "lucide-react";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Legend,
+  Line,
+  LineChart,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { AppLayout } from "@/components/AppLayout";
 import { AsyncStatePanel } from "@/components/AsyncStatePanel";
 import { Card } from "@/components/ui/card";
@@ -21,6 +36,7 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { registerVietnameseFont } from "@/lib/fonts/registerVietnameseFont";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { summarizeSeries, topDebtors, type TopDebtorChartRow } from "@/lib/dashboard-analytics";
 
 interface OrderRow {
   id: number;
@@ -53,6 +69,7 @@ interface DebtLedgerRow {
   note: string | null;
   reference_id?: string | null;
   created_at: string;
+  returned_shell_units?: number;
 }
 
 interface DebtDetailPayload {
@@ -86,6 +103,7 @@ export default function FinanceGovernance() {
   const [paymentNote, setPaymentNote] = useState("");
   const [editingPaymentId, setEditingPaymentId] = useState<number | null>(null);
   const [savingAction, setSavingAction] = useState(false);
+  const [paymentShellInput, setPaymentShellInput] = useState(0);
 
   const load = useCallback(async () => {
     setState("loading");
@@ -99,7 +117,7 @@ export default function FinanceGovernance() {
       setAccounts(debtAccounts ?? []);
       setAging(agingRows ?? []);
       if (debtAccounts.length > 0 && selectedAccountId === null) setSelectedAccountId(debtAccounts[0].id);
-      setState(rows.length > 0 ? "success" : "empty");
+      setState(rows.length > 0 || (debtAccounts ?? []).length > 0 ? "success" : "empty");
     } catch (e) {
       setState("error");
       setError(e instanceof Error ? e.message : "Không tải được dữ liệu tài chính");
@@ -123,6 +141,15 @@ export default function FinanceGovernance() {
     const grossProfit = Math.round(revenue * 0.18);
     return { revenue, orderCount, avgOrder, grossProfit };
   }, [filtered]);
+  const chartRange = useMemo(() => {
+    const end = new Date();
+    end.setHours(0, 0, 0, 0);
+    const start = new Date(end);
+    start.setDate(start.getDate() - Number(rangeDays) + 1);
+    return { start, end };
+  }, [rangeDays]);
+  const lineSeries = useMemo(() => summarizeSeries(chartRange, filtered), [chartRange, filtered]);
+  const chartInterval = Math.max(0, Math.ceil(lineSeries.length / 7) - 1);
 
   const agingBuckets = useMemo(() => {
     const byBucket = new Map(aging.map((x) => [x.bucket, Number(x.amount || 0)]));
@@ -133,6 +160,19 @@ export default function FinanceGovernance() {
     () => accounts.reduce((sum, a) => sum + Number(a.current_balance || 0), 0),
     [accounts]
   );
+  const debtStatusData = useMemo(() => {
+    const paid = accounts.filter((a) => Number(a.current_balance || 0) <= 0).length;
+    const open = accounts.filter((a) => Number(a.current_balance || 0) > 0).length;
+    return [
+      { name: "Đã trả", value: paid, color: "hsl(var(--success))" },
+      { name: "Còn nợ", value: open, color: "hsl(var(--destructive))" },
+    ];
+  }, [accounts]);
+  const agingChartData = useMemo(
+    () => BUCKETS.map((bucket, idx) => ({ bucket, amount: agingBuckets[idx] })),
+    [agingBuckets]
+  );
+  const topDebtChart = useMemo(() => topDebtors(accounts, 7), [accounts]);
 
   const filteredAccounts = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -154,7 +194,7 @@ export default function FinanceGovernance() {
   const debtStatusLabel = (balance: number | string) => (Number(balance) <= 0 ? "Đã trả" : "Còn nợ");
   const debtTypeLabel = (entryType: string) => {
     if (entryType === "payment") return "Trả nợ";
-    if (entryType === "write_off") return "Xóa nợ (write-off)";
+    if (entryType === "write_off") return "Xóa nợ (ghi giảm kế toán)";
     if (entryType === "adjustment") return "Điều chỉnh";
     if (entryType === "invoice") return "Phát sinh nợ";
     return entryType;
@@ -182,11 +222,13 @@ export default function FinanceGovernance() {
         amount: amountInput,
         payment_method: "cash",
         note: paymentNote.trim() || null,
+        returned_shell_units: paymentShellInput,
       });
       toast.success("Đã thu nợ");
       setPaymentOpen(false);
       setAmountInput(0);
       setPaymentNote("");
+      setPaymentShellInput(0);
       await load();
       await loadDetail();
     } catch (e) {
@@ -201,6 +243,7 @@ export default function FinanceGovernance() {
     setEditingPaymentId(pid);
     setAmountInput(Math.abs(Number(row.amount_signed)));
     setPaymentNote(row.note || "");
+    setPaymentShellInput(Number(row.returned_shell_units ?? 0));
     setPaymentEditOpen(true);
   };
 
@@ -211,12 +254,14 @@ export default function FinanceGovernance() {
       await apiPatch(`/api/debt-payments/${editingPaymentId}`, {
         amount: amountInput,
         note: paymentNote.trim() || null,
+        returned_shell_units: paymentShellInput,
       });
       toast.success("Đã cập nhật giao dịch thu nợ");
       setPaymentEditOpen(false);
       setEditingPaymentId(null);
       setAmountInput(0);
       setPaymentNote("");
+      setPaymentShellInput(0);
       await load();
       await loadDetail();
     } catch (e) {
@@ -421,11 +466,11 @@ export default function FinanceGovernance() {
   return (
     <AppLayout
       title="Tài chính & quản trị"
-      description="Dashboard doanh thu, biên lợi nhuận và aging công nợ theo dữ liệu đơn hàng"
+      description="Nợ theo hạn và theo loại — xem nhanh doanh thu kỳ để biết ưu tiên thu nào trước."
       actions={
         <div className="flex items-center gap-2">
           <Select value={rangeDays} onValueChange={setRangeDays}>
-            <SelectTrigger className="h-10 w-[124px] bg-background">
+            <SelectTrigger className="h-11 w-[124px] bg-background" aria-label="Khoảng thời gian báo cáo">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -434,7 +479,7 @@ export default function FinanceGovernance() {
               <SelectItem value="90">90 ngày</SelectItem>
             </SelectContent>
           </Select>
-          <Button type="button" variant="outline" size="sm" onClick={() => void load()}>
+          <Button type="button" variant="outline" className="min-h-11 px-4" onClick={() => void load()}>
             Làm mới
           </Button>
         </div>
@@ -444,57 +489,127 @@ export default function FinanceGovernance() {
 
       {state === "success" && (
         <Tabs value={tab} onValueChange={setTab} className="space-y-4">
-          <TabsList>
-            <TabsTrigger value="overview">Tổng quan</TabsTrigger>
-            <TabsTrigger value="accounts">Sổ nợ</TabsTrigger>
+          <TabsList className="h-11">
+            <TabsTrigger value="overview" className="min-h-11 px-4">Tổng quan</TabsTrigger>
+            <TabsTrigger value="accounts" className="min-h-11 px-4">Sổ nợ</TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview" className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <MetricCard title="Doanh thu thuần" value={formatVND(totals.revenue)} icon={<TrendingUp className="h-4 w-4" />} />
-            <MetricCard title="Số đơn" value={String(totals.orderCount)} icon={<BarChart3 className="h-4 w-4" />} />
-            <MetricCard title="AOV" value={formatVND(totals.avgOrder)} icon={<TrendingUp className="h-4 w-4" />} />
-            <MetricCard title="Lợi nhuận gộp ước tính" value={formatVND(totals.grossProfit)} icon={<BarChart3 className="h-4 w-4" />} />
-            <MetricCard title="Tổng dư nợ" value={formatVND(debtTotal)} icon={<BarChart3 className="h-4 w-4" />} />
+          <div className="grid gap-4 md:grid-cols-3">
+            <Card className="p-4 shadow-card">
+              <p className="text-xs text-muted-foreground">Doanh thu thuần</p>
+              <p className="mt-1 text-xl font-semibold">{formatVND(totals.revenue)}</p>
+            </Card>
+            <Card className="p-4 shadow-card">
+              <p className="text-xs text-muted-foreground">Số đơn / AOV</p>
+              <p className="mt-1 text-xl font-semibold">{totals.orderCount.toLocaleString("vi-VN")} / {formatVND(totals.avgOrder)}</p>
+            </Card>
+            <Card className="p-4 shadow-card">
+              <p className="text-xs text-muted-foreground">Dư nợ / LN gộp ước tính</p>
+              <p className="mt-1 text-xl font-semibold">{formatVND(debtTotal)} / {formatVND(totals.grossProfit)}</p>
+            </Card>
           </div>
 
           <Card className="p-4 shadow-card">
-            <h2 className="mb-3 text-sm font-semibold">Aging công nợ (dữ liệu thực)</h2>
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              {BUCKETS.map((bucket, idx) => (
-                <div key={bucket} className="rounded-lg border bg-card p-3">
-                  <p className="text-xs text-muted-foreground">{bucket}</p>
-                  <p className="mt-1 text-lg font-semibold">{formatVND(agingBuckets[idx])}</p>
-                </div>
-              ))}
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <h2 className="text-sm font-semibold">Xu hướng doanh thu và dư nợ theo ngày</h2>
+              <TrendingUp className="h-4 w-4 text-primary" aria-hidden />
+            </div>
+            <p className="sr-only">
+              Hai đường: doanh thu và dư nợ phát sinh theo ngày trong khoảng thời gian đã chọn.
+            </p>
+            <div className="h-80">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={lineSeries} margin={{ top: 8, right: 8, left: 0, bottom: 8 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                  <XAxis dataKey="label" interval={chartInterval} tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => (v >= 1_000_000 ? `${Math.round(v / 1_000_000)}tr` : String(v))} />
+                  <Tooltip
+                    formatter={(value: number, name: string) => [formatVND(value), name === "revenue" ? "Doanh thu" : "Dư nợ phát sinh"]}
+                    labelFormatter={(label) => `Ngày ${label}`}
+                  />
+                  <Legend verticalAlign="top" height={28} wrapperStyle={{ fontSize: 12 }} />
+                  <Line type="monotone" name="Doanh thu" dataKey="revenue" stroke="hsl(var(--primary))" strokeWidth={2.5} dot={false} />
+                  <Line type="monotone" name="Dư nợ phát sinh" dataKey="outstanding" stroke="hsl(var(--destructive))" strokeWidth={2.5} dot={false} />
+                </LineChart>
+              </ResponsiveContainer>
             </div>
           </Card>
 
+          <div className="grid gap-4 lg:grid-cols-2">
+            <Card className="p-4 shadow-card">
+              <h2 className="mb-3 text-sm font-semibold">Aging công nợ (bar chart)</h2>
+              <p className="sr-only">Cột theo nhóm ngày quá hạn: tổng dư nợ trong từng khoảng thời gian.</p>
+              <div className="h-72">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={agingChartData} margin={{ top: 8, right: 8, left: 0, bottom: 8 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                    <XAxis dataKey="bucket" tick={{ fontSize: 11 }} />
+                    <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => (v >= 1_000_000 ? `${Math.round(v / 1_000_000)}tr` : String(v))} />
+                    <Tooltip formatter={(value: number) => [formatVND(value), "Dư nợ"]} />
+                    <Legend verticalAlign="top" height={24} wrapperStyle={{ fontSize: 12 }} />
+                    <Bar name="Dư nợ" dataKey="amount" fill="hsl(var(--warning))" radius={[8, 8, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </Card>
+
+            <Card className="p-4 shadow-card">
+              <h2 className="mb-3 text-sm font-semibold">Tỷ trọng trạng thái nợ</h2>
+              <p className="sr-only">Tỷ lệ số tài khoản đã trả hết và còn dư nợ.</p>
+              <div className="h-72">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={debtStatusData} dataKey="value" innerRadius={50} outerRadius={90}>
+                      {debtStatusData.map((entry) => (
+                        <Cell key={entry.name} fill={entry.color} />
+                      ))}
+                    </Pie>
+                    <Tooltip formatter={(value: number) => [value.toLocaleString("vi-VN"), "Số tài khoản"]} />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+            </Card>
+          </div>
+
           <Card className="p-4 shadow-card">
-            <div className="mb-3 flex items-center justify-between gap-2">
-              <h2 className="text-sm font-semibold">Drill-down đơn hàng gần nhất</h2>
+            <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+              <h2 className="text-sm font-semibold">Top khách còn nợ</h2>
+              <p className="text-xs text-muted-foreground">Bấm cột để mở khách tương ứng trong tab Sổ nợ.</p>
             </div>
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Mã đơn</TableHead>
-                    <TableHead>Khách hàng</TableHead>
-                    <TableHead>Thời gian</TableHead>
-                    <TableHead className="text-right">Doanh thu</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filtered.slice(0, 20).map((o) => (
-                    <TableRow key={o.id}>
-                      <TableCell className="font-mono text-xs">{o.order_code}</TableCell>
-                      <TableCell>{o.customer_name}</TableCell>
-                      <TableCell className="text-xs text-muted-foreground">{formatDateTime(o.created_at)}</TableCell>
-                      <TableCell className="text-right font-medium">{formatVND(o.outstanding_amount ?? o.total)}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+            <p className="sr-only">Biểu đồ cột dư nợ theo khách; chọn cột để xem chi tiết trong Sổ nợ.</p>
+            <div className="h-72">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={topDebtChart} margin={{ top: 8, right: 8, left: 0, bottom: 8 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                  <XAxis dataKey="name" interval={0} angle={-18} height={52} textAnchor="end" tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => (v >= 1_000_000 ? `${Math.round(v / 1_000_000)}tr` : String(v))} />
+                  <Tooltip formatter={(value: number) => [formatVND(value), "Dư nợ"]} />
+                  <Bar
+                    dataKey="value"
+                    fill="hsl(var(--destructive))"
+                    radius={[8, 8, 0, 0]}
+                    cursor="pointer"
+                    name="Dư nợ"
+                    onClick={(barSegment: { payload?: TopDebtorChartRow }) => {
+                      const row = barSegment.payload;
+                      const id =
+                        row && typeof row.id === "number"
+                          ? row.id
+                          : row?.name
+                            ? accounts.find((a) => a.customer_name === row.name)?.id
+                            : undefined;
+                      if (typeof id === "number") {
+                        setSelectedAccountId(id);
+                        setTab("accounts");
+                        window.requestAnimationFrame(() => {
+                          document.getElementById("finance-debt-accounts")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                        });
+                      }
+                    }}
+                  />
+                </BarChart>
+              </ResponsiveContainer>
             </div>
           </Card>
 
@@ -524,7 +639,7 @@ export default function FinanceGovernance() {
           </TabsContent>
 
           <TabsContent value="accounts" className="space-y-4">
-            <Card className="p-4 shadow-card space-y-3">
+            <Card id="finance-debt-accounts" className="p-4 shadow-card space-y-3">
               <div className="flex flex-wrap items-end justify-between gap-2">
                 <div className="grid min-w-[240px] flex-1 gap-1.5">
                   <Label>Tìm khách hàng / số điện thoại</Label>
@@ -589,7 +704,10 @@ export default function FinanceGovernance() {
           </SheetHeader>
           <div className="mt-4 space-y-4">
             <div className="flex flex-wrap gap-2">
-              <Button type="button" variant="outline" onClick={() => setPaymentOpen(true)} disabled={!selectedAccountId}>
+              <Button type="button" variant="outline" onClick={() => {
+                setPaymentShellInput(0);
+                setPaymentOpen(true);
+              }} disabled={!selectedAccountId}>
                 Thu nợ
               </Button>
               <DropdownMenu>
@@ -612,6 +730,7 @@ export default function FinanceGovernance() {
                     <TableHead>Thời gian</TableHead>
                     <TableHead>Nghiệp vụ</TableHead>
                     <TableHead>Ghi chú</TableHead>
+                    <TableHead className="text-right">Vỏ trả</TableHead>
                     <TableHead className="text-right">Giá trị</TableHead>
                     <TableHead className="text-right">Tác vụ</TableHead>
                   </TableRow>
@@ -619,7 +738,7 @@ export default function FinanceGovernance() {
                 <TableBody>
                   {repaymentHistory.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={5} className="py-8 text-center text-sm text-muted-foreground">
+                      <TableCell colSpan={6} className="py-8 text-center text-sm text-muted-foreground">
                         Chưa có lịch sử trả nợ.
                       </TableCell>
                     </TableRow>
@@ -629,6 +748,9 @@ export default function FinanceGovernance() {
                         <TableCell className="text-xs text-muted-foreground">{formatDateTime(row.created_at)}</TableCell>
                         <TableCell>{debtTypeLabel(row.entry_type)}</TableCell>
                         <TableCell>{row.note || "-"}</TableCell>
+                        <TableCell className="text-right font-mono text-sm">
+                          {row.entry_type === "payment" ? Number(row.returned_shell_units ?? 0) : "—"}
+                        </TableCell>
                         <TableCell className="text-right font-semibold">
                           {formatVND(Math.abs(Number(row.amount_signed)))}
                         </TableCell>
@@ -667,6 +789,16 @@ export default function FinanceGovernance() {
               <Input type="number" min={0} value={amountInput} onChange={(e) => setAmountInput(Number(e.target.value || 0))} />
             </div>
             <div className="grid gap-1.5">
+              <Label>Số vỏ khách trả kèm thanh toán</Label>
+              <Input
+                type="number"
+                min={0}
+                className="min-h-11"
+                value={paymentShellInput}
+                onChange={(e) => setPaymentShellInput(Number(e.target.value) || 0)}
+              />
+            </div>
+            <div className="grid gap-1.5">
               <Label>Ghi chú</Label>
               <Input value={paymentNote} onChange={(e) => setPaymentNote(e.target.value)} placeholder="Ví dụ: khách chuyển khoản đợt 1" />
             </div>
@@ -693,6 +825,16 @@ export default function FinanceGovernance() {
               <Input type="number" min={0} value={amountInput} onChange={(e) => setAmountInput(Number(e.target.value || 0))} />
             </div>
             <div className="grid gap-1.5">
+              <Label>Số vỏ khách trả kèm thanh toán</Label>
+              <Input
+                type="number"
+                min={0}
+                className="min-h-11"
+                value={paymentShellInput}
+                onChange={(e) => setPaymentShellInput(Number(e.target.value) || 0)}
+              />
+            </div>
+            <div className="grid gap-1.5">
               <Label>Ghi chú</Label>
               <Input value={paymentNote} onChange={(e) => setPaymentNote(e.target.value)} />
             </div>
@@ -709,17 +851,5 @@ export default function FinanceGovernance() {
       </Dialog>
 
     </AppLayout>
-  );
-}
-
-function MetricCard({ title, value, icon }: { title: string; value: string; icon: ReactNode }) {
-  return (
-    <Card className="p-4 shadow-card">
-      <div className="mb-2 flex items-center justify-between text-xs text-muted-foreground">
-        <span>{title}</span>
-        {icon}
-      </div>
-      <p className="text-xl font-semibold">{value}</p>
-    </Card>
   );
 }

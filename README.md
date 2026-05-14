@@ -58,19 +58,51 @@ Bạn nên đổi thông tin này khi deploy thật (qua biến môi trường).
 Từ thư mục gốc project:
 
 ```bash
+./setup.sh
+```
+
+Hoặc:
+
+```bash
 docker compose up --build
 ```
 
 Services mặc định:
 
-- Web: `http://localhost:8080`
+- Web: `http://localhost:8686`
 - API: `http://localhost:8000`
 - Postgres: `localhost:5432`
 
 Nếu trùng port:
 
 ```bash
-WEB_PORT=9080 API_PORT=8001 POSTGRES_PORT=55432 docker compose up --build
+WEB_PORT=9080 API_PORT=8001 POSTGRES_PORT=55432 ./setup.sh
+```
+
+### Kiểm tra UI (trình duyệt — nên dùng cho dashboard / form)
+
+1. Mở đúng URL web (theo cổng đã map, ví dụ `http://127.0.0.1:8686` hoặc giá trị `WEB_PORT` nếu bạn override).
+2. Vào `/login`, đăng nhập `admin` / `admin123` (tài khoản seed mặc định).
+3. Duyệt `/` (Tổng quan), `/tai-chinh-quan-tri`, `/dieu-hanh` và các màn khác cần kiểm.
+
+**Lưu ý:** Nếu cổng web bị app khác chiếm, đổi `WEB_PORT` (ví dụ `WEB_PORT=9080 ./setup.sh`) rồi mở đúng URL mới.
+
+**Tự động hóa UI (Playwright):** có thể dùng skill **dev-browser** (Chromium + script `connect()` từ thư mục skill) hoặc Playwright riêng của bạn, trỏ tới cùng URL web như bước 1.
+
+### Tùy chọn: smoke HTTP (curl, không mở UI)
+
+Chỉ kiểm nhanh API qua nginx (cookie jar), không thay thế kiểm tra giao diện:
+
+```bash
+SMOKETEST_URL=http://127.0.0.1:8686 ./scripts/smoke-http.sh
+```
+
+Nếu bạn đổi `WEB_PORT`, truyền đúng URL vào `SMOKETEST_URL`.
+
+### Kiểm thử API (pytest)
+
+```bash
+cd backend && pytest tests/integration/test_smoke.py -q
 ```
 
 ## Local Development

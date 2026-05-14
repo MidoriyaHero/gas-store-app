@@ -8,11 +8,13 @@ import {
   LayoutTemplate,
   NotebookText,
   Package,
-  ShieldAlert,
   ShoppingCart,
   SmilePlus,
   Users,
   WalletCards,
+  Map,
+  UserSearch,
+  HandCoins,
 } from "lucide-react";
 
 /**
@@ -36,33 +38,37 @@ export interface NavGroup {
 /** Domain-grouped navigation for admin sidebar. */
 export const adminNavGroups: ReadonlyArray<NavGroup> = [
   {
-    id: "operations",
-    title: "Điều hành",
+    id: "overview",
+    title: "Tổng quan & đơn hàng",
     items: [
       { title: "Tổng quan", url: "/", icon: LayoutDashboard },
       { title: "Đơn hàng", url: "/don-hang", icon: ShoppingCart },
-      { title: "Điều hành cốt lõi", url: "/dieu-hanh", icon: ClipboardList },
+      { title: "Vận hành hằng ngày", url: "/dieu-hanh", icon: ClipboardList },
     ],
   },
   {
-    id: "finance",
-    title: "Tài chính",
+    id: "debt_finance",
+    title: "Nợ & tài chính",
     items: [
-      { title: "Tài chính - quản trị", url: "/tai-chinh-quan-tri", icon: WalletCards },
+      { title: "Công nợ", url: "/tai-chinh-quan-tri", icon: WalletCards },
+      { title: "Đòi nợ / thu nợ", url: "/doi-no", icon: HandCoins },
       { title: "Báo cáo thuế", url: "/bao-cao-thue", icon: FileBarChart },
     ],
   },
   {
     id: "customer",
     title: "Khách hàng",
-    items: [{ title: "Trải nghiệm khách hàng", url: "/trai-nghiem-khach-hang", icon: SmilePlus }],
+    items: [
+      { title: "Chăm sóc khách hàng", url: "/trai-nghiem-khach-hang", icon: SmilePlus },
+      { title: "Hồ sơ khách (mock)", url: "/khach-hang-mock", icon: UserSearch },
+    ],
   },
   {
-    id: "safety",
-    title: "An toàn",
+    id: "warehouse_safety",
+    title: "Kho hàng",
     items: [
       { title: "Sổ gas", url: "/so-gas", icon: BookOpen },
-      { title: "An toàn & tuân thủ", url: "/an-toan-tuan-thu", icon: ShieldAlert },
+      { title: "Kho hàng", url: "/kho", icon: Package },
       { title: "Mẫu thông tin chai", url: "/mau-chai", icon: LayoutTemplate },
     ],
   },
@@ -70,7 +76,6 @@ export const adminNavGroups: ReadonlyArray<NavGroup> = [
     id: "system",
     title: "Hệ thống",
     items: [
-      { title: "Kho hàng", url: "/kho", icon: Package },
       { title: "Người dùng", url: "/nguoi-dung", icon: Users },
     ],
   },
@@ -79,16 +84,16 @@ export const adminNavGroups: ReadonlyArray<NavGroup> = [
 /** Domain-grouped navigation for staff primary nav. */
 export const staffNavGroups: ReadonlyArray<NavGroup> = [
   {
-    id: "operations",
-    title: "Điều hành",
-    items: [{ title: "Tạo đơn hàng", url: "/tao-don", icon: ShoppingCart }],
-  },
-  {
     id: "customer",
     title: "Khách hàng",
     items: [
-      { title: "Lịch sử đơn", url: "/don-cua-toi", icon: History },
+      { title: "Đơn giao hàng", url: "/don-cua-toi", icon: History },
       { title: "Ghi chú giao", url: "/ghi-chu-giao", icon: NotebookText },
     ],
+  },
+  {
+    id: "field",
+    title: "Giao hàng",
+    items: [{ title: "Bản đồ giao", url: "/ban-do", icon: Map }],
   },
 ];

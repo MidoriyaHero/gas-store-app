@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { AppLayout } from "@/components/AppLayout";
 import { DestructiveConfirmDialog } from "@/components/DestructiveConfirmDialog";
 import { DeliveryNotesPanel } from "@/components/DeliveryNotesPanel";
@@ -12,7 +12,23 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Card } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Plus, Trash2, ShoppingBag, FileText, Pencil, ChevronDown, AlertTriangle, CheckCircle } from "lucide-react";
+import {
+  Plus,
+  Trash2,
+  ShoppingBag,
+  FileText,
+  Pencil,
+  ChevronDown,
+  AlertTriangle,
+  CheckCircle,
+  MapPin,
+  Navigation,
+  ClipboardPaste,
+} from "lucide-react";
+import type { GeocodeHit } from "@/lib/geocode-map";
+import { defaultOrderMapCenter, googleDirectionsUrl } from "@/lib/geocode-map";
+import { OrderAddressPickMap } from "@/components/OrderAddressPickMap";
+import { DeliveryMapPanel } from "@/components/DeliveryMapPanel";
 import { Badge } from "@/components/ui/badge";
 import { formatVND, formatDateTime } from "@/lib/format";
 import { toast } from "sonner";
@@ -22,6 +38,44 @@ import { apiDelete, apiGet, apiPatch, apiPost } from "@/lib/api";
 function todayLocalIso(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/** Parse optional WGS84 pair for ``delivery_latitude`` / ``delivery_longitude`` API fields. */
+function parseOptionalLatLng(latStr: string, lngStr: string): { delivery_latitude: number | null; delivery_longitude: number | null } {
+  const t1 = latStr.trim();
+  const t2 = lngStr.trim();
+  if (!t1 && !t2) return { delivery_latitude: null, delivery_longitude: null };
+  if (!t1 || !t2) throw new Error("GPS: cần nhập đủ vĩ độ và kinh độ, hoặc để trống cả hai");
+  const la = Number(t1.replace(",", "."));
+  const lo = Number(t2.replace(",", "."));
+  if (!Number.isFinite(la) || !Number.isFinite(lo)) throw new Error("GPS: vĩ độ/kinh độ không hợp lệ");
+  if (la < -90 || la > 90 || lo < -180 || lo > 180) throw new Error("GPS: tọa độ ngoài phạm vi cho phép");
+  return { delivery_latitude: la, delivery_longitude: lo };
+}
+
+/** Làm tròn WGS84 giống bản đồ ghim (6 chữ số thập phân). */
+function roundCoord6(n: number): number {
+  return Math.round(n * 1e6) / 1e6;
+}
+
+/**
+ * Tọa độ gửi API: cặp ô pin hợp lệ (legacy), không thì điểm geocode/ghim trên bản đồ.
+ */
+function resolveDeliveryCoordsForPayload(
+  pinLatStr: string,
+  pinLngStr: string,
+  mapPoint: { lat: number; lng: number } | null
+): { delivery_latitude: number | null; delivery_longitude: number | null } {
+  try {
+    const p = parseOptionalLatLng(pinLatStr, pinLngStr);
+    if (p.delivery_latitude != null) return p;
+  } catch {
+    /* Một ô điền một ô trống — bỏ qua, thử mapPoint */
+  }
+  if (mapPoint) {
+    return { delivery_latitude: roundCoord6(mapPoint.lat), delivery_longitude: roundCoord6(mapPoint.lng) };
+  }
+  return { delivery_latitude: null, delivery_longitude: null };
 }
 
 /** Lấy dạng loại chai từ tên SP (vd ``Gas 12kg`` → ``12kg``). */
@@ -68,6 +122,14 @@ interface OrderRow {
   gas_ledger_ready?: boolean;
   /** Các mục còn thiếu so với sổ gas (tiếng Việt), rỗng khi đủ. */
   gas_ledger_gaps?: string[];
+  assigned_to_user_id?: number | null;
+  assigned_to_username?: string | null;
+  delivery_latitude?: number | null;
+  delivery_longitude?: number | null;
+  /** Trạng thái giao: đang giao / hoàn thành (nhân viên + lịch sử). */
+  delivery_status?: "in_transit" | "completed";
+  /** Vỏ cho mượn / nợ vỏ (kiểm kê cuối ngày). */
+  borrowed_shell_units?: number;
   order_items: {
     id?: number;
     product_id: number;
@@ -82,6 +144,12 @@ interface OrderRow {
     import_source?: string | null;
     import_date?: string | null;
   }[];
+}
+
+interface StaffUserRow {
+  id: number;
+  username: string;
+  role: string;
 }
 
 interface OrdersListPayload {
@@ -148,13 +216,37 @@ const DEFAULT_STORE_CONTACT_LINE =
     ? import.meta.env.VITE_DEFAULT_STORE_CONTACT.trim()
     : "GAS Huy Hoàng - Thuận Tân, Truông Mít - 0984135227 | 0908868643";
 
-interface OrdersProps {
-  creationOnly?: boolean;
+type AdminOrdersSection = "orders" | "notes" | "map";
+
+function initialOrdersSectionFromUrl(): AdminOrdersSection {
+  if (typeof window === "undefined") return "orders";
+  const t = new URLSearchParams(window.location.search).get("tab");
+  if (t === "map" || t === "notes") return t;
+  return "orders";
 }
 
-export default function Orders({ creationOnly = false }: OrdersProps) {
-  /** Admin-only: switch between order list and inline delivery notes on the same route. */
-  const [adminSection, setAdminSection] = useState<"orders" | "notes">("orders");
+export default function Orders() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  /** Admin-only: đơn, ghi chú giao, hoặc bản đồ giao (``?tab=map``). */
+  const [adminSection, setAdminSection] = useState<AdminOrdersSection>(initialOrdersSectionFromUrl);
+
+  const setAdminSectionSynced = useCallback(
+    (s: AdminOrdersSection) => {
+      setAdminSection(s);
+      if (s === "orders") {
+        setSearchParams({}, { replace: true });
+      } else {
+        setSearchParams({ tab: s }, { replace: true });
+      }
+    },
+    [setSearchParams]
+  );
+
+  useEffect(() => {
+    const t = searchParams.get("tab");
+    if (t === "map" || t === "notes") setAdminSection(t);
+    else setAdminSection("orders");
+  }, [searchParams]);
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [ordersTotal, setOrdersTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -163,7 +255,7 @@ export default function Orders({ creationOnly = false }: OrdersProps) {
   const [open, setOpen] = useState(false);
   const [editingOrderId, setEditingOrderId] = useState<number | null>(null);
   const [customer, setCustomer] = useState({ name: "", phone: "", address: "", note: "" });
-  const [deliveryDate, setDeliveryDate] = useState(() => (creationOnly ? todayLocalIso() : ""));
+  const [deliveryDate, setDeliveryDate] = useState("");
   const [vatRate, setVatRate] = useState<number>(0);
   const [paymentMode, setPaymentMode] = useState<"cash" | "debt" | "partial">("cash");
   const [paidAmount, setPaidAmount] = useState<number>(0);
@@ -173,25 +265,29 @@ export default function Orders({ creationOnly = false }: OrdersProps) {
   const [pickProductId, setPickProductId] = useState<string>("");
   const [pickQty, setPickQty] = useState<number>(1);
   const [saving, setSaving] = useState(false);
-  const [moreCustomerOpen, setMoreCustomerOpen] = useState(false);
-  const [moreVatOpen, setMoreVatOpen] = useState(false);
   const [orderToDelete, setOrderToDelete] = useState<{ id: number; order_code: string } | null>(null);
+  const [deliveryStaffId, setDeliveryStaffId] = useState<string>("__none__");
+  const [staffOptions, setStaffOptions] = useState<Array<{ id: number; username: string }>>([]);
+  const [addrGeocodeLoading, setAddrGeocodeLoading] = useState(false);
+  const [reverseGeocodeLoading, setReverseGeocodeLoading] = useState(false);
+  const [addrGeocodeHits, setAddrGeocodeHits] = useState<GeocodeHit[]>([]);
+  const [addrMapPoint, setAddrMapPoint] = useState<{ lat: number; lng: number } | null>(null);
+  const [addrMapLabel, setAddrMapLabel] = useState<string | null>(null);
+  const [pinLatStr, setPinLatStr] = useState("");
+  const [pinLngStr, setPinLngStr] = useState("");
+  const [mapPasteRaw, setMapPasteRaw] = useState("");
+  const [mapPasteLoading, setMapPasteLoading] = useState(false);
+  const [deliveryStatus, setDeliveryStatus] = useState<"in_transit" | "completed">("in_transit");
+  const [borrowedShellUnits, setBorrowedShellUnits] = useState(0);
 
   const load = useCallback(async () => {
     try {
       const productsPromise = apiGet<Product[]>("/api/products");
       const templatesPromise = apiGet<ApiCylinderTemplate[]>("/api/cylinder-templates");
-      if (creationOnly) {
-        const [p, tpl] = await Promise.all([productsPromise, templatesPromise]);
-        setOrders([]);
-        setOrdersTotal(0);
-        setProducts(p ?? []);
-        setCylinderTemplates(tpl ?? []);
-        return;
-      }
+      const usersPromise = apiGet<StaffUserRow[]>("/api/users");
       const offset = (page - 1) * pageSize;
       const ordersPromise = apiGet<OrdersListPayload>(`/api/orders?limit=${pageSize}&offset=${offset}`);
-      const [ordersRes, p, tpl] = await Promise.all([ordersPromise, productsPromise, templatesPromise]);
+      const [ordersRes, p, tpl, users] = await Promise.all([ordersPromise, productsPromise, templatesPromise, usersPromise]);
       const total = ordersRes.total ?? 0;
       const maxPage = Math.max(1, Math.ceil(total / pageSize) || 1);
       if (page > maxPage && total > 0) {
@@ -202,20 +298,21 @@ export default function Orders({ creationOnly = false }: OrdersProps) {
       setOrdersTotal(total);
       setProducts(p ?? []);
       setCylinderTemplates(tpl ?? []);
+      setStaffOptions((users ?? []).filter((u) => u.role === "user").map((x) => ({ id: x.id, username: x.username })));
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Không tải được dữ liệu");
     }
-  }, [creationOnly, page, pageSize]);
+  }, [page, pageSize]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
   useEffect(() => {
-    if (!creationOnly && adminSection === "notes") {
+    if (adminSection === "notes" || adminSection === "map") {
       setOpen(false);
     }
-  }, [adminSection, creationOnly]);
+  }, [adminSection]);
 
   const selectedPreset = useMemo(() => {
     if (!selectedTemplateId || selectedTemplateId === NONE_TEMPLATE) return null;
@@ -229,6 +326,27 @@ export default function Orders({ creationOnly = false }: OrdersProps) {
     0,
     total - (paymentMode === "cash" ? total : paymentMode === "debt" ? 0 : paidAmount)
   );
+
+  const pinAsMapPoint = useMemo(() => {
+    try {
+      const p = parseOptionalLatLng(pinLatStr, pinLngStr);
+      if (p.delivery_latitude == null) return null;
+      return { lat: p.delivery_latitude, lng: p.delivery_longitude! };
+    } catch {
+      return null;
+    }
+  }, [pinLatStr, pinLngStr]);
+
+  /** Ưu tiên cặp pin trong state; không thì điểm geocode/ghim bản đồ. */
+  const mapPickMarker = pinAsMapPoint ?? addrMapPoint;
+
+  const onMapPickCoords = useCallback((lat: number, lng: number) => {
+    setAddrMapPoint({ lat, lng });
+    setPinLatStr(String(lat));
+    setPinLngStr(String(lng));
+    setAddrMapLabel(null);
+    toast.message("Đã ghim trên bản đồ — bấm Gợi ý địa chỉ từ ghim nếu cần điền chữ vào ô địa chỉ");
+  }, []);
 
   const qtyReservedForProduct = (productId: number, excludeLineKey?: string) =>
     cart.filter((c) => c.product_id === productId && c.lineKey !== excludeLineKey).reduce((s, c) => s + c.quantity, 0);
@@ -290,10 +408,18 @@ export default function Orders({ creationOnly = false }: OrdersProps) {
     );
   };
 
+  /** Clears OSM preview / geocode list tied to the order address dialog. */
+  const clearAddrGeocodeUi = () => {
+    setAddrGeocodeLoading(false);
+    setAddrGeocodeHits([]);
+    setAddrMapPoint(null);
+    setAddrMapLabel(null);
+  };
+
   const reset = () => {
     setEditingOrderId(null);
     setCustomer({ name: "", phone: "", address: "", note: "" });
-    setDeliveryDate(creationOnly ? todayLocalIso() : "");
+    setDeliveryDate("");
     setCart([]);
     setVatRate(0);
     setPaymentMode("cash");
@@ -301,11 +427,17 @@ export default function Orders({ creationOnly = false }: OrdersProps) {
     setPickProductId("");
     setPickQty(1);
     setSelectedTemplateId(NONE_TEMPLATE);
-    setMoreCustomerOpen(false);
-    setMoreVatOpen(false);
+    setDeliveryStaffId("__none__");
+    clearAddrGeocodeUi();
+    setPinLatStr("");
+    setPinLngStr("");
+    setMapPasteRaw("");
+    setDeliveryStatus("in_transit");
+    setBorrowedShellUnits(0);
   };
 
   const openEditOrder = async (orderId: number) => {
+    clearAddrGeocodeUi();
     try {
       const o = await apiGet<OrderRow>(`/api/orders/${orderId}`);
       setEditingOrderId(o.id);
@@ -319,6 +451,15 @@ export default function Orders({ creationOnly = false }: OrdersProps) {
       setVatRate(o.vat_rate ?? 0);
       setPaymentMode(o.payment_mode ?? "cash");
       setPaidAmount(Number(o.paid_amount ?? 0));
+      setDeliveryStaffId(o.assigned_to_user_id != null ? String(o.assigned_to_user_id) : "__none__");
+      setDeliveryStatus(o.delivery_status === "completed" ? "completed" : "in_transit");
+      setBorrowedShellUnits(Number(o.borrowed_shell_units ?? 0));
+      setPinLatStr(
+        o.delivery_latitude != null && Number.isFinite(Number(o.delivery_latitude)) ? String(o.delivery_latitude) : ""
+      );
+      setPinLngStr(
+        o.delivery_longitude != null && Number.isFinite(Number(o.delivery_longitude)) ? String(o.delivery_longitude) : ""
+      );
       setCart(
         (o.order_items ?? []).map((li) => ({
           lineKey: crypto.randomUUID(),
@@ -337,6 +478,110 @@ export default function Orders({ creationOnly = false }: OrdersProps) {
       setOpen(true);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Không tải được đơn hàng");
+    }
+  };
+
+  /** Geocode the current address line (Nominatim via ``/api/geocode``) and show OSM preview. */
+  const searchAddressOnMap = async () => {
+    const q = customer.address.trim();
+    if (q.length < 2) {
+      toast.error("Nhập ít nhất 2 ký tự địa chỉ để tìm (số nhà, đường, phường…)");
+      return;
+    }
+    setAddrGeocodeLoading(true);
+    setAddrGeocodeHits([]);
+    setAddrMapPoint(null);
+    setAddrMapLabel(null);
+    try {
+      const res = await apiGet<{ items: GeocodeHit[] }>(`/api/geocode?q=${encodeURIComponent(q)}&limit=8`);
+      const items = res.items ?? [];
+      setAddrGeocodeHits(items);
+      if (items.length === 0) {
+        toast.message("Không tìm thấy — chỉnh địa chỉ rồi tìm lại");
+      } else {
+        const first = items[0];
+        setAddrMapPoint({ lat: first.lat, lng: first.lng });
+        setAddrMapLabel(first.display_name);
+        const la = roundCoord6(first.lat);
+        const lo = roundCoord6(first.lng);
+        setPinLatStr(String(la));
+        setPinLngStr(String(lo));
+        if (items.length > 1) toast.message("Nhiều kết quả — chọn dòng đúng bên dưới");
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Geocode thất bại");
+    }
+    setAddrGeocodeLoading(false);
+  };
+
+  const pickAddrGeocodeHit = (h: GeocodeHit) => {
+    setAddrMapPoint({ lat: h.lat, lng: h.lng });
+    setAddrMapLabel(h.display_name);
+    const la = roundCoord6(h.lat);
+    const lo = roundCoord6(h.lng);
+    setPinLatStr(String(la));
+    setPinLngStr(String(lo));
+  };
+
+  /** Copy the pinned geocode label into the editable address field. */
+  const applyPinnedAddressToField = () => {
+    const label = addrMapLabel?.trim();
+    if (!label) {
+      toast.error("Chưa có điểm ghim — bấm Tìm trên bản đồ và chọn một dòng");
+      return;
+    }
+    setCustomer((c) => ({ ...c, address: label }));
+    toast.success("Đã cập nhật ô địa chỉ");
+  };
+
+  /** Reverse-geocode điểm đang ghim (bản đồ hoặc kết quả tìm) để điền ô địa chỉ chữ. */
+  /** Parse pasted Plus Code / Maps link / DMS / decimals via API, then sync map + address field. */
+  const applyMapPasteToOrderLocation = async () => {
+    const raw = mapPasteRaw.trim();
+    if (raw.length < 2) {
+      toast.error("Dán ít nhất 2 ký tự (link, Plus Code, hoặc tọa độ)");
+      return;
+    }
+    setMapPasteLoading(true);
+    try {
+      const hit = await apiPost<GeocodeHit>("/api/geocode/from-paste", { raw });
+      setAddrMapPoint({ lat: hit.lat, lng: hit.lng });
+      setAddrMapLabel(hit.display_name);
+      setAddrGeocodeHits([]);
+      setPinLatStr(String(roundCoord6(hit.lat)));
+      setPinLngStr(String(roundCoord6(hit.lng)));
+      setCustomer((c) => ({ ...c, address: hit.display_name }));
+      setMapPasteRaw("");
+      toast.success("Đã áp dụng vị trí từ nội dung dán");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Không xử lý được nội dung dán");
+    } finally {
+      setMapPasteLoading(false);
+    }
+  };
+
+  const reversePinToAddress = async () => {
+    const pt = pinAsMapPoint ?? addrMapPoint;
+    if (!pt) {
+      toast.error("Ghim trên bản đồ hoặc bấm Tìm trên bản đồ rồi chọn một dòng trước");
+      return;
+    }
+    const la = roundCoord6(pt.lat);
+    const lo = roundCoord6(pt.lng);
+    setReverseGeocodeLoading(true);
+    try {
+      const hit = await apiGet<GeocodeHit>(`/api/geocode/reverse?lat=${encodeURIComponent(String(la))}&lng=${encodeURIComponent(String(lo))}`);
+      setAddrMapPoint({ lat: hit.lat, lng: hit.lng });
+      setAddrMapLabel(hit.display_name);
+      setAddrGeocodeHits([]);
+      setPinLatStr(String(roundCoord6(hit.lat)));
+      setPinLngStr(String(roundCoord6(hit.lng)));
+      setCustomer((c) => ({ ...c, address: hit.display_name }));
+      toast.success("Đã cập nhật địa chỉ theo reverse OSM (có thể sửa tay)");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Reverse thất bại");
+    } finally {
+      setReverseGeocodeLoading(false);
     }
   };
 
@@ -367,6 +612,7 @@ export default function Orders({ creationOnly = false }: OrdersProps) {
     }
     setSaving(true);
     try {
+      const { delivery_latitude, delivery_longitude } = resolveDeliveryCoordsForPayload(pinLatStr, pinLngStr, addrMapPoint);
       const paidForPayload = paymentMode === "cash" ? total : paymentMode === "debt" ? 0 : Math.max(0, paidAmount);
       const payload = {
         customer_name: customer.name.trim(),
@@ -378,6 +624,11 @@ export default function Orders({ creationOnly = false }: OrdersProps) {
         vat_rate: vatRate,
         payment_mode: paymentMode,
         paid_amount: paidForPayload,
+        assigned_to_user_id: deliveryStaffId === "__none__" ? null : Number(deliveryStaffId),
+        delivery_latitude,
+        delivery_longitude,
+        delivery_status: deliveryStatus,
+        borrowed_shell_units: borrowedShellUnits,
         lines: cart.map((i) => ({
           product_id: i.product_id,
           quantity: i.quantity,
@@ -392,18 +643,14 @@ export default function Orders({ creationOnly = false }: OrdersProps) {
       if (editingOrderId === null) {
         await apiPost<OrderRow>("/api/orders", payload);
         toast.success("Đã tạo đơn hàng");
-        if (!creationOnly) setPage(1);
+        setPage(1);
       } else {
         await apiPatch<OrderRow>(`/api/orders/${editingOrderId}`, payload);
         toast.success("Đã cập nhật đơn hàng");
       }
       reset();
-      if (creationOnly) {
-        load();
-      } else {
-        setOpen(false);
-        load();
-      }
+      setOpen(false);
+      load();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Lỗi");
     }
@@ -413,22 +660,28 @@ export default function Orders({ creationOnly = false }: OrdersProps) {
   return (
     <AppLayout
       title={
-        creationOnly ? "Tạo đơn hàng" : adminSection === "notes" ? "Ghi chú giao hàng" : "Đơn hàng"
+        adminSection === "notes"
+          ? "Ghi chú giao hàng"
+          : adminSection === "map"
+            ? "Đơn hàng — Bản đồ giao"
+            : "Đơn hàng"
       }
       description={
-        creationOnly
-          ? "Nhân viên chỉ có quyền tạo đơn"
-          : adminSection === "notes"
-            ? "Ghi chữ hoặc ghi âm — cùng trang với đơn hàng."
-            : `${ordersTotal.toLocaleString("vi-VN")} đơn`
+        adminSection === "notes"
+          ? "Ghi chữ hoặc ghi âm — cùng trang với đơn hàng."
+          : adminSection === "map"
+            ? "Chọn đơn để xem OSM và mở Google Maps chỉ đường (tối đa 50 đơn mới nhất)."
+            : `${ordersTotal.toLocaleString("vi-VN")} đơn — gán nhân viên giao khi tạo/sửa`
       }
       actions={
-        creationOnly ? (
-          <Button variant="outline" onClick={reset}>
-            Làm mới form
-          </Button>
-        ) : adminSection === "orders" ? (
-          <Button onClick={() => setOpen(true)} className="gap-1">
+        adminSection === "orders" ? (
+          <Button
+            onClick={() => {
+              reset();
+              setOpen(true);
+            }}
+            className="gap-1"
+          >
             <Plus className="h-4 w-4" /> Tạo đơn hàng
           </Button>
         ) : null
@@ -448,34 +701,43 @@ export default function Orders({ creationOnly = false }: OrdersProps) {
         onConfirm={performDeleteOrder}
       />
 
-      {!creationOnly && (
-        <div className="mb-4 flex flex-wrap gap-2">
-          <Button
-            type="button"
-            variant={adminSection === "orders" ? "default" : "outline"}
-            className="min-h-11"
-            onClick={() => setAdminSection("orders")}
-          >
-            Danh sách đơn
-          </Button>
-          <Button
-            type="button"
-            variant={adminSection === "notes" ? "default" : "outline"}
-            className="min-h-11"
-            onClick={() => setAdminSection("notes")}
-          >
-            Ghi chú giao hàng
-          </Button>
-        </div>
-      )}
+      <div className="mb-4 flex flex-wrap gap-2">
+        <Button
+          type="button"
+          variant={adminSection === "orders" ? "default" : "outline"}
+          className="min-h-11"
+          onClick={() => setAdminSectionSynced("orders")}
+        >
+          Danh sách đơn
+        </Button>
+        <Button
+          type="button"
+          variant={adminSection === "notes" ? "default" : "outline"}
+          className="min-h-11"
+          onClick={() => setAdminSectionSynced("notes")}
+        >
+          Ghi chú giao hàng
+        </Button>
+        <Button
+          type="button"
+          variant={adminSection === "map" ? "default" : "outline"}
+          className="min-h-11"
+          onClick={() => setAdminSectionSynced("map")}
+        >
+          Bản đồ giao
+        </Button>
+      </div>
 
-      {!creationOnly && adminSection === "notes" && (
+      {adminSection === "map" && <DeliveryMapPanel />}
+
+      {adminSection === "notes" && (
         <div className="mb-6">
           <DeliveryNotesPanel compact />
         </div>
       )}
 
-      {!creationOnly && adminSection === "orders" && (
+      {adminSection === "orders" && (
+        <>
         <Card className="shadow-card">
           <div className="overflow-x-auto">
             <Table>
@@ -483,6 +745,8 @@ export default function Orders({ creationOnly = false }: OrdersProps) {
                 <TableRow>
                   <TableHead className="min-w-[11rem] whitespace-normal">Mã đơn / sổ gas</TableHead>
                   <TableHead>Khách hàng</TableHead>
+                  <TableHead>Nhân viên giao</TableHead>
+                  <TableHead>Trạng thái giao</TableHead>
                   <TableHead>SP</TableHead>
                   <TableHead className="text-right">Tổng tiền</TableHead>
                   <TableHead>Thời gian</TableHead>
@@ -492,7 +756,7 @@ export default function Orders({ creationOnly = false }: OrdersProps) {
               <TableBody>
                 {orders.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="py-12 text-center">
+                    <TableCell colSpan={8} className="py-12 text-center">
                       <ShoppingBag className="mx-auto mb-2 h-8 w-8 text-muted-foreground" />
                       <p className="text-sm text-muted-foreground">Chưa có đơn hàng nào.</p>
                     </TableCell>
@@ -543,6 +807,20 @@ export default function Orders({ creationOnly = false }: OrdersProps) {
                         <div className="font-medium">{o.customer_name}</div>
                         {o.phone && <div className="text-xs text-muted-foreground">{o.phone}</div>}
                       </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {o.assigned_to_username ?? "—"}
+                      </TableCell>
+                      <TableCell>
+                        {o.delivery_status === "completed" ? (
+                          <Badge variant="outline" className="text-xs">
+                            Hoàn thành
+                          </Badge>
+                        ) : (
+                          <Badge variant="secondary" className="text-xs">
+                            Đang giao
+                          </Badge>
+                        )}
+                      </TableCell>
                       <TableCell className="text-sm text-muted-foreground">{o.order_items?.length ?? 0} mặt hàng</TableCell>
                       <TableCell className="text-right font-semibold">{formatVND(o.total)}</TableCell>
                       <TableCell className="text-xs text-muted-foreground">{formatDateTime(o.created_at)}</TableCell>
@@ -572,7 +850,7 @@ export default function Orders({ creationOnly = false }: OrdersProps) {
                         className="border-l-4 border-l-amber-600 bg-amber-50/90 dark:border-l-amber-500 dark:bg-amber-950/35"
                         aria-label={`Chi tiết thiếu sót sổ gas cho đơn ${o.order_code}`}
                       >
-                        <TableCell colSpan={6} className="py-3">
+                        <TableCell colSpan={8} className="py-3">
                           <div
                             id={gapsId}
                             className="rounded-md border border-amber-800/40 bg-card px-3 py-2 shadow-sm dark:border-amber-400/40"
@@ -651,269 +929,7 @@ export default function Orders({ creationOnly = false }: OrdersProps) {
             </div>
           </div>
         </Card>
-      )}
 
-      {creationOnly && (
-        <Card className="shadow-card p-4 sm:p-6">
-          <div className="mb-4">
-            <h2 className="text-lg font-semibold">Tạo đơn hàng mới</h2>
-            <p className="text-sm text-muted-foreground">Điền form trực tiếp và bấm tạo đơn, không cần mở popup.</p>
-          </div>
-
-          <div className="grid gap-4">
-            <div className="rounded-lg border bg-muted/20 p-3">
-              <p className="mb-3 text-sm font-medium text-foreground">Thông tin khách &amp; ngày giao</p>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="grid gap-1.5">
-                  <Label>Tên khách hàng *</Label>
-                  <Input value={customer.name} onChange={(e) => setCustomer({ ...customer, name: e.target.value })} />
-                </div>
-                <div className="grid gap-1.5">
-                  <Label>Số điện thoại *</Label>
-                  <Input value={customer.phone} onChange={(e) => setCustomer({ ...customer, phone: e.target.value })} />
-                </div>
-                <div className="grid gap-1.5 sm:col-span-2 lg:col-span-1">
-                  <Label>Ngày giao chai cho khách</Label>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Input
-                      type="date"
-                      className="min-h-11 min-w-[160px] flex-1"
-                      value={deliveryDate}
-                      onChange={(e) => setDeliveryDate(e.target.value)}
-                    />
-                    <Button type="button" variant="outline" size="sm" className="min-h-11" onClick={() => setDeliveryDate(todayLocalIso())}>
-                      Hôm nay
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <Collapsible open={moreCustomerOpen} onOpenChange={setMoreCustomerOpen}>
-              <CollapsibleTrigger asChild>
-                <Button type="button" variant="outline" className="flex h-11 w-full justify-between gap-2">
-                  <span>Địa chỉ &amp; ghi chú</span>
-                  <ChevronDown className={`h-4 w-4 shrink-0 transition ${moreCustomerOpen ? "rotate-180" : ""}`} />
-                </Button>
-              </CollapsibleTrigger>
-              <CollapsibleContent className="grid gap-3 pt-2">
-                <div className="grid gap-1.5">
-                  <Label>Địa chỉ</Label>
-                  <Input value={customer.address} onChange={(e) => setCustomer({ ...customer, address: e.target.value })} />
-                </div>
-                <div className="grid gap-1.5">
-                  <Label>Ghi chú</Label>
-                  <Textarea rows={2} value={customer.note} onChange={(e) => setCustomer({ ...customer, note: e.target.value })} />
-                </div>
-              </CollapsibleContent>
-            </Collapsible>
-
-            <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
-              <Label className="text-sm font-medium">Mẫu thông tin chai</Label>
-              <p className="text-xs text-muted-foreground">
-                Chọn mẫu do admin cấu hình — mỗi lần &quot;Thêm&quot; sẽ điền sẵn (trừ số seri). Loại chai theo tên sản phẩm.
-              </p>
-              <Select value={selectedTemplateId} onValueChange={setSelectedTemplateId}>
-                <SelectTrigger className="min-h-11 w-full bg-background">
-                  <SelectValue placeholder="Không dùng mẫu" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={NONE_TEMPLATE}>Không dùng mẫu</SelectItem>
-                  {cylinderTemplates.map((t) => (
-                    <SelectItem key={t.id} value={String(t.id)}>
-                      {t.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {cylinderTemplates.length === 0 && (
-                <p className="text-xs text-amber-700 dark:text-amber-400">Chưa có mẫu hoạt động — liên hệ admin tạo mẫu trong &quot;Mẫu thông tin chai&quot;.</p>
-              )}
-            </div>
-
-            <div className="rounded-lg border bg-muted/30 p-3">
-              <Label className="text-xs uppercase text-muted-foreground">Thêm sản phẩm từ kho</Label>
-              <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_90px_auto]">
-                <Select value={pickProductId} onValueChange={setPickProductId}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Chọn sản phẩm..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {products.length === 0 && (
-                      <div className="px-2 py-3 text-sm text-muted-foreground">Chưa có sản phẩm trong kho</div>
-                    )}
-                    {products.map((p) => (
-                      <SelectItem key={p.id} value={String(p.id)} disabled={p.stock_quantity === 0}>
-                        {p.name} — {formatVND(p.sell_price)} {p.stock_quantity === 0 ? "(hết)" : `(còn ${p.stock_quantity})`}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Input type="number" min={1} value={pickQty} onChange={(e) => setPickQty(Math.max(1, Number(e.target.value)))} />
-                <Button type="button" onClick={addToCart}>
-                  Thêm
-                </Button>
-              </div>
-            </div>
-
-            {cart.length > 0 && (
-              <div className="space-y-4">
-                <Label className="text-xs uppercase text-muted-foreground">
-                  Giỏ hàng &amp; thông tin chai (theo phiếu giao / sổ gas)
-                </Label>
-                {cart.map((i) => (
-                  <div key={i.lineKey} className="rounded-lg border">
-                    <div className="flex flex-wrap items-end gap-2 border-b bg-muted/20 p-3">
-                      <div className="min-w-[160px] flex-1">
-                        <p className="text-sm font-medium">{i.name}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {formatVND(i.unit_price)} / đơn vị
-                        </p>
-                      </div>
-                      <div className="grid gap-1">
-                        <Label className="text-xs">SL</Label>
-                        <Input
-                          className="h-9 w-20"
-                          type="number"
-                          min={1}
-                          value={i.quantity}
-                          onChange={(e) => updateLine(i.lineKey, { quantity: Number(e.target.value) })}
-                        />
-                      </div>
-                      <div className="ml-auto font-medium">{formatVND(i.unit_price * i.quantity)}</div>
-                      <Button type="button" variant="ghost" size="icon" onClick={() => removeLine(i.lineKey)}>
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
-                    </div>
-                    <div className="grid gap-2 p-3 sm:grid-cols-2 lg:grid-cols-3">
-                      <div className="grid gap-1">
-                        <Label className="text-xs">Chủ sở hữu</Label>
-                        <Input
-                          value={i.owner_name}
-                          onChange={(e) => updateLine(i.lineKey, { owner_name: e.target.value })}
-                        />
-                      </div>
-                      <div className="grid gap-1">
-                        <Label className="text-xs">Loại chai (theo sản phẩm)</Label>
-                        <Input
-                          value={i.cylinder_type}
-                          onChange={(e) => updateLine(i.lineKey, { cylinder_type: e.target.value })}
-                          placeholder="Tự điền từ tên SP"
-                        />
-                      </div>
-                      <div className="grid gap-1">
-                        <Label className="text-xs">Số sê ri chai</Label>
-                        <Input
-                          className="font-mono text-sm"
-                          value={i.cylinder_serial}
-                          onChange={(e) => updateLine(i.lineKey, { cylinder_serial: e.target.value })}
-                        />
-                      </div>
-                      <div className="grid gap-1">
-                        <Label className="text-xs">Hạn kiểm định</Label>
-                        <Input
-                          type="date"
-                          value={i.inspection_expiry}
-                          onChange={(e) => updateLine(i.lineKey, { inspection_expiry: e.target.value })}
-                        />
-                      </div>
-                      <div className="grid gap-1 sm:col-span-2">
-                        <Label className="text-xs">Nơi nhập chai chứa cho cửa hàng</Label>
-                        <Input
-                          value={i.import_source}
-                          onChange={(e) => updateLine(i.lineKey, { import_source: e.target.value })}
-                        />
-                      </div>
-                      <div className="grid gap-1">
-                        <Label className="text-xs">Ngày nhập</Label>
-                        <Input
-                          type="date"
-                          value={i.import_date}
-                          onChange={(e) => updateLine(i.lineKey, { import_date: e.target.value })}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <Collapsible open={moreVatOpen} onOpenChange={setMoreVatOpen}>
-              <CollapsibleTrigger asChild>
-                <Button type="button" variant="outline" className="flex h-11 w-full justify-between gap-2">
-                  <span>Thuế GTGT (%)</span>
-                  <ChevronDown className={`h-4 w-4 shrink-0 transition ${moreVatOpen ? "rotate-180" : ""}`} />
-                </Button>
-              </CollapsibleTrigger>
-              <CollapsibleContent className="pt-2">
-                <div className="grid gap-1.5">
-                  <Label>Thuế GTGT (%)</Label>
-                  <Input
-                    className="min-h-11"
-                    type="number"
-                    min={0}
-                    value={vatRate}
-                    onChange={(e) => setVatRate(Number(e.target.value))}
-                  />
-                </div>
-              </CollapsibleContent>
-            </Collapsible>
-
-            <div className="grid gap-2 rounded-lg border bg-muted/20 p-3 sm:grid-cols-3">
-              <div className="grid gap-1.5">
-                <Label>Hình thức thanh toán</Label>
-                <Select value={paymentMode} onValueChange={(v) => setPaymentMode(v as "cash" | "debt" | "partial")}>
-                  <SelectTrigger className="min-h-11 bg-background">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="cash">Thanh toán đủ</SelectItem>
-                    <SelectItem value="partial">Thanh toán một phần</SelectItem>
-                    <SelectItem value="debt">Ghi nợ toàn bộ</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="grid gap-1.5">
-                <Label>Đã thu trước (₫)</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  disabled={paymentMode !== "partial"}
-                  value={paymentMode === "partial" ? paidAmount : paymentMode === "cash" ? total : 0}
-                  onChange={(e) => setPaidAmount(Math.max(0, Number(e.target.value || 0)))}
-                />
-              </div>
-              <div className="grid gap-1.5">
-                <Label>Công nợ dự kiến (₫)</Label>
-                <Input readOnly value={String(outstandingPreview)} />
-              </div>
-            </div>
-
-            <div className="rounded-lg bg-accent/50 p-4 text-sm">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Tạm tính</span>
-                <span>{formatVND(subtotal)}</span>
-              </div>
-              <div className="mt-1 flex justify-between">
-                <span className="text-muted-foreground">VAT ({vatRate}%)</span>
-                <span>{formatVND(vatAmount)}</span>
-              </div>
-              <div className="mt-2 flex justify-between border-t border-border pt-2 text-base font-semibold">
-                <span>Tổng cộng</span>
-                <span className="text-primary">{formatVND(total)}</span>
-              </div>
-            </div>
-
-            <div className="flex justify-end">
-              <Button onClick={submit} disabled={saving} className="min-w-28">
-                {saving ? "Đang lưu..." : "Tạo đơn"}
-              </Button>
-            </div>
-          </div>
-        </Card>
-      )}
-
-      {!creationOnly && adminSection === "orders" && (
         <Dialog
         open={open}
         onOpenChange={(v) => {
@@ -938,6 +954,16 @@ export default function Orders({ creationOnly = false }: OrdersProps) {
                   <Label>Số điện thoại *</Label>
                   <Input value={customer.phone} onChange={(e) => setCustomer({ ...customer, phone: e.target.value })} />
                 </div>
+                <div className="grid gap-1.5 sm:col-span-2">
+                  <Label>Vỏ cho mượn / nợ vỏ (nếu có)</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    className="min-h-11"
+                    value={borrowedShellUnits}
+                    onChange={(e) => setBorrowedShellUnits(Number(e.target.value) || 0)}
+                  />
+                </div>
                 <div className="grid gap-1.5 sm:col-span-2 lg:col-span-1">
                   <Label>Ngày giao chai cho khách</Label>
                   <div className="flex flex-wrap items-center gap-2">
@@ -952,12 +978,179 @@ export default function Orders({ creationOnly = false }: OrdersProps) {
                     </Button>
                   </div>
                 </div>
+                <div className="grid gap-1.5 sm:col-span-2">
+                  <Label>Nhân viên giao hàng</Label>
+                  <Select value={deliveryStaffId} onValueChange={setDeliveryStaffId}>
+                    <SelectTrigger className="min-h-11 bg-background">
+                      <SelectValue placeholder="Chưa gán" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">— Chưa gán —</SelectItem>
+                      {staffOptions.map((u) => (
+                        <SelectItem key={u.id} value={String(u.id)}>
+                          {u.username}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    NV thấy đơn <span className="font-medium text-foreground">Đang giao</span> trên Bản đồ giao và tab Đang giao; khi họ hoàn thành, đơn nằm trong Lịch sử giao.
+                  </p>
+                </div>
+                <div className="grid gap-1.5 sm:col-span-2">
+                  <Label>Trạng thái giao hàng</Label>
+                  <Select value={deliveryStatus} onValueChange={(v) => setDeliveryStatus(v as "in_transit" | "completed")}>
+                    <SelectTrigger className="min-h-11 bg-background">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="in_transit">Đang giao</SelectItem>
+                      <SelectItem value="completed">Hoàn thành</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">Admin có thể chỉnh lại (vd. giao nhầm cần mở lại đơn).</p>
+                </div>
               </div>
             </div>
 
-            <div className="grid gap-1.5">
+            <div className="grid gap-2 rounded-lg border bg-muted/15 p-3">
               <Label>Địa chỉ</Label>
-              <Input value={customer.address} onChange={(e) => setCustomer({ ...customer, address: e.target.value })} />
+              <div className="flex flex-wrap gap-2">
+                <Input
+                  className="min-h-11 min-w-[200px] flex-1"
+                  value={customer.address}
+                  onChange={(e) => setCustomer({ ...customer, address: e.target.value })}
+                  placeholder="Số nhà, đường, phường…"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="min-h-11 shrink-0 gap-1"
+                  disabled={addrGeocodeLoading}
+                  onClick={() => void searchAddressOnMap()}
+                >
+                  <MapPin className="h-4 w-4" aria-hidden />
+                  {addrGeocodeLoading ? "Đang tìm…" : "Tìm trên bản đồ"}
+                </Button>
+                {addrMapPoint && (
+                  <Button type="button" variant="secondary" className="min-h-11 shrink-0 gap-1" asChild>
+                    <a href={googleDirectionsUrl(addrMapLabel ?? `${addrMapPoint.lat},${addrMapPoint.lng}`)} target="_blank" rel="noreferrer">
+                      <Navigation className="h-4 w-4" aria-hidden />
+                      Chỉ đường
+                    </a>
+                  </Button>
+                )}
+                <Button
+                  type="button"
+                  variant="default"
+                  className="min-h-11 shrink-0"
+                  disabled={!addrMapLabel?.trim()}
+                  onClick={applyPinnedAddressToField}
+                >
+                  Dùng làm địa chỉ
+                </Button>
+              </div>
+              <div className="grid gap-1.5 rounded-md border border-dashed bg-background/80 p-2">
+                <Label className="text-xs font-medium text-muted-foreground">Dán từ Google Maps</Label>
+                <div className="flex flex-wrap gap-2">
+                  <Input
+                    className="min-h-11 min-w-[200px] flex-1 font-mono text-sm"
+                    value={mapPasteRaw}
+                    onChange={(e) => setMapPasteRaw(e.target.value)}
+                    placeholder="Plus Code, maps.app.goo.gl, @lat,lng hoặc DMS (độ phút giây + N/E)"
+                    autoComplete="off"
+                  />
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="min-h-11 shrink-0 gap-1"
+                    disabled={mapPasteLoading}
+                    onClick={() => void applyMapPasteToOrderLocation()}
+                  >
+                    <ClipboardPaste className="h-4 w-4" aria-hidden />
+                    {mapPasteLoading ? "Đang xử lý…" : "Áp dụng vị trí"}
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Một dòng: link rút gọn, Plus Code (vd 673P+FC…), cặp số thập phân, hoặc DMS — server đọc tọa độ rồi điền bản đồ và ô địa chỉ (OSM).
+                </p>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Gõ địa chỉ rồi bấm <span className="font-medium text-foreground">Tìm trên bản đồ</span>, hoặc ghim trên bản đồ rồi bấm{" "}
+                <span className="font-medium text-foreground">Gợi ý địa chỉ từ ghim</span> nếu cần chữ vào ô.
+              </p>
+              <Collapsible className="group rounded-md border border-dashed bg-muted/20 px-2 py-1">
+                <CollapsibleTrigger asChild>
+                  <Button type="button" variant="ghost" size="sm" className="h-9 w-full justify-between gap-2 px-2 text-xs text-muted-foreground hover:text-foreground">
+                    Hướng dẫn chi tiết (Nominatim, hẻm nhỏ, thứ tự nút)
+                    <ChevronDown className="h-4 w-4 shrink-0 transition-transform group-data-[state=open]:rotate-180" aria-hidden />
+                  </Button>
+                </CollapsibleTrigger>
+                <CollapsibleContent className="space-y-1.5 pb-2 pt-1 text-xs text-muted-foreground">
+                  <p>
+                    Tìm kiếm dùng OpenStreetMap (Nominatim). Ở hẻm nhỏ, tìm chữ đôi khi không ra — vẫn có thể ghim đúng chỗ trên bản đồ và tra ngược địa chỉ.
+                  </p>
+                  <p>
+                    Nếu có nhiều dòng kết quả: chọn đúng một dòng, bản đồ sẽ cập nhật; bấm <span className="font-medium text-foreground">Dùng làm địa chỉ</span> để chép
+                    tên đường vào ô phía trên (có thể sửa tay sau).
+                  </p>
+                </CollapsibleContent>
+              </Collapsible>
+              {addrGeocodeHits.length > 0 && (
+                <ul className="max-h-40 space-y-1 overflow-y-auto rounded-md border bg-background p-2 text-xs">
+                  {addrGeocodeHits.map((h) => (
+                    <li key={h.place_id}>
+                      <button
+                        type="button"
+                        className={`min-h-11 w-full rounded-md px-3 py-2 text-left outline-none ring-offset-background hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
+                          addrMapPoint && addrMapPoint.lat === h.lat && addrMapPoint.lng === h.lng ? "bg-muted font-medium" : ""
+                        }`}
+                        onClick={() => pickAddrGeocodeHit(h)}
+                      >
+                        {h.display_name}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {addrMapLabel && (
+                <p className="text-xs text-muted-foreground">
+                  Đang ghim: <span className="text-foreground">{addrMapLabel}</span>
+                </p>
+              )}
+              <OrderAddressPickMap
+                className="overflow-hidden rounded-md border"
+                visible={open}
+                marker={mapPickMarker}
+                fallbackCenter={defaultOrderMapCenter()}
+                onPick={onMapPickCoords}
+              />
+              <div className="flex flex-wrap gap-2 border-t bg-muted/20 px-2 py-2">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="min-h-11"
+                  disabled={reverseGeocodeLoading || !mapPickMarker}
+                  onClick={() => void reversePinToAddress()}
+                >
+                  {reverseGeocodeLoading ? "Đang tra…" : "Gợi ý địa chỉ từ ghim"}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="min-h-11"
+                  disabled={!mapPickMarker}
+                  onClick={() => {
+                    setPinLatStr("");
+                    setPinLngStr("");
+                    setAddrMapPoint(null);
+                    setAddrMapLabel(null);
+                    toast.message("Đã xóa ghim trên bản đồ");
+                  }}
+                >
+                  Xóa ghim
+                </Button>
+              </div>
             </div>
 
             <div className="grid gap-2 rounded-lg border bg-muted/20 p-3 sm:grid-cols-3">
@@ -1157,6 +1350,7 @@ export default function Orders({ creationOnly = false }: OrdersProps) {
           </DialogFooter>
         </DialogContent>
         </Dialog>
+        </>
       )}
     </AppLayout>
   );

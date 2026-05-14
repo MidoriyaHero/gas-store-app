@@ -7,7 +7,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
-from app.models import Product, SalesOrder, SalesOrderItem
+from app.models import Product, SalesOrder, SalesOrderItem, User, UserRole
 from app.schemas import SalesOrderCreate, SalesOrderItemOut, SalesOrderLineIn, SalesOrderResponse
 from app.services.gas_ledger_rules import gas_ledger_gap_messages, order_fully_ready_for_gas_ledger
 from app.services.phone import normalize_phone
@@ -27,11 +27,24 @@ def _strip_opt(val: str | None) -> str | None:
     return t or None
 
 
+def _resolve_assigned_to_user_id(db: Session, user_id: int | None) -> int | None:
+    """Validate optional delivery staff id (active user role ``user`` only)."""
+    if user_id is None:
+        return None
+    u = db.get(User, int(user_id))
+    if u is None or not u.is_active or u.role != UserRole.USER.value:
+        raise ValueError("Invalid delivery staff (need active user account)")
+    return u.id
+
+
 def create_sales_order(
     db: Session, payload: SalesOrderCreate, *, created_by_user_id: int | None = None
 ) -> SalesOrderResponse:
     """
     Persist header + lines, decrement product stock, compute VAT totals.
+
+    ``delivery_status`` defaults to ``in_transit``; ``completed`` is accepted when provided.
+    ``borrowed_shell_units`` defaults to 0.
 
     Raises ValueError when a product is missing or stock is insufficient.
     """
@@ -77,11 +90,19 @@ def create_sales_order(
             raise ValueError("Paid amount cannot exceed order total")
     outstanding_amount = grand_total - paid_amount
 
+    assigned_id = _resolve_assigned_to_user_id(db, payload.assigned_to_user_id)
+
+    delivery_stat = payload.delivery_status or "in_transit"
+    if delivery_stat not in ("in_transit", "completed"):
+        delivery_stat = "in_transit"
+
     header = SalesOrder(
         order_code="TEMP",
         customer_name=payload.customer_name.strip(),
         phone=phone,
         address=(payload.address or "").strip() or None,
+        delivery_latitude=payload.delivery_latitude,
+        delivery_longitude=payload.delivery_longitude,
         note=(payload.note or "").strip() or None,
         delivery_date=payload.delivery_date,
         store_contact=_strip_opt(payload.store_contact),
@@ -93,6 +114,9 @@ def create_sales_order(
         paid_amount=paid_amount,
         outstanding_amount=outstanding_amount,
         created_by_user_id=created_by_user_id,
+        assigned_to_user_id=assigned_id,
+        delivery_status=delivery_stat,
+        borrowed_shell_units=int(payload.borrowed_shell_units or 0),
     )
     db.add(header)
     db.flush()
@@ -121,7 +145,7 @@ def create_sales_order(
 
     db.refresh(header)
     order = db.scalars(
-        select(SalesOrder).options(joinedload(SalesOrder.lines)).where(SalesOrder.id == header.id)
+        select(SalesOrder).options(joinedload(SalesOrder.lines), joinedload(SalesOrder.assigned_to)).where(SalesOrder.id == header.id)
     ).first()
     assert order is not None
     return order_to_response(order)
@@ -165,7 +189,7 @@ def _build_order_payload(
 def update_sales_order(db: Session, order_id: int, payload: SalesOrderCreate) -> SalesOrderResponse:
     """Replace order header + lines and recalculate stock deltas."""
     order = db.scalars(
-        select(SalesOrder).options(joinedload(SalesOrder.lines)).where(SalesOrder.id == order_id)
+        select(SalesOrder).options(joinedload(SalesOrder.lines), joinedload(SalesOrder.assigned_to)).where(SalesOrder.id == order_id)
     ).first()
     if order is None:
         raise ValueError("Order not found")
@@ -193,6 +217,8 @@ def update_sales_order(db: Session, order_id: int, payload: SalesOrderCreate) ->
     order.customer_name = payload.customer_name.strip()
     order.phone = normalize_phone(payload.phone)
     order.address = _strip_opt(payload.address)
+    order.delivery_latitude = payload.delivery_latitude
+    order.delivery_longitude = payload.delivery_longitude
     order.note = _strip_opt(payload.note)
     order.delivery_date = payload.delivery_date
     order.store_contact = _strip_opt(payload.store_contact)
@@ -203,6 +229,10 @@ def update_sales_order(db: Session, order_id: int, payload: SalesOrderCreate) ->
     order.payment_mode = payment_mode
     order.paid_amount = paid_amount
     order.outstanding_amount = grand_total - paid_amount
+    order.assigned_to_user_id = _resolve_assigned_to_user_id(db, payload.assigned_to_user_id)
+    if payload.delivery_status is not None:
+        order.delivery_status = payload.delivery_status
+    order.borrowed_shell_units = int(payload.borrowed_shell_units or 0)
 
     for p, qty, unit, line_tot, ln_in in built_lines:
         db.add(
@@ -230,7 +260,7 @@ def update_sales_order(db: Session, order_id: int, payload: SalesOrderCreate) ->
 def delete_sales_order(db: Session, order_id: int) -> None:
     """Delete order and return reserved stock back to inventory."""
     order = db.scalars(
-        select(SalesOrder).options(joinedload(SalesOrder.lines)).where(SalesOrder.id == order_id)
+        select(SalesOrder).options(joinedload(SalesOrder.lines), joinedload(SalesOrder.assigned_to)).where(SalesOrder.id == order_id)
     ).first()
     if order is None:
         raise ValueError("Order not found")
@@ -261,12 +291,16 @@ def order_to_response(order: SalesOrder) -> SalesOrderResponse:
         )
         for li in order.lines
     ]
+    au = getattr(order, "assigned_to", None)
+    assigned_username = au.username if au is not None else None
     return SalesOrderResponse(
         id=order.id,
         order_code=order.order_code,
         customer_name=order.customer_name,
         phone=order.phone,
         address=order.address,
+        delivery_latitude=float(order.delivery_latitude) if order.delivery_latitude is not None else None,
+        delivery_longitude=float(order.delivery_longitude) if order.delivery_longitude is not None else None,
         note=order.note,
         delivery_date=order.delivery_date,
         store_contact=order.store_contact,
@@ -278,6 +312,11 @@ def order_to_response(order: SalesOrder) -> SalesOrderResponse:
         paid_amount=Decimal(str(order.paid_amount)),
         outstanding_amount=Decimal(str(order.outstanding_amount)),
         created_at=order.created_at,
+        created_by_user_id=order.created_by_user_id,
+        assigned_to_user_id=order.assigned_to_user_id,
+        assigned_to_username=assigned_username,
+        delivery_status=getattr(order, "delivery_status", None) or "in_transit",
+        borrowed_shell_units=int(getattr(order, "borrowed_shell_units", 0) or 0),
         order_items=items_out,
         gas_ledger_ready=order_fully_ready_for_gas_ledger(order),
         gas_ledger_gaps=gas_ledger_gap_messages(order),
@@ -287,7 +326,7 @@ def order_to_response(order: SalesOrder) -> SalesOrderResponse:
 def load_sales_order_response(db: Session, order_id: int) -> SalesOrderResponse:
     """Reload order with lines for API serialization."""
     order = db.scalars(
-        select(SalesOrder).options(joinedload(SalesOrder.lines)).where(SalesOrder.id == order_id)
+        select(SalesOrder).options(joinedload(SalesOrder.lines), joinedload(SalesOrder.assigned_to)).where(SalesOrder.id == order_id)
     ).first()
     if order is None:
         raise ValueError("Order not found")

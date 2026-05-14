@@ -38,26 +38,3 @@ export const CUSTOMER_JOURNEY_STEPS = [
   { key: "track", title: "Theo dõi trạng thái", sla: "Nhất quán giữa khách và nội bộ" },
   { key: "feedback", title: "Phản hồi sau giao", sla: "Owner + deadline rõ ràng" },
 ] as const;
-
-export const SAFETY_CHECKLIST_CATALOG = [
-  {
-    code: "safe-valve",
-    item: "Van bình hoạt động bình thường",
-    severity: "critical",
-  },
-  {
-    code: "safe-seal",
-    item: "Tem/niêm chì nguyên vẹn",
-    severity: "critical",
-  },
-  {
-    code: "safe-leak",
-    item: "Không phát hiện rò rỉ",
-    severity: "critical",
-  },
-  {
-    code: "safe-inspection",
-    item: "Bình còn hạn kiểm định",
-    severity: "critical",
-  },
-] as const;

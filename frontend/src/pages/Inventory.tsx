@@ -10,10 +10,16 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Pencil, Trash2, Search, Download } from "lucide-react";
+import { Plus, Pencil, Trash2, Search, Download, PackagePlus } from "lucide-react";
 import { formatVND } from "@/lib/format";
 import { toast } from "sonner";
 import { apiDelete, apiGet, apiPatch, apiPost, apiExportPath } from "@/lib/api";
+
+/** ``YYYY-MM-DD`` for date inputs. */
+function todayLocalIso(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
 
 interface Product {
   id: number;
@@ -25,6 +31,16 @@ interface Product {
   stock_quantity: number;
   low_stock_threshold: number;
   is_active: boolean;
+}
+
+interface StockReceiptRow {
+  id: number;
+  product_id: number;
+  receipt_date: string;
+  quantity: number;
+  receipt_kind: string;
+  note: string | null;
+  created_at: string;
 }
 
 const empty = { name: "", sku: "", description: "", cost_price: 0, sell_price: 0, stock_quantity: 0, low_stock_threshold: 10 };
@@ -39,6 +55,13 @@ export default function Inventory() {
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Product | null>(null);
   const [tab, setTab] = useState<InventoryTab>("active");
+  const [receiptOpen, setReceiptOpen] = useState(false);
+  const [receiptProduct, setReceiptProduct] = useState<Product | null>(null);
+  const [receipts, setReceipts] = useState<StockReceiptRow[]>([]);
+  const [receiptDate, setReceiptDate] = useState(todayLocalIso);
+  const [receiptQty, setReceiptQty] = useState(1);
+  const [receiptNote, setReceiptNote] = useState("");
+  const [receiptSaving, setReceiptSaving] = useState(false);
 
   const load = async () => {
     try {
@@ -71,27 +94,69 @@ export default function Inventory() {
     setOpen(true);
   };
 
+  const openReceiptDialog = async (p: Product) => {
+    setReceiptProduct(p);
+    setReceiptDate(todayLocalIso());
+    setReceiptQty(1);
+    setReceiptNote("");
+    setReceiptOpen(true);
+    try {
+      const data = await apiGet<StockReceiptRow[]>(`/api/products/${p.id}/stock-receipts`);
+      setReceipts(data ?? []);
+    } catch {
+      toast.error("Không tải được lịch sử nhập");
+      setReceipts([]);
+    }
+  };
+
+  const submitReceipt = async () => {
+    if (!receiptProduct) return;
+    if (receiptQty < 1) {
+      toast.error("Số lượng nhập phải ≥ 1");
+      return;
+    }
+    setReceiptSaving(true);
+    try {
+      await apiPost<StockReceiptRow>(`/api/products/${receiptProduct.id}/stock-receipts`, {
+        receipt_date: receiptDate,
+        quantity: receiptQty,
+        note: receiptNote.trim() || null,
+      });
+      toast.success("Đã ghi nhận nhập kho");
+      const data = await apiGet<StockReceiptRow[]>(`/api/products/${receiptProduct.id}/stock-receipts`);
+      setReceipts(data ?? []);
+      setReceiptQty(1);
+      setReceiptNote("");
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Lỗi nhập kho");
+    }
+    setReceiptSaving(false);
+  };
+
   const save = async () => {
     if (!form.name.trim()) {
       toast.error("Tên sản phẩm không được trống");
       return;
     }
     setSaving(true);
-    const payload = {
+    const base = {
       name: form.name.trim(),
       sku: form.sku.trim() || null,
       description: form.description.trim() || null,
       cost_price: Number(form.cost_price) || 0,
       sell_price: Number(form.sell_price) || 0,
-      stock_quantity: Number(form.stock_quantity) || 0,
       low_stock_threshold: Number(form.low_stock_threshold) || 0,
     };
     try {
       if (editing) {
-        await apiPatch<Product>(`/api/products/${editing.id}`, payload);
+        await apiPatch<Product>(`/api/products/${editing.id}`, base);
         toast.success("Đã cập nhật sản phẩm");
       } else {
-        await apiPost<Product>("/api/products", payload);
+        await apiPost<Product>("/api/products", {
+          ...base,
+          stock_quantity: Number(form.stock_quantity) || 0,
+        });
         toast.success("Đã thêm sản phẩm");
       }
       setOpen(false);
@@ -205,6 +270,12 @@ export default function Inventory() {
                       </TableCell>
                       <TableCell>
                         <div className="flex justify-end gap-1">
+                          {p.is_active && (
+                            <Button variant="outline" size="sm" className="gap-1" onClick={() => void openReceiptDialog(p)}>
+                              <PackagePlus className="h-4 w-4" />
+                              Nhập kho
+                            </Button>
+                          )}
                           <Button variant="ghost" size="icon" onClick={() => openEdit(p)}>
                             <Pencil className="h-4 w-4" />
                           </Button>
@@ -261,15 +332,23 @@ export default function Inventory() {
                 <Label>SKU</Label>
                 <Input value={form.sku} onChange={(e) => setForm({ ...form, sku: e.target.value })} />
               </div>
-              <div className="grid gap-1.5">
-                <Label>Tồn kho</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  value={form.stock_quantity}
-                  onChange={(e) => setForm({ ...form, stock_quantity: Number(e.target.value) })}
-                />
-              </div>
+              {editing ? (
+                <div className="grid gap-1.5">
+                  <Label>Tồn kho hiện tại</Label>
+                  <Input type="number" value={editing.stock_quantity} readOnly className="bg-muted" />
+                  <p className="text-xs text-muted-foreground">Tăng tồn bằng &quot;Nhập kho&quot; trên danh sách.</p>
+                </div>
+              ) : (
+                <div className="grid gap-1.5">
+                  <Label>Tồn ban đầu</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={form.stock_quantity}
+                    onChange={(e) => setForm({ ...form, stock_quantity: Number(e.target.value) })}
+                  />
+                </div>
+              )}
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="grid gap-1.5">
@@ -311,6 +390,57 @@ export default function Inventory() {
             </Button>
             <Button onClick={save} disabled={saving}>
               {saving ? "Đang lưu..." : "Lưu"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={receiptOpen} onOpenChange={setReceiptOpen}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Nhập kho — {receiptProduct?.name ?? ""}</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-3">
+            <div className="grid gap-1.5">
+              <Label>Ngày nhập</Label>
+              <Input type="date" value={receiptDate} onChange={(e) => setReceiptDate(e.target.value)} />
+            </div>
+            <div className="grid gap-1.5">
+              <Label>Số lượng nhập *</Label>
+              <Input type="number" min={1} value={receiptQty} onChange={(e) => setReceiptQty(Number(e.target.value))} />
+            </div>
+            <div className="grid gap-1.5">
+              <Label>Ghi chú</Label>
+              <Textarea rows={2} value={receiptNote} onChange={(e) => setReceiptNote(e.target.value)} />
+            </div>
+            <div>
+              <p className="mb-2 text-xs font-medium text-muted-foreground">Lịch sử (mới nhất trước)</p>
+              <div className="max-h-48 overflow-y-auto rounded-md border text-sm">
+                {receipts.length === 0 ? (
+                  <p className="p-3 text-muted-foreground">Chưa có dòng nào.</p>
+                ) : (
+                  <ul className="divide-y">
+                    {receipts.map((r) => (
+                      <li key={r.id} className="px-3 py-2">
+                        <span className="font-mono text-xs">{r.receipt_date}</span> —{" "}
+                        <span className="font-medium">+{r.quantity}</span>{" "}
+                        <Badge variant="outline" className="ml-1 text-[10px]">
+                          {r.receipt_kind === "opening" ? "Tồn đầu" : "Nhập"}
+                        </Badge>
+                        {r.note && <div className="mt-0.5 text-xs text-muted-foreground">{r.note}</div>}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setReceiptOpen(false)}>
+              Đóng
+            </Button>
+            <Button onClick={() => void submitReceipt()} disabled={receiptSaving}>
+              {receiptSaving ? "Đang lưu..." : "Ghi nhận nhập"}
             </Button>
           </DialogFooter>
         </DialogContent>

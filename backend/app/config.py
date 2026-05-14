@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://postgres:postgres@localhost:5432/gas_store"
     cors_origins: str = (
         "http://localhost:5173,http://127.0.0.1:5173,"
-        "http://localhost:8080,http://127.0.0.1:8080,"
+        "http://localhost:8686,http://127.0.0.1:8686,"
         "http://localhost:8081,http://127.0.0.1:8081"
     )
     jwt_secret_key: str = "change-this-jwt-secret"
@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     seed_admin_password: str = "admin123"
     media_root: str = "data/media"
     order_note_audio_max_bytes: int = 20 * 1024 * 1024
+    nominatim_user_agent: str = "GasStoreApp/1.0 (internal geocode; contact: admin@localhost)"
 
 
 def get_settings() -> Settings:
