@@ -128,6 +128,9 @@ class SalesOrder(Base):
     delivery_status: Mapped[str] = mapped_column(String(24), nullable=False, default="in_transit", index=True)
     #: Vỏ cho mượn / nợ vỏ ghi trên đơn (dùng trong công thức kiểm kê vỏ cuối ngày).
     borrowed_shell_units: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    client_id: Mapped[str | None] = mapped_column(String(36), nullable=True, unique=True, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     lines: Mapped[list["SalesOrderItem"]] = relationship(
         back_populates="order", cascade="all, delete-orphan"
@@ -240,10 +243,39 @@ class OrderNote(Base):
     audio_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
     audio_duration_sec: Mapped[int | None] = mapped_column(Integer, nullable=True)
     mime_type: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    client_id: Mapped[str | None] = mapped_column(String(36), nullable=True, unique=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     created_by: Mapped["User"] = relationship(back_populates="order_notes")
+
+
+class OrderChangeLog(Base):
+    """Append-only audit of order edits (who changed what)."""
+
+    __tablename__ = "order_change_log"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    order_id: Mapped[int] = mapped_column(ForeignKey("sales_orders.id", ondelete="CASCADE"), nullable=False, index=True)
+    changed_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    changed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+    source: Mapped[str] = mapped_column(String(16), nullable=False, default="web")
+    mutation_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    before_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    after_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+
+class SyncAppliedMutation(Base):
+    """Idempotency ledger for mobile/sync push mutations."""
+
+    __tablename__ = "sync_applied_mutations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    client_mutation_id: Mapped[str] = mapped_column(String(36), nullable=False, unique=True, index=True)
+    entity: Mapped[str] = mapped_column(String(64), nullable=False)
+    server_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    applied_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class ShiftSettlement(Base):

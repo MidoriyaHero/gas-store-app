@@ -80,7 +80,7 @@ export default function GasLedger() {
                 <TableRow>
                   <TableCell colSpan={10} className="py-12 text-center text-muted-foreground">
                     Chưa có dòng đủ điều kiện sổ gas. Chỉ các dòng đơn đã điền đầy đủ SĐT, địa chỉ, ngày giao và toàn bộ
-                    trường chai (chủ sở hữu, loại, số sê ri, hạn kiểm định, nơi nhập, ngày nhập) mới xuất hiện ở đây.
+                    trường chai (chủ sở hữu, loại, hạn kiểm định, nơi nhập, ngày nhập) mới xuất hiện ở đây. Số sê ri là tùy chọn.
                   </TableCell>
                 </TableRow>
               ) : (

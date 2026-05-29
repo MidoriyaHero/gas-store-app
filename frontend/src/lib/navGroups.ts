@@ -14,7 +14,6 @@ import {
   WalletCards,
   Map,
   UserSearch,
-  HandCoins,
 } from "lucide-react";
 
 /**
@@ -51,16 +50,7 @@ export const adminNavGroups: ReadonlyArray<NavGroup> = [
     title: "Nợ & tài chính",
     items: [
       { title: "Công nợ", url: "/tai-chinh-quan-tri", icon: WalletCards },
-      { title: "Đòi nợ / thu nợ", url: "/doi-no", icon: HandCoins },
       { title: "Báo cáo thuế", url: "/bao-cao-thue", icon: FileBarChart },
-    ],
-  },
-  {
-    id: "customer",
-    title: "Khách hàng",
-    items: [
-      { title: "Chăm sóc khách hàng", url: "/trai-nghiem-khach-hang", icon: SmilePlus },
-      { title: "Hồ sơ khách (mock)", url: "/khach-hang-mock", icon: UserSearch },
     ],
   },
   {
@@ -77,6 +67,14 @@ export const adminNavGroups: ReadonlyArray<NavGroup> = [
     title: "Hệ thống",
     items: [
       { title: "Người dùng", url: "/nguoi-dung", icon: Users },
+    ],
+  },
+  {
+    id: "customer",
+    title: "Khách hàng",
+    items: [
+      { title: "Chăm sóc khách hàng", url: "/trai-nghiem-khach-hang", icon: SmilePlus },
+      { title: "Hồ sơ khách (mock)", url: "/khach-hang-mock", icon: UserSearch },
     ],
   },
 ];

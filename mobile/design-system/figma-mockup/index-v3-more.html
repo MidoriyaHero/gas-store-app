@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Gas Store Mobile — UX v3 (More features)</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <script src="https://mcp.figma.com/mcp/html-to-design/capture.js" async></script>
+  <style>
+    :root {
+      --primary: #2563EB; --primary-dark: #1D4ED8; --accent: #F97316;
+      --bg: #F8FAFC; --surface: #FFF; --text: #1E293B; --muted: #64748B;
+      --border: #E2E8F0; --success: #16A34A; --warning: #D97706; --error: #DC2626;
+      --success-soft: #ECFDF5; --warning-soft: #FFFBEB; --error-soft: #FEF2F2; --primary-soft: #EFF6FF;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Inter, sans-serif; background: #cbd5e1; padding: 32px; min-width: max-content; }
+    .canvas { display: flex; gap: 48px; align-items: flex-start; }
+    .section { display: flex; flex-direction: column; gap: 12px; }
+    .section-label { font-size: 12px; font-weight: 600; text-transform: uppercase; padding: 6px 10px; background: #475569; color: #fff; border-radius: 4px; width: fit-content; }
+    .section-row { display: flex; flex-wrap: wrap; gap: 20px; }
+    .phone-name { font-size: 11px; color: var(--muted); margin-bottom: 4px; max-width: 390px; font-weight: 500; }
+    .phone {
+      width: 390px; height: 844px; background: var(--bg); overflow: hidden;
+      display: flex; flex-direction: column; position: relative;
+      box-shadow: 0 4px 24px rgba(15,23,42,0.15);
+    }
+    .status-bar { height: 44px; background: var(--surface); flex-shrink: 0; }
+    .appbar {
+      background: var(--surface); padding: 10px 14px; display: flex; align-items: center;
+      justify-content: space-between; border-bottom: 1px solid var(--border); flex-shrink: 0; gap: 8px;
+    }
+    .appbar h1 { font-size: 18px; font-weight: 700; flex: 1; }
+    .appbar .sub { font-size: 11px; color: var(--muted); }
+    .banner { padding: 8px 14px; font-size: 12px; font-weight: 600; flex-shrink: 0; }
+    .banner.online { background: var(--success-soft); color: var(--success); }
+    .banner.offline { background: var(--warning-soft); color: var(--warning); }
+    .banner.sync { background: var(--primary-soft); color: var(--primary); }
+    .banner.error { background: var(--error-soft); color: var(--error); }
+    .scroll { flex: 1; overflow: hidden; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+    .tabbar {
+      height: 72px; background: var(--surface); border-top: 1px solid var(--border);
+      display: flex; justify-content: space-around; padding-top: 8px; flex-shrink: 0;
+    }
+    .tab { text-align: center; font-size: 11px; color: var(--muted); min-width: 72px; }
+    .tab.active { color: var(--primary); font-weight: 600; }
+    .tab-dot { width: 22px; height: 22px; margin: 0 auto 3px; border-radius: 6px; background: var(--border); }
+    .tab.active .tab-dot { background: var(--primary); }
+    .btn { height: 48px; border-radius: 8px; border: none; font-size: 15px; font-weight: 600; display: flex; align-items: center; justify-content: center; width: 100%; }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-secondary { background: var(--surface); color: var(--primary); border: 1px solid var(--border); }
+    .btn-ghost { background: none; color: var(--primary); font-size: 14px; height: 36px; width: auto; padding: 0 8px; border: none; font-weight: 600; }
+    .card { background: var(--surface); border-radius: 10px; padding: 12px; border: 1px solid var(--border); }
+    .card-tight { padding: 10px 12px; }
+    .badge { display: inline-block; padding: 3px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+    .badge-primary { background: var(--primary-soft); color: var(--primary); }
+    .badge-warn { background: #FEF3C7; color: var(--warning); }
+    .badge-success { background: var(--success-soft); color: var(--success); }
+    .badge-error { background: var(--error-soft); color: var(--error); }
+    .row-between { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+    .muted { color: var(--muted); font-size: 13px; line-height: 1.35; }
+    .section-h { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin: 4px 0 2px; }
+    .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+    .chip-filter { padding: 6px 10px; border-radius: 8px; font-size: 12px; font-weight: 600; border: 1px solid var(--border); background: var(--surface); color: var(--muted); }
+    .chip-filter.on { background: var(--primary-soft); color: var(--primary); border-color: var(--primary); }
+    .seg-tabs { display: flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin-bottom: 8px; }
+    .seg-tab { flex: 1; text-align: center; padding: 8px; font-size: 12px; font-weight: 600; color: var(--muted); background: var(--surface); }
+    .seg-tab.on { background: var(--primary-soft); color: var(--primary); }
+    .field { margin-bottom: 12px; }
+    .field label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; color: var(--text); }
+    .field input, .field select {
+      width: 100%; height: 48px; border: 1px solid var(--border); border-radius: 8px;
+      padding: 0 12px; font-family: inherit; font-size: 15px; background: var(--surface);
+    }
+    .field input.err { border-color: var(--error); }
+    .field .err-msg { font-size: 12px; color: var(--error); margin-top: 4px; }
+    .login-wrap { flex: 1; display: flex; flex-direction: column; }
+    .login-hero {
+      background: linear-gradient(180deg, #1D4ED8, #2563EB, #3B82F6);
+      padding: 48px 24px 40px; text-align: center; color: #fff;
+    }
+    .logo-circle { width: 72px; height: 72px; border-radius: 36px; background: rgba(255,255,255,0.15); margin: 0 auto 12px; display: flex; align-items: center; justify-content: center; font-size: 32px; }
+    .login-hero h1 { font-size: 24px; font-weight: 700; }
+    .login-hero p { font-size: 14px; opacity: 0.9; margin-top: 6px; }
+    .login-form { margin: -16px 16px 0; background: var(--surface); border-radius: 16px; padding: 20px; border: 1px solid var(--border); box-shadow: 0 8px 24px rgba(15,23,42,0.08); }
+    .error-box { display: flex; gap: 8px; align-items: flex-start; background: var(--error-soft); padding: 10px; border-radius: 8px; margin-bottom: 12px; font-size: 12px; color: var(--error); }
+    .map-bg {
+      flex: 1; margin: 0 12px 12px; border-radius: 12px; border: 1px solid var(--border);
+      background: linear-gradient(135deg, #dbeafe 0%, #ecfdf5 50%, #fef3c7 100%);
+      position: relative; min-height: 520px;
+    }
+    .map-pin {
+      position: absolute; width: 32px; height: 32px; border-radius: 16px;
+      background: var(--primary); border: 3px solid #fff; box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+      display: flex; align-items: center; justify-content: center; color: #fff; font-size: 14px; font-weight: 700;
+    }
+    .map-pin.warn { background: var(--warning); }
+    .map-pin.sel { background: var(--accent); transform: scale(1.15); }
+    .map-sheet {
+      position: absolute; left: 12px; right: 12px; bottom: 84px;
+      background: var(--surface); border-radius: 12px; padding: 12px; border: 1px solid var(--border);
+      box-shadow: 0 -4px 16px rgba(15,23,42,0.1);
+    }
+    .timeline { border-left: 2px solid var(--border); margin-left: 8px; padding-left: 12px; }
+    .timeline-item { margin-bottom: 10px; font-size: 12px; }
+    .timeline-item .when { color: var(--muted); font-size: 11px; }
+    .timeline-item .mono { font-family: ui-monospace, monospace; font-size: 11px; color: var(--primary); }
+    .empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; text-align: center; gap: 8px; }
+    .empty-icon { width: 64px; height: 64px; border-radius: 32px; background: var(--surface); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; font-size: 28px; color: var(--muted); }
+    .overlay { position: absolute; inset: 0; background: rgba(15,23,42,0.45); display: flex; align-items: flex-end; z-index: 10; }
+    .sheet { width: 100%; background: var(--surface); border-radius: 16px 16px 0 0; padding: 16px; }
+    .sheet-handle { width: 40px; height: 4px; background: var(--border); border-radius: 2px; margin: 0 auto 12px; }
+    .conflict-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .conflict-col { border: 1px solid var(--border); border-radius: 8px; padding: 10px; font-size: 12px; }
+    .conflict-col.server { border-color: var(--primary); background: var(--primary-soft); }
+    .conflict-col.local { border-color: var(--warning); background: var(--warning-soft); }
+    .diff { background: #FEF9C3; padding: 2px 4px; border-radius: 4px; font-weight: 600; }
+    .banner-board { width: 420px; padding: 16px; background: var(--surface); border-radius: 12px; display: flex; flex-direction: column; gap: 8px; }
+    .banner-row { padding: 10px 14px; font-size: 12px; font-weight: 600; border-radius: 8px; display: flex; align-items: center; gap: 8px; }
+    .cover-board { width: 520px; padding: 24px; background: var(--surface); border-radius: 12px; }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .sticky-bottom { position: absolute; bottom: 72px; left: 0; right: 0; padding: 10px 12px; background: var(--surface); border-top: 1px solid var(--border); }
+    .summary-err { background: var(--error-soft); color: var(--error); padding: 10px; border-radius: 8px; font-size: 12px; margin-bottom: 8px; }
+  </style>
+</head>
+<body>
+<div class="canvas">
+
+  <div class="section">
+    <div class="section-label">02 Auth</div>
+    <div class="section-row">
+      <div>
+        <div class="phone-name">Auth / Login</div>
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="login-wrap">
+            <div class="login-hero">
+              <div class="logo-circle">🔥</div>
+              <h1>Gas Huy Hoàng</h1>
+              <p>Quản lý giao gas — offline-first</p>
+            </div>
+            <div class="login-form">
+              <div class="field"><label>Tài khoản</label><input type="text" value="staff01" /></div>
+              <div class="field"><label>Mật khẩu</label><input type="password" value="••••••••" /></div>
+              <button class="btn btn-primary">Đăng nhập</button>
+              <p class="muted" style="margin-top:12px;font-size:11px;text-align:center">Admin → Tổng quan · Staff → Đơn giao</p>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="phone-name">Auth / Login — Error</div>
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="login-wrap">
+            <div class="login-hero" style="padding-bottom:32px">
+              <div class="logo-circle">🔥</div>
+              <h1>Gas Huy Hoàng</h1>
+            </div>
+            <div class="login-form">
+              <div class="error-box"><span>⚠</span><span>Đăng nhập thất bại. Kiểm tra mạng và tài khoản.</span></div>
+              <div class="field"><label>Tài khoản</label><input class="err" type="text" value="staff01" /></div>
+              <div class="field"><label>Mật khẩu</label><input class="err" type="password" value="" placeholder="••••••••" /></div>
+              <button class="btn btn-primary">Thử lại</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-label">03 Staff — Map &amp; Empty</div>
+    <div class="section-row">
+      <div>
+        <div class="phone-name">Staff / Orders — List Empty</div>
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="appbar"><div><h1>Đơn giao</h1></div></div>
+          <div class="banner online">● Online</div>
+          <div class="empty">
+            <div class="empty-icon">🚲</div>
+            <strong>Chưa có đơn giao</strong>
+            <p class="muted">Kéo xuống để đồng bộ khi có mạng</p>
+            <button class="btn btn-secondary" style="margin-top:12px;max-width:200px">Thử đồng bộ</button>
+          </div>
+          <div class="tabbar">
+            <div class="tab active"><div class="tab-dot"></div>Đơn giao</div>
+            <div class="tab"><div class="tab-dot"></div>Bản đồ</div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="phone-name">Staff / Orders — Offline</div>
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="appbar"><div><h1>Đơn giao</h1></div></div>
+          <div class="banner offline">● Offline — thay đổi lưu trên máy · 2 chờ gửi</div>
+          <div class="scroll">
+            <div class="card card-tight"><div class="row-between"><strong>#DH-1024</strong><span class="badge badge-warn">Chờ sync</span></div><div class="muted">Nguyễn Văn A</div></div>
+          </div>
+          <div class="tabbar">
+            <div class="tab active"><div class="tab-dot"></div>Đơn giao</div>
+            <div class="tab"><div class="tab-dot"></div>Bản đồ</div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="phone-name">Staff / Map — Overview</div>
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="appbar"><div><h1>Bản đồ giao</h1><div class="sub">5 điểm hôm nay</div></div></div>
+          <div class="banner online">● Online</div>
+          <div class="map-bg">
+            <div class="map-pin" style="top:80px;left:60px">1</div>
+            <div class="map-pin warn" style="top:160px;left:200px">2</div>
+            <div class="map-pin" style="top:280px;left:120px">3</div>
+            <div class="map-pin" style="top:340px;left:260px">4</div>
+          </div>
+          <div class="tabbar">
+            <div class="tab"><div class="tab-dot"></div>Đơn giao</div>
+            <div class="tab active"><div class="tab-dot"></div>Bản đồ</div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="phone-name">Staff / Map — Pin selected</div>
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="appbar"><div><h1>Bản đồ giao</h1></div></div>
+          <div class="banner online">● Online</div>
+          <div class="map-bg">
+            <div class="map-pin sel" style="top:160px;left:200px">2</div>
+            <div class="map-sheet">
+              <div class="row-between"><strong>#DH-1025</strong><span class="badge badge-primary">Đang giao</span></div>
+              <div class="muted">Trần Thị B · 45 Nguyễn Huệ</div>
+              <div style="display:flex;gap:8px;margin-top:10px">
+                <button class="btn btn-secondary" style="flex:1;height:40px;font-size:13px">Chỉ đường</button>
+                <button class="btn btn-primary" style="flex:1;height:40px;font-size:13px">Mở đơn</button>
+              </div>
+            </div>
+          </div>
+          <div class="tabbar">
+            <div class="tab"><div class="tab-dot"></div>Đơn giao</div>
+            <div class="tab active"><div class="tab-dot"></div>Bản đồ</div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="phone-name">Staff / Complete — Confirm sheet</div>
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="appbar"><button class="btn-ghost">←</button><h1>#DH-1024</h1></div>
+          <div class="scroll"><div class="card card-tight"><div class="muted">Nguyễn Văn A · 123 Lê Lợi</div></div></div>
+          <div class="overlay">
+            <div class="sheet">
+              <div class="sheet-handle"></div>
+              <strong style="font-size:16px">Xác nhận hoàn thành?</strong>
+              <p class="muted" style="margin:8px 0 16px">Đơn sẽ chuyển trạng thái hoàn thành và đồng bộ lên server.</p>
+              <button class="btn btn-primary" style="margin-bottom:8px">Hoàn thành giao</button>
+              <button class="btn btn-secondary">Hủy</button>
+            </div>
+          </div>
+          <div class="tabbar">
+            <div class="tab active"><div class="tab-dot"></div>Đơn giao</div>
+            <div class="tab"><div class="tab-dot"></div>Bản đồ</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-label">04 Admin — Detail &amp; Audit</div>
+    <div class="section-row">
+      <div>
+        <div class="phone-name">Admin / Order — Detail</div>
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="appbar"><button class="btn-ghost">←</button><h1>#DH-1024</h1><button class="btn-ghost">Sửa</button></div>
+          <div class="banner online">● Online</div>
+          <div class="scroll">
+            <div class="seg-tabs">
+              <div class="seg-tab on">Thông tin</div>
+              <div class="seg-tab">Hàng</div>
+              <div class="seg-tab">Nợ vỏ</div>
+              <div class="seg-tab">Lịch sử</div>
+            </div>
+            <div class="card card-tight">
+              <div class="section-h">Khách hàng</div>
+              <div class="muted"><strong style="color:var(--text)">Nguyễn Văn A</strong></div>
+              <div class="muted">0901234567 · 123 Lê Lợi, Q.1</div>
+            </div>
+            <div class="card card-tight">
+              <div class="row-between"><span class="muted">Tổng tiền</span><strong>2.450.000 đ</strong></div>
+              <div class="row-between" style="margin-top:6px"><span class="muted">Trạng thái giao</span><span class="badge badge-primary">Đang giao</span></div>
+              <div class="row-between" style="margin-top:6px"><span class="muted">Nợ vỏ</span><strong>3 bình</strong></div>
+            </div>
+          </div>
+          <div class="tabbar">
+            <div class="tab"><div class="tab-dot"></div>Tổng quan</div>
+            <div class="tab active"><div class="tab-dot"></div>Đơn hàng</div>
+            <div class="tab"><div class="tab-dot"></div>Kiểm kê</div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="phone-name">Admin / Order — Edit (offline queue)</div>
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="appbar"><button class="btn-ghost">←</button><h1>Sửa đơn</h1></div>
+          <div class="banner offline">● Offline — thay đổi sẽ đồng bộ sau</div>
+          <div class="scroll">
+            <div class="field"><label>Nợ vỏ (bình)</label><input type="number" value="3" /></div>
+            <div class="field"><label>Ghi chú admin</label><input type="text" value="Khách hẹn trả vỏ T7" /></div>
+            <div class="card card-tight"><div class="muted" style="font-size:12px">Thay đổi vào outbox · mutation #a3f2…</div></div>
+          </div>
+          <div class="sticky-bottom"><button class="btn btn-primary">Lưu thay đổi</button></div>
+          <div class="tabbar">
+            <div class="tab"><div class="tab-dot"></div>Tổng quan</div>
+            <div class="tab active"><div class="tab-dot"></div>Đơn hàng</div>
+            <div class="tab"><div class="tab-dot"></div>Kiểm kê</div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="phone-name">Admin / Order — Change log</div>
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="appbar"><button class="btn-ghost">←</button><h1>Lịch sử #DH-1024</h1></div>
+          <div class="scroll">
+            <div class="card card-tight">
+              <div class="timeline">
+                <div class="timeline-item">
+                  <div class="when">22/05/2026 14:32 · admin</div>
+                  <div><span class="mono">borrowed_shell_units</span>: 2 → <span class="diff">3</span></div>
+                </div>
+                <div class="timeline-item">
+                  <div class="when">21/05/2026 09:10 · staff01</div>
+                  <div><span class="mono">delivery_status</span>: in_transit → completed</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="tabbar">
+            <div class="tab"><div class="tab-dot"></div>Tổng quan</div>
+            <div class="tab active"><div class="tab-dot"></div>Đơn hàng</div>
+            <div class="tab"><div class="tab-dot"></div>Kiểm kê</div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="phone-name">Admin / Audit — Form</div>
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="appbar"><div><h1>Kiểm kê vỏ</h1><div class="sub">Ngày: 22/05/2026 (GMT+7)</div></div></div>
+          <div class="banner online">● Online</div>
+          <div class="scroll">
+            <div class="section-h">Buổi sáng</div>
+            <div class="grid-2">
+              <div class="field" style="margin:0"><label>Gas đầy</label><input type="number" value="10" /></div>
+              <div class="field" style="margin:0"><label>Vỏ</label><input type="number" value="5" /></div>
+            </div>
+            <div class="section-h" style="margin-top:8px">Buổi tối</div>
+            <div class="grid-2">
+              <div class="field" style="margin:0"><label>Gas đầy</label><input type="number" value="9" /></div>
+              <div class="field" style="margin:0"><label>Vỏ</label><input type="number" value="6" /></div>
+            </div>
+            <div class="card card-tight"><div class="row-between"><span class="muted">Chênh lệch vỏ</span><strong>+1</strong></div></div>
+          </div>
+          <div class="sticky-bottom"><button class="btn btn-primary">Lưu kiểm kê</button></div>
+          <div class="tabbar">
+            <div class="tab"><div class="tab-dot"></div>Tổng quan</div>
+            <div class="tab"><div class="tab-dot"></div>Đơn hàng</div>
+            <div class="tab active"><div class="tab-dot"></div>Kiểm kê</div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="phone-name">Admin / Audit — Validation error</div>
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="appbar"><div><h1>Kiểm kê vỏ</h1></div></div>
+          <div class="scroll">
+            <div class="summary-err">2 trường chưa hợp lệ — kiểm tra lại trước khi lưu</div>
+            <div class="field"><label>Gas đầy (sáng)</label><input class="err" type="number" value="-1" /><div class="err-msg">Phải ≥ 0</div></div>
+            <div class="field"><label>Vỏ (tối)</label><input class="err" type="number" value="" /><div class="err-msg">Bắt buộc nhập</div></div>
+          </div>
+          <div class="sticky-bottom"><button class="btn btn-primary" style="opacity:0.5">Lưu kiểm kê</button></div>
+          <div class="tabbar">
+            <div class="tab"><div class="tab-dot"></div>Tổng quan</div>
+            <div class="tab"><div class="tab-dot"></div>Đơn hàng</div>
+            <div class="tab active"><div class="tab-dot"></div>Kiểm kê</div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="phone-name">Admin / Audit — Saved offline</div>
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="appbar"><div><h1>Kiểm kê vỏ</h1></div></div>
+          <div class="banner offline">● Offline — kiểm kê đã lưu · chờ đồng bộ</div>
+          <div class="scroll">
+            <div class="card card-tight" style="background:var(--success-soft);border-color:#86efac">
+              <strong style="color:var(--success)">Đã lưu kiểm kê ngày 22/05/2026</strong>
+              <div class="muted" style="margin-top:4px;font-size:12px">Có thể sửa lại trước khi sync</div>
+            </div>
+            <div class="grid-2">
+              <div class="field" style="margin:0"><label>Gas đầy (tối)</label><input type="number" value="9" /></div>
+              <div class="field" style="margin:0"><label>Vỏ (tối)</label><input type="number" value="6" /></div>
+            </div>
+          </div>
+          <div class="sticky-bottom"><button class="btn btn-secondary">Cập nhật bản nháp</button></div>
+          <div class="tabbar">
+            <div class="tab"><div class="tab-dot"></div>Tổng quan</div>
+            <div class="tab"><div class="tab-dot"></div>Đơn hàng</div>
+            <div class="tab active"><div class="tab-dot"></div>Kiểm kê</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-label">05 System states</div>
+    <div class="section-row">
+      <div>
+        <div class="phone-name">System / SyncBanner variants</div>
+        <div class="banner-board">
+          <div class="banner-row" style="background:var(--success-soft);color:var(--success)">☁✓ Đã kết nối — dữ liệu đồng bộ</div>
+          <div class="banner-row" style="background:var(--warning-soft);color:var(--warning)">☁✕ Offline — thay đổi lưu trên máy</div>
+          <div class="banner-row" style="background:var(--primary-soft);color:var(--primary)">↻ Đang đồng bộ…</div>
+          <div class="banner-row" style="background:var(--error-soft);color:var(--error)">⚠ Đồng bộ lỗi — Chạm để thử lại</div>
+        </div>
+      </div>
+      <div>
+        <div class="phone-name">System / Conflict — Generic</div>
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="appbar"><h1>Xung đột dữ liệu</h1></div>
+          <div class="scroll">
+            <p class="muted" style="margin-bottom:8px">Đơn <strong>#DH-1024</strong> — 2 phiên bản khác nhau</p>
+            <div class="conflict-grid">
+              <div class="conflict-col server">
+                <strong>Trên server</strong>
+                <div class="muted" style="font-size:11px;margin:4px 0">22/05 14:40 · admin2</div>
+                Nợ vỏ: <span class="diff">2</span>
+              </div>
+              <div class="conflict-col local">
+                <strong>Trên máy bạn</strong>
+                <div class="muted" style="font-size:11px;margin:4px 0">22/05 14:38 · bạn</div>
+                Nợ vỏ: <span class="diff">3</span>
+              </div>
+            </div>
+            <button class="btn btn-primary" style="margin-top:12px">Giữ bản server</button>
+            <button class="btn btn-secondary" style="margin-top:8px">Giữ bản của tôi</button>
+            <button class="btn btn-ghost" style="margin-top:8px;width:100%">Hủy</button>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="phone-name">System / Empty — No data</div>
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="appbar"><h1>Đơn hàng</h1></div>
+          <div class="empty">
+            <div class="empty-icon">📋</div>
+            <strong>Không có kết quả</strong>
+            <p class="muted">Thử đổi bộ lọc hoặc đồng bộ lại</p>
+          </div>
+          <div class="tabbar">
+            <div class="tab"><div class="tab-dot"></div>Tổng quan</div>
+            <div class="tab active"><div class="tab-dot"></div>Đơn hàng</div>
+            <div class="tab"><div class="tab-dot"></div>Kiểm kê</div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="phone-name">System / Error — Network</div>
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="appbar"><h1>Tổng quan</h1></div>
+          <div class="banner error">● Không kết nối được máy chủ</div>
+          <div class="empty">
+            <div class="empty-icon" style="color:var(--error)">⚠</div>
+            <strong>Lỗi mạng</strong>
+            <p class="muted">Kiểm tra Wi‑Fi hoặc 4G rồi thử lại</p>
+            <button class="btn btn-primary" style="margin-top:12px;max-width:200px">Thử lại</button>
+          </div>
+          <div class="tabbar">
+            <div class="tab active"><div class="tab-dot"></div>Tổng quan</div>
+            <div class="tab"><div class="tab-dot"></div>Đơn hàng</div>
+            <div class="tab"><div class="tab-dot"></div>Kiểm kê</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-label">Cover v3</div>
+    <div class="cover-board">
+      <h1 style="font-size:20px">Gas Store Mobile — UX v3 batch</h1>
+      <p class="muted" style="margin-top:8px;font-size:13px;line-height:1.6">
+        Auth · Staff map/empty · Admin detail/edit/audit · System sync/conflict/error<br/>
+        Bổ sung cho v2 (staff detail + admin dashboard đã có ở node 12:2)
+      </p>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

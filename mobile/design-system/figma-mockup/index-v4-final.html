@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Gas Store Mobile — UX v4 Final</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <script src="https://mcp.figma.com/mcp/html-to-design/capture.js" async></script>
+  <style>
+    :root {
+      --primary: #2563EB; --accent: #F97316;
+      --bg: #F8FAFC; --surface: #FFF; --text: #1E293B; --muted: #64748B;
+      --border: #E2E8F0; --success: #16A34A; --warning: #D97706; --error: #DC2626;
+      --success-soft: #ECFDF5; --warning-soft: #FFFBEB; --error-soft: #FEF2F2; --primary-soft: #EFF6FF;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Inter, sans-serif; background: #94a3b8; padding: 32px; min-width: max-content; }
+    .canvas { display: flex; gap: 40px; align-items: flex-start; }
+    .section { display: flex; flex-direction: column; gap: 12px; }
+    .section-label { font-size: 12px; font-weight: 600; text-transform: uppercase; padding: 6px 10px; background: #0f172a; color: #fff; border-radius: 4px; width: fit-content; }
+    .section-row { display: flex; flex-wrap: wrap; gap: 20px; }
+    .phone-name { font-size: 11px; color: #334155; margin-bottom: 4px; max-width: 390px; font-weight: 600; }
+    .phone {
+      width: 390px; height: 844px; background: var(--bg); overflow: hidden;
+      display: flex; flex-direction: column; position: relative;
+      box-shadow: 0 4px 24px rgba(15,23,42,0.18);
+    }
+    .status-bar { height: 44px; background: var(--surface); flex-shrink: 0; }
+    .appbar {
+      background: var(--surface); padding: 10px 14px; display: flex; align-items: center;
+      justify-content: space-between; border-bottom: 1px solid var(--border); flex-shrink: 0; gap: 8px;
+    }
+    .appbar h1 { font-size: 17px; font-weight: 700; flex: 1; }
+    .appbar .sub { font-size: 11px; color: var(--muted); }
+    .banner { padding: 8px 14px; font-size: 12px; font-weight: 600; flex-shrink: 0; }
+    .banner.online { background: var(--success-soft); color: var(--success); }
+    .banner.offline { background: var(--warning-soft); color: var(--warning); }
+    .banner.error { background: var(--error-soft); color: var(--error); }
+    .scroll { flex: 1; overflow: hidden; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+    .tabbar {
+      height: 72px; background: var(--surface); border-top: 1px solid var(--border);
+      display: flex; justify-content: space-around; padding-top: 8px; flex-shrink: 0;
+    }
+    .tab { text-align: center; font-size: 11px; color: var(--muted); min-width: 72px; }
+    .tab.active { color: var(--primary); font-weight: 600; }
+    .tab-dot { width: 22px; height: 22px; margin: 0 auto 3px; border-radius: 6px; background: var(--border); }
+    .tab.active .tab-dot { background: var(--primary); }
+    .btn { height: 48px; border-radius: 8px; border: none; font-size: 14px; font-weight: 600; display: flex; align-items: center; justify-content: center; width: 100%; font-family: inherit; }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-secondary { background: var(--surface); color: var(--primary); border: 1px solid var(--border); }
+    .btn-ghost { background: none; color: var(--primary); font-size: 14px; height: 36px; border: none; font-weight: 600; padding: 0 8px; }
+    .btn-sm { height: 40px; font-size: 13px; }
+    .btn-gmaps { background: var(--primary-soft); color: var(--primary); border: 1px solid #BFDBFE; }
+    .card { background: var(--surface); border-radius: 10px; padding: 12px; border: 1px solid var(--border); }
+    .card-tight { padding: 10px 12px; }
+    .badge { display: inline-block; padding: 3px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+    .badge-primary { background: var(--primary-soft); color: var(--primary); }
+    .badge-success { background: var(--success-soft); color: var(--success); }
+    .badge-warn { background: var(--warning-soft); color: var(--warning); }
+    .row-between { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+    .muted { color: var(--muted); font-size: 13px; line-height: 1.35; }
+    .section-h { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin: 2px 0; }
+    .list-row { display: flex; gap: 10px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); }
+    .list-row:last-child { border: none; }
+    .pin-num { width: 28px; height: 28px; border-radius: 14px; background: var(--primary); color: #fff; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .toast {
+      position: absolute; top: 56px; left: 12px; right: 12px; z-index: 20;
+      background: var(--success-soft); border: 1px solid #86efac; color: var(--success);
+      padding: 10px 12px; border-radius: 10px; font-size: 13px; font-weight: 600;
+    }
+    .comp-board { width: 680px; background: var(--surface); border-radius: 12px; padding: 20px; border: 1px solid var(--border); }
+    .comp-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 16px; }
+    .comp-lbl { width: 100%; font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; margin-bottom: 4px; }
+    .field label { display: block; font-size: 12px; font-weight: 600; margin-bottom: 4px; }
+    .field input { width: 100%; height: 48px; border: 1px solid var(--border); border-radius: 8px; padding: 0 12px; font-family: inherit; }
+    .kpi-mini { flex: 1; min-width: 100px; padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+    .cover { width: 560px; padding: 24px; background: var(--surface); border-radius: 12px; border: 1px solid var(--border); }
+    .cover h1 { font-size: 20px; margin-bottom: 8px; }
+    .cover ul { font-size: 12px; color: var(--muted); line-height: 1.7; padding-left: 18px; }
+    .cover .done { color: var(--success); font-weight: 600; }
+    .note { max-width: 390px; font-size: 11px; color: var(--muted); margin-top: 6px; padding: 8px; background: var(--primary-soft); border-radius: 6px; line-height: 1.4; }
+    .metric { font-size: 22px; font-weight: 700; color: var(--text); }
+    .table-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+    .sticky-bottom { position: absolute; bottom: 72px; left: 0; right: 0; padding: 10px 12px; background: var(--surface); border-top: 1px solid var(--border); }
+  </style>
+</head>
+<body>
+<div class="canvas">
+
+  <!-- 01 Components -->
+  <div class="section">
+    <div class="section-label">01 Components</div>
+    <div class="comp-board">
+      <div class="comp-lbl">Button</div>
+      <div class="comp-row">
+        <button class="btn btn-primary" style="width:140px">Primary</button>
+        <button class="btn btn-secondary" style="width:140px">Secondary</button>
+        <button class="btn btn-ghost">Ghost</button>
+        <button class="btn btn-primary" style="width:140px;opacity:0.5">Disabled</button>
+      </div>
+      <div class="comp-lbl">TextField</div>
+      <div class="comp-row" style="max-width:320px">
+        <div class="field" style="flex:1"><label>Tài khoản</label><input value="staff01" /></div>
+      </div>
+      <div class="comp-lbl">SyncBanner</div>
+      <div class="comp-row" style="flex-direction:column;align-items:stretch">
+        <div class="banner online">● Online — dữ liệu đồng bộ</div>
+        <div class="banner offline">● Offline — thay đổi lưu trên máy</div>
+        <div class="banner error">● Đồng bộ lỗi — chạm thử lại</div>
+      </div>
+      <div class="comp-lbl">OrderCard + Badge</div>
+      <div class="card card-tight" style="max-width:340px">
+        <div class="row-between"><strong>#DH-1024</strong><span class="badge badge-primary">Đang giao</span></div>
+        <div class="muted">Nguyễn Văn A · 2,4tr</div>
+      </div>
+      <div class="comp-lbl">MetricCard / KPI</div>
+      <div class="comp-row">
+        <div class="kpi-mini"><div class="muted" style="font-size:10px">Doanh thu</div><div class="metric">48tr</div></div>
+        <div class="kpi-mini"><div class="muted" style="font-size:10px">Đơn</div><div class="metric">124</div></div>
+      </div>
+      <div class="comp-lbl">BottomTab (Staff 2 tab)</div>
+      <div style="display:flex;gap:24px;border:1px solid var(--border);border-radius:8px;padding:8px 16px;width:fit-content">
+        <div class="tab active"><div class="tab-dot"></div>Đơn giao</div>
+        <div class="tab"><div class="tab-dot"></div>Điểm giao</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Staff directions — NO in-app map -->
+  <div class="section">
+    <div class="section-label">03 Staff — Google Maps (external)</div>
+    <div class="section-row">
+      <div>
+        <div class="phone-name">Staff / Directions — List (tab Điểm giao)</div>
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="appbar"><div><h1>Điểm giao</h1><div class="sub">5 đơn · mở Google Maps</div></div></div>
+          <div class="banner online">● Không nhúng map — chỉ mở app ngoài</div>
+          <div class="scroll">
+            <div class="card card-tight">
+              <div class="list-row">
+                <div class="pin-num">1</div>
+                <div style="flex:1">
+                  <strong>#DH-1024</strong>
+                  <div class="muted">123 Lê Lợi, Q.1</div>
+                  <div class="muted" style="font-size:11px">10.7769, 106.7009</div>
+                </div>
+              </div>
+              <button class="btn btn-gmaps btn-sm">Mở Google Maps</button>
+            </div>
+            <div class="card card-tight">
+              <div class="list-row">
+                <div class="pin-num">2</div>
+                <div style="flex:1">
+                  <strong>#DH-1025</strong>
+                  <div class="muted">45 Nguyễn Huệ</div>
+                  <div class="muted" style="font-size:11px">Chưa có GPS — dùng địa chỉ</div>
+                </div>
+              </div>
+              <button class="btn btn-gmaps btn-sm">Mở Google Maps</button>
+            </div>
+          </div>
+          <div class="tabbar">
+            <div class="tab"><div class="tab-dot"></div>Đơn giao</div>
+            <div class="tab active"><div class="tab-dot"></div>Điểm giao</div>
+          </div>
+        </div>
+        <div class="note">Deep link: google.com/maps/dir/?api=1&amp;destination=lat,lng hoặc địa chỉ text.</div>
+      </div>
+      <div>
+        <div class="phone-name">Staff / Order Detail — Chỉ đường</div>
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="appbar"><button class="btn-ghost">←</button><h1>#DH-1024</h1></div>
+          <div class="scroll">
+            <div class="card card-tight">
+              <div class="section-h">Địa chỉ giao</div>
+              <div class="muted"><strong style="color:var(--text)">123 Lê Lợi, Q.1</strong></div>
+              <div class="muted" style="font-size:11px;margin-top:4px">GPS: 10.7769, 106.7009</div>
+              <div style="display:flex;gap:8px;margin-top:10px">
+                <button class="btn btn-secondary btn-sm" style="flex:1">Gọi</button>
+                <button class="btn btn-gmaps btn-sm" style="flex:1">Chỉ đường</button>
+              </div>
+            </div>
+            <div class="card card-tight">
+              <div class="section-h">Ghi chú giao</div>
+              <div class="muted">Giao trước 17h</div>
+            </div>
+          </div>
+          <div class="sticky-bottom"><button class="btn btn-primary btn-sm">Hoàn thành giao</button></div>
+          <div class="tabbar">
+            <div class="tab active"><div class="tab-dot"></div>Đơn giao</div>
+            <div class="tab"><div class="tab-dot"></div>Điểm giao</div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="phone-name">Staff / Complete — Success toast</div>
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="toast">✓ Hoàn thành giao — đã xếp hàng đồng bộ</div>
+          <div class="appbar"><button class="btn-ghost">←</button><h1>Đơn giao</h1></div>
+          <div class="scroll">
+            <div class="card card-tight"><div class="row-between"><strong>#DH-1024</strong><span class="badge badge-success">Hoàn thành</span></div></div>
+          </div>
+          <div class="tabbar">
+            <div class="tab active"><div class="tab-dot"></div>Đơn giao</div>
+            <div class="tab"><div class="tab-dot"></div>Điểm giao</div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="phone-name">Staff / Conflict — Order</div>
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="appbar"><h1>Xung đột #DH-1024</h1></div>
+          <div class="scroll">
+            <div class="card card-tight" style="border-color:var(--primary);background:var(--primary-soft)">
+              <strong>Server</strong><div class="muted">Hoàn thành lúc 14:40</div>
+            </div>
+            <div class="card card-tight" style="border-color:var(--warning);background:var(--warning-soft)">
+              <strong>Máy bạn</strong><div class="muted">Đang giao — chưa sync</div>
+            </div>
+            <button class="btn btn-primary">Giữ bản server</button>
+            <button class="btn btn-secondary" style="margin-top:8px">Giữ bản của tôi</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- P0 system leftovers -->
+  <div class="section">
+    <div class="section-label">05 System — còn lại</div>
+    <div class="section-row">
+      <div>
+        <div class="phone-name">Auth / Login — Loading</div>
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div style="flex:1;padding:24px;display:flex;flex-direction:column;justify-content:center;gap:16px">
+            <div class="field"><label>Tài khoản</label><input value="admin" /></div>
+            <div class="field"><label>Mật khẩu</label><input type="password" value="••••" /></div>
+            <button class="btn btn-primary" style="opacity:0.6">Đang đăng nhập…</button>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="phone-name">System / Outbox — Pending</div>
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="appbar"><h1>Chờ đồng bộ</h1><span class="badge badge-warn">3</span></div>
+          <div class="scroll">
+            <div class="card card-tight"><div class="row-between"><span>Hoàn thành #DH-1024</span><span class="muted">2p trước</span></div></div>
+            <div class="card card-tight"><div class="row-between"><span>Ghi chú voice</span><span class="muted">5p trước</span></div></div>
+            <div class="card card-tight"><div class="row-between"><span>Kiểm kê 22/05</span><span class="muted">1h trước</span></div></div>
+            <button class="btn btn-primary btn-sm">Đồng bộ ngay</button>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="phone-name">System / Session expired</div>
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;text-align:center;gap:12px">
+            <div style="font-size:40px;color:var(--warning)">⏱</div>
+            <strong>Phiên đăng nhập hết hạn</strong>
+            <p class="muted">Vui lòng đăng nhập lại để tiếp tục</p>
+            <button class="btn btn-primary" style="max-width:220px">Về màn đăng nhập</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- P2 Admin parity -->
+  <div class="section">
+    <div class="section-label">06 Admin P2 — parity web</div>
+    <div class="section-row">
+      <div>
+        <div class="phone-name">Admin / Operations</div>
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="appbar"><button class="btn-ghost">☰</button><h1>Vận hành</h1></div>
+          <div class="scroll">
+            <div class="card card-tight"><div class="table-row"><span>Đơn cần xử lý</span><strong>12</strong></div></div>
+            <div class="card card-tight"><div class="table-row"><span>Giao chậm</span><strong style="color:var(--warning)">3</strong></div></div>
+            <div class="card card-tight"><div class="table-row"><span>CSKH hôm nay</span><strong>5</strong></div></div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="phone-name">Admin / Debt</div>
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="appbar"><h1>Công nợ</h1></div>
+          <div class="scroll">
+            <div class="kpi-mini" style="margin-bottom:8px"><div class="muted" style="font-size:10px">Tổng dư nợ</div><div class="metric">128tr</div></div>
+            <div class="card card-tight"><div class="row-between"><div><strong>Nguyễn Văn A</strong><div class="muted">12,5tr</div></div><span class="badge badge-warn">Quá hạn</span></div></div>
+            <div class="card card-tight"><div class="row-between"><div><strong>Trần Thị B</strong><div class="muted">8,2tr</div></div><span class="badge badge-primary">Đang theo</span></div></div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="phone-name">Admin / Collection</div>
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="appbar"><h1>Đòi nợ</h1></div>
+          <div class="scroll">
+            <div class="card card-tight">
+              <strong>Lê Văn C</strong>
+              <div class="muted">Nợ: 5,4tr · Hẹn thu 25/05</div>
+              <button class="btn btn-gmaps btn-sm" style="margin-top:8px">Tìm trên Google Maps</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="phone-name">Admin / Tax report</div>
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="appbar"><h1>Báo cáo thuế</h1></div>
+          <div class="scroll">
+            <div class="card card-tight"><div class="table-row"><span>Doanh thu kỳ</span><strong>420tr</strong></div><div class="table-row"><span>Thuế tạm tính</span><strong>42tr</strong></div></div>
+            <button class="btn btn-secondary btn-sm">Xuất PDF (online)</button>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="phone-name">Admin / CRM</div>
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="appbar"><h1>CSKH</h1></div>
+          <div class="scroll">
+            <div class="card card-tight"><div class="muted">Khách mới tuần này</div><div class="metric">8</div></div>
+            <div class="card card-tight"><div class="muted">Khiếu nại mở</div><div class="metric" style="color:var(--error)">2</div></div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="phone-name">Admin / Cylinder ledger</div>
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="appbar"><h1>Sổ gas</h1></div>
+          <div class="scroll">
+            <div class="card card-tight"><div class="table-row"><span>Vỏ trong kho</span><strong>240</strong></div><div class="table-row"><span>Gas đầy</span><strong>180</strong></div></div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="phone-name">Admin / Inventory</div>
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="appbar"><h1>Kho hàng</h1></div>
+          <div class="scroll">
+            <div class="card card-tight"><div class="row-between"><span>Gas 12kg</span><span class="badge badge-warn">Tồn thấp: 8</span></div></div>
+            <div class="card card-tight"><div class="row-between"><span>Gas 45kg</span><span class="badge badge-success">42</span></div></div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="phone-name">Admin / Bottle templates</div>
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="appbar"><h1>Mẫu chai</h1></div>
+          <div class="scroll">
+            <div class="card card-tight"><strong>Petrolimex 12kg</strong><div class="muted">HSD kiểm: 12/2026</div></div>
+            <div class="card card-tight"><strong>VT Gas 45kg</strong><div class="muted">HSD kiểm: 08/2026</div></div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="phone-name">Admin / Users</div>
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="appbar"><h1>Người dùng</h1><button class="btn-ghost">+</button></div>
+          <div class="scroll">
+            <div class="card card-tight"><div class="row-between"><div><strong>admin</strong><div class="muted">Quản trị</div></div><span class="badge badge-success">Active</span></div></div>
+            <div class="card card-tight"><div class="row-between"><div><strong>staff01</strong><div class="muted">Giao hàng</div></div><span class="badge badge-success">Active</span></div></div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="phone-name">Admin / Menu drawer (P2 nav)</div>
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div style="display:flex;flex:1">
+            <div style="width:280px;background:var(--surface);border-right:1px solid var(--border);padding:16px 12px">
+              <strong style="font-size:16px">Gas Huy Hoàng</strong>
+              <div class="section-h" style="margin-top:16px">Tổng quan</div>
+              <div class="muted" style="padding:8px 0">Tổng quan · Đơn hàng · Vận hành</div>
+              <div class="section-h">Nợ &amp; tài chính</div>
+              <div class="muted" style="padding:8px 0">Công nợ · Đòi nợ · Thuế</div>
+              <div class="section-h">Kho</div>
+              <div class="muted" style="padding:8px 0">Sổ gas · Kho · Mẫu chai</div>
+              <div class="section-h">Hệ thống</div>
+              <div class="muted" style="padding:8px 0">Người dùng</div>
+            </div>
+            <div style="flex:1;background:rgba(15,23,42,0.3)"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Final cover -->
+  <div class="section">
+    <div class="section-label">Cover — Figma complete</div>
+    <div class="cover">
+      <h1>Gas Store Mobile — Figma COMPLETE</h1>
+      <p class="muted" style="font-size:13px;margin-bottom:12px">Tất cả flow P0 + P2 wireframe · Map = mở Google Maps (không nhúng SDK)</p>
+      <ul>
+        <li class="done">v2 node 12:2 — Staff list/detail/voice, Admin dashboard</li>
+        <li class="done">v3 node 14:2 — Auth, Audit, System, Admin detail/edit</li>
+        <li class="done">v4 — Components, Directions/GG Maps, P2 admin, Outbox, Session</li>
+      </ul>
+      <p class="muted" style="font-size:11px;margin-top:12px">Sau sign-off → implement RN theo frame. Tab staff: Đơn giao | Điểm giao.</p>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

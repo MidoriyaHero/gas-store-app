@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Gas Store Mobile — UX v5 Create Order + FAB</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <script src="https://mcp.figma.com/mcp/html-to-design/capture.js" async></script>
+  <style>
+    :root {
+      --primary: #2563EB; --accent: #F97316;
+      --bg: #F8FAFC; --surface: #FFF; --text: #1E293B; --muted: #64748B;
+      --border: #E2E8F0; --success: #16A34A; --warning: #D97706;
+      --success-soft: #ECFDF5; --warning-soft: #FFFBEB; --primary-soft: #EFF6FF;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Inter, sans-serif; background: #94a3b8; padding: 32px; min-width: max-content; }
+    .canvas { display: flex; gap: 40px; align-items: flex-start; flex-wrap: wrap; }
+    .section { display: flex; flex-direction: column; gap: 12px; }
+    .section-label { font-size: 12px; font-weight: 600; text-transform: uppercase; padding: 6px 10px; background: #0f172a; color: #fff; border-radius: 4px; width: fit-content; }
+    .section-row { display: flex; flex-wrap: wrap; gap: 20px; }
+    .phone-name { font-size: 11px; color: #334155; margin-bottom: 4px; max-width: 390px; font-weight: 600; }
+    .phone { width: 390px; height: 844px; background: var(--bg); overflow: hidden; display: flex; flex-direction: column; position: relative; box-shadow: 0 4px 24px rgba(15,23,42,0.18); }
+    .status-bar { height: 44px; background: var(--surface); flex-shrink: 0; }
+    .appbar { background: var(--surface); padding: 10px 14px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+    .appbar h1 { font-size: 17px; font-weight: 700; }
+    .scroll { flex: 1; overflow: hidden; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+    .tabbar-wrap { position: relative; flex-shrink: 0; height: 72px; background: var(--surface); border-top: 1px solid var(--border); }
+    .tabbar-row { display: flex; align-items: flex-end; height: 100%; padding: 8px 0 10px; }
+    .tab-half { flex: 1; display: flex; align-items: flex-end; min-height: 48px; }
+    .tab-half.left { justify-content: space-evenly; padding-right: 34px; }
+    .tab-half.right { justify-content: space-evenly; padding-left: 34px; }
+    .tab { text-align: center; font-size: 11px; color: var(--muted); width: 72px; flex-shrink: 0; }
+    .tab.active { color: var(--primary); font-weight: 600; }
+    .tab-dot { width: 22px; height: 22px; margin: 0 auto 3px; border-radius: 6px; background: var(--border); }
+    .tab.active .tab-dot { background: var(--primary); }
+    .fab {
+      position: absolute; left: 50%; transform: translateX(-50%); bottom: 22px;
+      width: 56px; height: 56px; border-radius: 28px; background: var(--accent); color: #fff;
+      border: 3px solid var(--surface); box-shadow: 0 4px 16px rgba(249,115,22,0.45);
+      display: flex; align-items: center; justify-content: center; font-size: 28px; font-weight: 300;
+    }
+    .field-row { display: flex; gap: 8px; align-items: center; }
+    .field-row input { flex: 1; min-width: 0; height: 48px; border: 1px solid var(--border); border-radius: 8px; padding: 0 12px; font-family: inherit; }
+    .btn-map {
+      width: 56px; height: 48px; flex-shrink: 0; border-radius: 8px; border: 1px solid var(--border);
+      background: var(--primary-soft); color: var(--primary); font-size: 11px; font-weight: 600;
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+      font-family: inherit; cursor: default;
+    }
+    .btn-map svg { width: 18px; height: 18px; }
+    .pin-hint { font-size: 11px; color: var(--success); margin-top: 4px; font-weight: 500; }
+    .paste-row { border: 1px dashed var(--border); border-radius: 8px; padding: 8px; background: #fff; }
+    .paste-row label { font-size: 11px; color: var(--muted); font-weight: 600; margin-bottom: 6px; display: block; }
+    .paste-row .row { display: flex; gap: 8px; }
+    .paste-row input { flex: 1; height: 40px; border: 1px solid var(--border); border-radius: 8px; padding: 0 10px; font-size: 11px; font-family: inherit; }
+    .btn-sm { height: 40px; padding: 0 12px; width: auto; font-size: 12px; white-space: nowrap; }
+    .btn { height: 48px; border-radius: 8px; border: none; font-size: 14px; font-weight: 600; display: flex; align-items: center; justify-content: center; width: 100%; font-family: inherit; }
+    .btn-accent { background: var(--accent); color: #fff; }
+    .btn-secondary { background: var(--surface); color: var(--primary); border: 1px solid var(--border); }
+    .card { background: var(--surface); border-radius: 10px; padding: 12px; border: 1px solid var(--border); }
+    .field label { display: block; font-size: 12px; font-weight: 600; margin-bottom: 4px; }
+    .field input, .field select { width: 100%; height: 48px; border: 1px solid var(--border); border-radius: 8px; padding: 0 12px; font-family: inherit; }
+    .chip { display: inline-block; padding: 6px 12px; border-radius: 999px; font-size: 12px; border: 1px solid var(--border); margin-right: 6px; }
+    .chip.on { background: var(--primary-soft); color: var(--primary); border-color: #BFDBFE; font-weight: 600; }
+    .banner { padding: 8px 14px; font-size: 12px; font-weight: 600; }
+    .banner.offline { background: var(--warning-soft); color: var(--warning); }
+    .sticky { position: absolute; bottom: 0; left: 0; right: 0; padding: 12px; background: var(--surface); border-top: 1px solid var(--border); }
+    .step { font-size: 11px; color: var(--muted); font-weight: 600; text-transform: uppercase; }
+    .toast { position: absolute; top: 56px; left: 12px; right: 12px; background: var(--success-soft); border: 1px solid #86efac; color: var(--success); padding: 10px 12px; border-radius: 10px; font-size: 13px; font-weight: 600; z-index: 5; }
+    .deprecated { opacity: 0.45; border: 2px dashed #94a3b8; position: relative; }
+    .deprecated::after { content: "DEPRECATED"; position: absolute; top: 8px; right: 8px; font-size: 10px; font-weight: 700; color: #64748B; background: #fff; padding: 2px 6px; border-radius: 4px; }
+    .cover { width: 420px; padding: 20px; background: var(--surface); border-radius: 12px; border: 1px solid var(--border); }
+  </style>
+</head>
+<body>
+<div class="canvas">
+
+  <div class="section">
+    <div class="section-label">v5 — Admin FAB + Create Order</div>
+    <div class="section-row">
+      <div>
+        <div class="phone-name">Admin / TabBar — FAB (elevated +)</div>
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="scroll"><div class="card"><strong>Tổng quan</strong><p style="font-size:13px;color:var(--muted);margin-top:4px">KPI hôm nay…</p></div></div>
+          <div class="tabbar-wrap">
+            <div class="tabbar-row">
+              <div class="tab-half left">
+                <div class="tab active"><div class="tab-dot"></div>Tổng quan</div>
+                <div class="tab"><div class="tab-dot"></div>Đơn hàng</div>
+              </div>
+              <div class="tab-half right">
+                <div class="tab"><div class="tab-dot"></div>Kiểm kê</div>
+                <div class="tab"><div class="tab-dot"></div>Thêm</div>
+              </div>
+            </div>
+            <div class="fab" aria-label="Tạo đơn nhanh">+</div>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div class="phone-name">Admin / Create Order — Step 1</div>
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="appbar"><h1>Tạo đơn</h1><div class="step">Bước 1/2 · Khách &amp; giao</div></div>
+          <div class="scroll">
+            <div class="field"><label>Tên khách *</label><input value="Nguyễn Văn A" /></div>
+            <div class="field"><label>Số điện thoại *</label><input value="0901234567" /></div>
+            <div class="field">
+              <label>Địa chỉ giao</label>
+              <div class="field-row">
+                <input value="123 Lê Lợi, Quận 1, TP.HCM" />
+                <button type="button" class="btn-map" aria-label="Lấy vị trí từ Google Maps">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s7-4.5 7-11a7 7 0 1 0-14 0c0 6.5 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
+                  Maps
+                </button>
+              </div>
+              <div class="pin-hint">✓ Đã ghim: 10.772461, 106.698055</div>
+            </div>
+            <div class="paste-row">
+              <label>Dán từ Google Maps (link, Plus Code, tọa độ)</label>
+              <div class="row">
+                <input value="maps.app.goo.gl/…" />
+                <button type="button" class="btn btn-secondary btn-sm">Áp dụng</button>
+              </div>
+            </div>
+            <div class="field"><label>Ngày giao</label><input type="date" /></div>
+            <div class="field"><label>Nhân viên giao</label>
+              <span class="chip">Không assign</span><span class="chip on">staff01</span>
+            </div>
+          </div>
+          <div class="sticky"><button class="btn btn-accent">Tiếp theo</button></div>
+        </div>
+      </div>
+
+      <div>
+        <div class="phone-name">Admin / Create Order — Step 2</div>
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="appbar"><h1>Tạo đơn</h1><div class="step">Bước 2/2 · Hàng &amp; thanh toán</div></div>
+          <div class="scroll" style="padding-bottom:72px">
+            <div class="card"><span class="chip on">Mẫu: Gas Huy Hoàng</span></div>
+            <div class="card"><strong>Gas 12kg × 2</strong><div style="font-size:12px;color:var(--muted);margin-top:4px">Chủ: Gas Huy Hoàng · HSD kiểm · Ngày nhập</div></div>
+            <div class="field"><label>Thanh toán</label><span class="chip on">Tiền mặt</span><span class="chip">Công nợ</span></div>
+            <div class="card"><strong>Tổng: 1.320.000 đ</strong></div>
+          </div>
+          <div class="sticky"><button class="btn btn-accent">Tạo đơn</button></div>
+        </div>
+      </div>
+
+      <div>
+        <div class="phone-name">Admin / Create Order — Offline</div>
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="banner offline">Offline — lưu hàng đợi, tự sync khi có WiFi/4G</div>
+          <div class="appbar"><h1>Tạo đơn</h1></div>
+          <div class="scroll"><div class="card muted">Form giống Step 2…</div></div>
+          <div class="sticky"><button class="btn btn-secondary">Lưu hàng đợi</button></div>
+        </div>
+      </div>
+
+      <div>
+        <div class="phone-name">Admin / Create Order — Success</div>
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="appbar"><h1>Tạo đơn</h1></div>
+          <div class="toast">Đã tạo đơn #DH-1025</div>
+          <div class="scroll"><div class="card"><strong>Chuyển tới chi tiết đơn…</strong></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-label">Deprecated — archive (dọn Figma)</div>
+    <div class="section-row">
+      <div class="phone deprecated" style="width:390px;height:200px;background:var(--surface);padding:16px">
+        <strong>Staff / Map Placeholder</strong><p style="font-size:12px;color:var(--muted);margin-top:8px">Thay bằng Directions + Google Maps deep link</p>
+      </div>
+      <div class="phone deprecated" style="width:390px;height:200px;background:var(--surface);padding:16px">
+        <strong>Staff / Notes Tab</strong><p style="font-size:12px;color:var(--muted);margin-top:8px">Ghi chú inline trong Order Detail</p>
+      </div>
+      <div class="phone deprecated" style="width:390px;height:200px;background:var(--surface);padding:16px">
+        <strong>Admin / Bottle templates</strong><p style="font-size:12px;color:var(--muted);margin-top:8px">Mẫu chai gộp vào form Tạo đơn</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-label">Cover v5</div>
+    <div class="cover">
+      <h1 style="font-size:18px;margin-bottom:8px">Gas Store Mobile v5</h1>
+      <p style="font-size:13px;color:var(--muted);line-height:1.6;margin-bottom:12px">Tab bar <strong>2 + FAB + 2</strong>: Trái Tổng quan · Đơn | Phải Kiểm kê · <strong>Thêm</strong> (menu P2: công nợ, kho, users, outbox).</p>
+      <p style="font-size:12px;color:var(--muted);line-height:1.5">Địa chỉ: nút Maps căn hàng với ô input (hint ghim tọa độ nằm dưới).</p>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

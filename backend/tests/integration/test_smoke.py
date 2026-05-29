@@ -212,8 +212,45 @@ def test_gas_ledger_skips_incomplete_rows_and_flags_orders():
         ledger_after_full = client.get("/api/gas-ledger").json()
         assert any("Khach Du" in (r.get("customer_name_and_address") or "") for r in ledger_after_full)
 
+        no_serial = client.post(
+            "/api/orders",
+            json={
+                "customer_name": "Khach Khong Serial",
+                "phone": "0909888777",
+                "address": "88 Duong Test",
+                "delivery_date": "2026-04-21",
+                "vat_rate": 0,
+                "lines": [
+                    {
+                        "product_id": pid,
+                        "quantity": 1,
+                        "owner_name": "CT Gas",
+                        "cylinder_type": "12kg",
+                        "inspection_expiry": "2027-06-01",
+                        "import_source": "Kho trung tam",
+                        "import_date": "2026-03-01",
+                    }
+                ],
+            },
+        )
+        assert no_serial.status_code == 200
+        assert no_serial.json().get("gas_ledger_ready") is True
+
         client.delete(f"/api/orders/{inc.json()['id']}")
         client.delete(f"/api/orders/{full.json()['id']}")
+        client.delete(f"/api/orders/{no_serial.json()['id']}")
+
+
+def test_list_orders_search_q():
+    """GET /api/orders?q= filters by order code, customer name, or phone."""
+    with TestClient(app) as client:
+        _login_admin(client)
+        r = client.get("/api/orders", params={"limit": 10, "offset": 0, "q": "__no_match_xyz__"})
+        assert r.status_code == 200
+        body = r.json()
+        assert "items" in body and "total" in body
+        assert body["total"] == 0
+        assert body["items"] == []
 
 
 def test_export_endpoints():
@@ -646,3 +683,33 @@ def test_daily_cylinder_audit_math_and_debt_shell_return():
         assert c2["returned_shells_debt"] == 2
         assert c2["expected_evening_shell"] == 5 + 2 - 1 - 1 + c2["returned_shells_debt"]
         assert c2["variance_shell"] == 7 - c2["expected_evening_shell"]
+
+
+def test_shell_debt_ledger_list_and_csv():
+    """GET /api/shell-debt-ledger lists orders with borrowed_shell_units and exports CSV."""
+    with TestClient(app) as client:
+        _login_admin(client)
+        pid = _create_test_product(client, "Shell Ledger SKU")
+        r = client.post(
+            "/api/orders",
+            json={
+                "customer_name": "Shell Debt Customer",
+                "phone": "0900111222",
+                "address": "99 Shell Street",
+                "vat_rate": 0,
+                "payment_mode": "cash",
+                "borrowed_shell_units": 2,
+                "lines": [{"product_id": pid, "quantity": 1}],
+            },
+        )
+        assert r.status_code == 200
+        ledger = client.get("/api/shell-debt-ledger")
+        assert ledger.status_code == 200
+        body = ledger.json()
+        assert body["total"] >= 1
+        assert body["total_shell_units"] >= 2
+        assert any(row["borrowed_shell_units"] == 2 for row in body["items"])
+        csv_r = client.get("/api/shell-debt-ledger.csv")
+        assert csv_r.status_code == 200
+        assert "Số vỏ mượn" in csv_r.text
+        assert "Shell Debt Customer" in csv_r.text

@@ -9,6 +9,10 @@ Open-source app quản lý cửa hàng gas: kho hàng, đơn hàng, sổ gas, b�
 - **Auth:** JWT + httpOnly cookie (`access_token`, `refresh_token`)
 - **Deploy local:** Docker Compose (web + api + db)
 
+## Documentation
+
+Tài liệu kỹ thuật chi tiết (architecture, database ER, API, features + diagrams): **[docs/README.md](./docs/README.md)**
+
 ## Main Features
 
 - Quản lý sản phẩm kho hàng (CRUD)

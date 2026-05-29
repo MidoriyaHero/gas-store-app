@@ -34,6 +34,7 @@ from app.models import (
     OrderNoteKind,
     OrderNoteParserStatus,
     OrderNoteStatus,
+    OrderChangeLog,
     Product,
     SafetyChecklistRun,
     SalesOrder,
@@ -77,10 +78,13 @@ from app.schemas import (
     MapPasteIn,
     MeOrderDeliveryPatch,
     GasLedgerRow,
+    ShellDebtLedgerResponse,
+    ShellDebtLedgerRow,
     OrderNoteCreate,
     OrderNoteResponse,
     OrderNoteStructuredPayload,
     OrderNoteUpdate,
+    OrderChangeLogEntry,
     ProductCreate,
     ProductQtyRollup,
     ProductResponse,
@@ -101,6 +105,8 @@ from app.schemas import (
 )
 from app.services.auth import hash_password, normalize_role
 from app.services import sales
+from app.services.order_change_log import order_snapshot, record_order_change
+from app.timezone import to_business_date
 from app.services.stock_receipts import apply_inbound_receipt, record_opening_receipt
 from app.services.delivery_export import render_delivery_slip_html
 from app.services.gas_ledger_rules import order_line_eligible_for_gas_ledger
@@ -108,7 +114,11 @@ from app.services.invoice_filename import content_disposition_filename, invoice_
 from app.services.order_note_media import delete_voice_blob_if_any, public_audio_url
 from app.services.phone import normalize_phone
 from app.services.geocode import nominatim_reverse, nominatim_row_to_geocode_hit, nominatim_search
-from app.services.map_paste_resolve import resolve_paste_to_lat_lng
+from app.services.map_paste_resolve import (
+    place_query_variants,
+    resolve_paste_to_lat_lng,
+    resolve_place_query_from_paste,
+)
 
 
 router = APIRouter(dependencies=[Depends(get_current_user)])
@@ -190,6 +200,21 @@ def geocode_from_paste(body: MapPasteIn) -> GeocodeHit:
         la_r = round(la, 6)
         lo_r = round(lo, 6)
         return GeocodeHit(lat=la_r, lng=lo_r, display_name=f"{la_r}, {lo_r}", place_id="paste-coords")
+    place_q = resolve_place_query_from_paste(raw, user_agent=ua)
+    if place_q:
+        for q in place_query_variants(place_q):
+            try:
+                raw_rows = nominatim_search(q[:400], limit=1, user_agent=ua)
+            except urllib.error.URLError as exc:
+                raise HTTPException(status_code=503, detail="Geocoding service unreachable") from exc
+            if not raw_rows:
+                continue
+            first = raw_rows[0]
+            if not isinstance(first, dict):
+                continue
+            hit = nominatim_row_to_geocode_hit(first, place_id_mode="search")
+            if hit:
+                return hit
     try:
         raw_rows = nominatim_search(raw[:400], limit=1, user_agent=ua)
     except urllib.error.URLError as exc:
@@ -494,7 +519,11 @@ def list_my_orders(
         SalesOrder.assigned_to_user_id == user.id,
         and_(SalesOrder.assigned_to_user_id.is_(None), SalesOrder.created_by_user_id == user.id),
     )
-    stmt = select(SalesOrder).where(mine).options(joinedload(SalesOrder.lines), joinedload(SalesOrder.assigned_to))
+    stmt = (
+        select(SalesOrder)
+        .where(mine, SalesOrder.deleted_at.is_(None))
+        .options(joinedload(SalesOrder.lines), joinedload(SalesOrder.assigned_to))
+    )
     if delivery_status is not None:
         stmt = stmt.where(SalesOrder.delivery_status == delivery_status)
     stmt = stmt.order_by(SalesOrder.created_at.desc()).limit(limit)
@@ -520,7 +549,7 @@ def patch_my_order_delivery_status(
         .options(joinedload(SalesOrder.lines), joinedload(SalesOrder.assigned_to))
         .where(SalesOrder.id == order_id)
     ).first()
-    if order is None:
+    if order is None or order.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Order not found")
     allowed = order.assigned_to_user_id == user.id or (
         order.assigned_to_user_id is None and order.created_by_user_id == user.id
@@ -911,15 +940,28 @@ _ORDER_PAGE_LIMITS = frozenset({10, 20, 50, 100})
 def list_orders(
     limit: int = Query(default=10, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
+    q: str | None = Query(default=None, max_length=100),
     db: Session = Depends(get_db),
 ) -> SalesOrderListResponse:
-    """List orders with nested lines, newest first (paginated)."""
+    """List orders with nested lines, newest first (paginated). Optional ``q`` filters code, customer, phone."""
     if limit not in _ORDER_PAGE_LIMITS:
         raise HTTPException(status_code=400, detail="limit must be one of: 10, 20, 50, 100")
-    total = int(db.scalar(select(func.count()).select_from(SalesOrder)) or 0)
+    filters = [SalesOrder.deleted_at.is_(None)]
+    if q and q.strip():
+        term = f"%{q.strip()}%"
+        filters.append(
+            or_(
+                SalesOrder.customer_name.ilike(term),
+                SalesOrder.phone.ilike(term),
+                SalesOrder.order_code.ilike(term),
+            )
+        )
+    count_stmt = select(func.count()).select_from(SalesOrder).where(*filters)
+    total = int(db.scalar(count_stmt) or 0)
     stmt = (
         select(SalesOrder)
         .options(joinedload(SalesOrder.lines), joinedload(SalesOrder.assigned_to))
+        .where(*filters)
         .order_by(SalesOrder.created_at.desc())
         .offset(offset)
         .limit(limit)
@@ -966,14 +1008,54 @@ def create_order_route(
 
 
 @router.patch("/orders/{order_id}", response_model=SalesOrderResponse, dependencies=[Depends(require_admin_user)])
-def update_order_route(order_id: int, payload: SalesOrderCreate, db: Session = Depends(get_db)) -> SalesOrderResponse:
+def update_order_route(
+    order_id: int,
+    payload: SalesOrderCreate,
+    db: Session = Depends(get_db),
+    actor: User = Depends(get_current_user),
+) -> SalesOrderResponse:
     """Update an existing sales order and line items."""
     try:
-        return sales.update_sales_order(db, order_id, payload)
+        before = db.scalars(
+            select(SalesOrder).options(joinedload(SalesOrder.lines)).where(SalesOrder.id == order_id)
+        ).first()
+        if before is None:
+            raise ValueError("Order not found")
+        before_json = order_snapshot(before)
+        updated = sales.update_sales_order(db, order_id, payload, commit=False)
+        order = db.get(SalesOrder, order_id)
+        assert order is not None
+        record_order_change(
+            db,
+            order=order,
+            before=before_json,
+            changed_by_user_id=actor.id,
+            source="web",
+            summary=None,
+        )
+        db.commit()
+        return updated
     except ValueError as e:
+        db.rollback()
         detail = str(e)
         status_code = 404 if detail == "Order not found" else 400
         raise HTTPException(status_code=status_code, detail=detail) from e
+
+
+@router.get(
+    "/orders/{order_id}/change-log",
+    response_model=list[OrderChangeLogEntry],
+    dependencies=[Depends(require_admin_user)],
+)
+def list_order_change_log(order_id: int, db: Session = Depends(get_db)) -> list[OrderChangeLogEntry]:
+    """Return append-only edit history for one order."""
+    order = db.get(SalesOrder, order_id)
+    if order is None or order.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="Order not found")
+    rows = db.scalars(
+        select(OrderChangeLog).where(OrderChangeLog.order_id == order_id).order_by(OrderChangeLog.changed_at.desc())
+    ).all()
+    return [OrderChangeLogEntry.model_validate(r) for r in rows]
 
 
 @router.delete("/orders/{order_id}", dependencies=[Depends(require_admin_user)])
@@ -1376,6 +1458,96 @@ def gas_ledger_csv(db: Session = Depends(get_db)):
         content="\ufeff" + buf.getvalue(),
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": 'attachment; filename="so_gas.csv"'},
+    )
+
+
+def _shell_debt_ledger_query(db: Session, q: str | None):
+    """Build filtered query for orders with borrowed shell units."""
+    filters = [
+        SalesOrder.deleted_at.is_(None),
+        SalesOrder.borrowed_shell_units > 0,
+    ]
+    if q and q.strip():
+        term = f"%{q.strip()}%"
+        filters.append(
+            or_(
+                SalesOrder.customer_name.ilike(term),
+                SalesOrder.phone.ilike(term),
+                SalesOrder.order_code.ilike(term),
+            )
+        )
+    return filters
+
+
+def _shell_debt_rows(db: Session, q: str | None, limit: int) -> tuple[list[ShellDebtLedgerRow], int, int]:
+    """Return ledger rows, total matching orders, and sum of borrowed shells."""
+    filters = _shell_debt_ledger_query(db, q)
+    count_stmt = select(func.count()).select_from(SalesOrder).where(*filters)
+    total = int(db.scalar(count_stmt) or 0)
+    sum_stmt = select(func.coalesce(func.sum(SalesOrder.borrowed_shell_units), 0)).where(*filters)
+    total_shell = int(db.scalar(sum_stmt) or 0)
+    stmt = (
+        select(SalesOrder)
+        .where(*filters)
+        .order_by(SalesOrder.delivery_date.desc().nullslast(), SalesOrder.created_at.desc())
+        .limit(limit)
+    )
+    orders = db.scalars(stmt).all()
+    items = [
+        ShellDebtLedgerRow(
+            order_id=o.id,
+            order_code=o.order_code,
+            customer_name=o.customer_name,
+            phone=o.phone,
+            delivery_date=o.delivery_date,
+            borrowed_shell_units=int(o.borrowed_shell_units or 0),
+            delivery_status=str(o.delivery_status),
+            address=o.address,
+        )
+        for o in orders
+    ]
+    return items, total, total_shell
+
+
+@router.get("/shell-debt-ledger", response_model=ShellDebtLedgerResponse, dependencies=[Depends(require_admin_user)])
+def shell_debt_ledger(
+    q: str | None = Query(default=None, max_length=100),
+    limit: int = Query(default=200, ge=1, le=500),
+    db: Session = Depends(get_db),
+) -> ShellDebtLedgerResponse:
+    """List orders with borrowed shell units (nợ vỏ theo đơn)."""
+    items, total, total_shell = _shell_debt_rows(db, q, limit)
+    return ShellDebtLedgerResponse(items=items, total=total, total_shell_units=total_shell)
+
+
+@router.get("/shell-debt-ledger.csv", dependencies=[Depends(require_admin_user)])
+def shell_debt_ledger_csv(
+    q: str | None = Query(default=None, max_length=100),
+    db: Session = Depends(get_db),
+):
+    """CSV export of shell-debt ledger."""
+    items, _, total_shell = _shell_debt_rows(db, q, 500)
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["Mã đơn", "Khách hàng", "SĐT", "Ngày giao", "Số vỏ mượn", "Trạng thái giao", "Địa chỉ"])
+    for r in items:
+        writer.writerow(
+            [
+                r.order_code,
+                r.customer_name,
+                r.phone or "",
+                r.delivery_date.isoformat() if r.delivery_date else "",
+                r.borrowed_shell_units,
+                r.delivery_status,
+                r.address or "",
+            ]
+        )
+    writer.writerow([])
+    writer.writerow(["Tổng", "", "", "", total_shell, f"{len(items)} đơn (max 500)", ""])
+    return Response(
+        content="\ufeff" + buf.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="so_no_vo.csv"'},
     )
 
 
@@ -1899,9 +2071,16 @@ def _aggregate_borrowed_shells(db: Session, business_date: date) -> int:
 
 
 def _aggregate_returned_shells_debt(db: Session, business_date: date) -> int:
-    """Sum vỏ trả kèm trả nợ; calendar date = cast(``paid_at``) in DB (same convention as ``delivery_date``)."""
+    """Sum vỏ trả kèm trả nợ; business day uses UTC+7 calendar on ``paid_at``."""
+    dialect = db.bind.dialect.name if db.bind is not None else "postgresql"
+    if dialect == "sqlite":
+        total = 0
+        for payment in db.scalars(select(DebtPayment)).all():
+            if to_business_date(payment.paid_at) == business_date:
+                total += int(payment.returned_shell_units or 0)
+        return total
     q = select(func.coalesce(func.sum(DebtPayment.returned_shell_units), 0)).where(
-        cast(DebtPayment.paid_at, CastDate) == business_date
+        func.date(func.timezone("Asia/Ho_Chi_Minh", DebtPayment.paid_at)) == business_date
     )
     return int(db.scalar(q) or 0)
 

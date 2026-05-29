@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Gas Store Mobile — UX v5.3 Orders Search + Manual Sync</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <script src="https://mcp.figma.com/mcp/html-to-design/capture.js" async></script>
+  <style>
+    :root {
+      --primary: #2563EB; --accent: #F97316;
+      --bg: #F8FAFC; --surface: #FFF; --text: #1E293B; --muted: #64748B;
+      --border: #E2E8F0; --success: #16A34A; --warning: #D97706;
+      --success-soft: #ECFDF5; --warning-soft: #FFFBEB; --primary-soft: #EFF6FF;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Inter, sans-serif; background: #94a3b8; padding: 32px; min-width: max-content; }
+    .canvas { display: flex; gap: 40px; align-items: flex-start; flex-wrap: wrap; }
+    .section { display: flex; flex-direction: column; gap: 12px; }
+    .section-label { font-size: 12px; font-weight: 600; text-transform: uppercase; padding: 6px 10px; background: #0f172a; color: #fff; border-radius: 4px; width: fit-content; }
+    .section-row { display: flex; flex-wrap: wrap; gap: 20px; }
+    .phone-name { font-size: 11px; color: #334155; margin-bottom: 4px; max-width: 390px; font-weight: 600; }
+    .phone { width: 390px; height: 844px; background: var(--bg); overflow: hidden; display: flex; flex-direction: column; position: relative; box-shadow: 0 4px 24px rgba(15,23,42,0.18); }
+    .status-bar { height: 44px; background: var(--surface); flex-shrink: 0; }
+    .scroll { flex: 1; overflow: hidden; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+    .tabbar-wrap { position: relative; flex-shrink: 0; height: 72px; background: var(--surface); border-top: 1px solid var(--border); }
+    .tabbar-row { display: flex; align-items: flex-end; height: 100%; padding: 8px 0 10px; }
+    .tab-half { flex: 1; display: flex; align-items: flex-end; min-height: 48px; }
+    .tab-half.left { justify-content: space-evenly; padding-right: 34px; }
+    .tab-half.right { justify-content: space-evenly; padding-left: 34px; }
+    .tab { text-align: center; font-size: 11px; color: var(--muted); width: 72px; flex-shrink: 0; }
+    .tab.active { color: var(--primary); font-weight: 600; }
+    .tab-dot { width: 22px; height: 22px; margin: 0 auto 3px; border-radius: 6px; background: var(--border); }
+    .tab.active .tab-dot { background: var(--primary); }
+    .fab { position: absolute; left: 50%; transform: translateX(-50%); bottom: 22px; width: 56px; height: 56px; border-radius: 28px; background: var(--accent); color: #fff; border: 3px solid var(--surface); box-shadow: 0 4px 16px rgba(249,115,22,0.45); display: flex; align-items: center; justify-content: center; font-size: 28px; font-weight: 300; }
+    .list-header h2 { font-size: 22px; font-weight: 700; }
+    .caption { font-size: 12px; color: var(--muted); margin-top: 4px; }
+    .search-row { display: flex; gap: 8px; align-items: center; }
+    .search-row input { flex: 1; height: 44px; border: 1px solid var(--border); border-radius: 8px; padding: 0 12px; font-family: inherit; font-size: 14px; }
+    .btn-sync { height: 44px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--primary-soft); color: var(--primary); font-size: 12px; font-weight: 600; font-family: inherit; white-space: nowrap; }
+    .chip { display: inline-block; padding: 6px 12px; border-radius: 999px; font-size: 12px; border: 1px solid var(--border); margin-right: 6px; }
+    .chip.on { background: var(--primary-soft); color: var(--primary); border-color: #BFDBFE; font-weight: 600; }
+    .card { background: var(--surface); border-radius: 10px; padding: 12px; border: 1px solid var(--border); }
+    .order-code { font-size: 13px; font-weight: 600; color: var(--primary); }
+    .badge { display: inline-block; font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--warning-soft); color: var(--warning); margin-left: 6px; }
+    .badge.ok { background: var(--success-soft); color: var(--success); }
+    .pull-hint { position: absolute; top: 52px; left: 0; right: 0; text-align: center; font-size: 11px; color: var(--primary); font-weight: 600; background: var(--primary-soft); padding: 6px; z-index: 2; }
+    .kpi-row { display: flex; gap: 8px; }
+    .kpi { flex: 1; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px; }
+    .kpi label { font-size: 10px; color: var(--muted); display: block; }
+    .kpi strong { font-size: 16px; }
+    .empty { text-align: center; padding: 32px 16px; color: var(--muted); font-size: 13px; }
+    .cover { width: 420px; padding: 20px; background: var(--surface); border-radius: 12px; border: 1px solid var(--border); }
+  </style>
+</head>
+<body>
+<div class="canvas">
+
+  <div class="section">
+    <div class="section-label">v5.3 — Orders search + manual sync</div>
+    <div class="section-row">
+
+      <div>
+        <div class="phone-name">Admin / Orders — List + Search + Sync</div>
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="pull-hint">↓ Kéo xuống để đồng bộ</div>
+          <div class="scroll">
+            <div class="list-header">
+              <h2>Đơn hàng</h2>
+              <div class="caption">12/45 đơn · kéo xuống để đồng bộ từ server</div>
+            </div>
+            <div class="search-row">
+              <input placeholder="Mã đơn, tên khách hoặc SĐT…" value="" />
+              <button type="button" class="btn-sync">Đồng bộ</button>
+            </div>
+            <div style="margin-top:4px">
+              <span class="chip on">Tất cả</span><span class="chip">Đang giao</span><span class="chip">Hoàn thành</span>
+            </div>
+            <div class="card">
+              <div><span class="order-code">DH-1042</span><span class="badge">Đang giao</span></div>
+              <div style="font-size:14px;font-weight:600;margin-top:4px">Nguyễn Văn A</div>
+              <div class="caption">0901234567 · 1.320.000 đ</div>
+            </div>
+            <div class="card">
+              <div><span class="order-code">DH-1041</span><span class="badge ok">Hoàn thành</span></div>
+              <div style="font-size:14px;font-weight:600;margin-top:4px">Trần Thị B</div>
+              <div class="caption">0912345678 · 880.000 đ</div>
+            </div>
+          </div>
+          <div class="tabbar-wrap">
+            <div class="tabbar-row">
+              <div class="tab-half left">
+                <div class="tab"><div class="tab-dot"></div>Tổng quan</div>
+                <div class="tab active"><div class="tab-dot"></div>Đơn hàng</div>
+              </div>
+              <div class="tab-half right">
+                <div class="tab"><div class="tab-dot"></div>Kiểm kê</div>
+                <div class="tab"><div class="tab-dot"></div>Thêm</div>
+              </div>
+            </div>
+            <div class="fab">+</div>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div class="phone-name">Admin / Dashboard — Pull refresh</div>
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="pull-hint">↓ Đang đồng bộ…</div>
+          <div class="scroll">
+            <div class="list-header">
+              <h2>Tổng quan</h2>
+              <div class="caption">Kéo xuống để đồng bộ dữ liệu</div>
+            </div>
+            <div class="kpi-row">
+              <div class="kpi"><label>Hôm nay</label><strong>12,5 tr</strong></div>
+              <div class="kpi"><label>Đơn hôm nay</label><strong>8</strong></div>
+            </div>
+            <div class="card"><strong>Doanh thu theo ngày</strong><div style="height:80px;background:var(--primary-soft);border-radius:8px;margin-top:8px"></div></div>
+            <div class="card"><strong>Trạng thái giao</strong><div style="height:60px;background:var(--success-soft);border-radius:8px;margin-top:8px"></div></div>
+          </div>
+          <div class="tabbar-wrap">
+            <div class="tabbar-row">
+              <div class="tab-half left">
+                <div class="tab active"><div class="tab-dot"></div>Tổng quan</div>
+                <div class="tab"><div class="tab-dot"></div>Đơn hàng</div>
+              </div>
+              <div class="tab-half right">
+                <div class="tab"><div class="tab-dot"></div>Kiểm kê</div>
+                <div class="tab"><div class="tab-dot"></div>Thêm</div>
+              </div>
+            </div>
+            <div class="fab">+</div>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div class="phone-name">Admin / Orders — Empty search</div>
+        <div class="phone">
+          <div class="status-bar"></div>
+          <div class="scroll">
+            <div class="list-header"><h2>Đơn hàng</h2><div class="caption">0/45 đơn</div></div>
+            <div class="search-row">
+              <input value="0909999888" />
+              <button type="button" class="btn-sync">Đồng bộ</button>
+            </div>
+            <div class="empty">Không tìm thấy đơn — thử mã khác hoặc kéo xuống đồng bộ</div>
+          </div>
+          <div class="tabbar-wrap">
+            <div class="tabbar-row">
+              <div class="tab-half left">
+                <div class="tab"><div class="tab-dot"></div>Tổng quan</div>
+                <div class="tab active"><div class="tab-dot"></div>Đơn hàng</div>
+              </div>
+              <div class="tab-half right">
+                <div class="tab"><div class="tab-dot"></div>Kiểm kê</div>
+                <div class="tab"><div class="tab-dot"></div>Thêm</div>
+              </div>
+            </div>
+            <div class="fab">+</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-label">Cover v5.3</div>
+    <div class="cover">
+      <h1 style="font-size:18px;margin-bottom:8px">Gas Store Mobile v5.3</h1>
+      <p style="font-size:13px;color:var(--muted);line-height:1.6">Tab Đơn hàng: search mã/khách/SĐT, sort mới nhất, nút/kéo <strong>Đồng bộ</strong>. Tab Tổng quan: pull refresh. Serial sổ gas không bắt buộc (web).</p>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

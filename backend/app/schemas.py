@@ -338,6 +338,27 @@ class GasLedgerRow(BaseModel):
     delivery_date: date | None
 
 
+class ShellDebtLedgerRow(BaseModel):
+    """One order row in the shell-debt ledger (borrowed_shell_units > 0)."""
+
+    order_id: int
+    order_code: str
+    customer_name: str
+    phone: str | None
+    delivery_date: date | None
+    borrowed_shell_units: int
+    delivery_status: str
+    address: str | None = None
+
+
+class ShellDebtLedgerResponse(BaseModel):
+    """Paginated shell-debt ledger with aggregate shell count."""
+
+    items: list[ShellDebtLedgerRow]
+    total: int
+    total_shell_units: int
+
+
 class DashboardPayload(BaseModel):
     """Bundle for Tổng quan page."""
 
@@ -410,6 +431,21 @@ class AuthSessionResponse(BaseModel):
     """Login/refresh response with current user identity."""
 
     user: AuthUser
+
+
+class MobileAuthResponse(BaseModel):
+    """Mobile login/refresh: tokens in body for SecureStore."""
+
+    user: AuthUser
+    access_token: str
+    refresh_token: str
+    expires_in: int = Field(description="Access token lifetime in seconds")
+
+
+class MobileRefreshRequest(BaseModel):
+    """Mobile refresh/logout body."""
+
+    refresh_token: str = Field(..., min_length=10, max_length=512)
 
 
 class UserCreate(BaseModel):
@@ -731,5 +767,64 @@ class AuditLogEntryResponse(BaseModel):
     target_id: str | None
     detail: str | None
     created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class SyncPushIn(BaseModel):
+    """One offline mutation from mobile (single mutation per request for ACID clarity)."""
+
+    client_mutation_id: str = Field(..., min_length=8, max_length=36)
+    entity: str = Field(..., min_length=1, max_length=64)
+    operation: Literal["create", "update", "delete", "upsert"]
+    client_id: str | None = Field(default=None, max_length=36)
+    server_id: int | None = Field(default=None, gt=0)
+    payload: dict = Field(default_factory=dict)
+    device_id: str | None = Field(default=None, max_length=64)
+
+
+class SyncPushResult(BaseModel):
+    """Outcome of applying one mutation."""
+
+    status: Literal["applied", "rejected"]
+    client_mutation_id: str
+    entity: str
+    server_id: int | None = None
+    client_id: str | None = None
+    server_updated_at: datetime | None = None
+    error_code: str | None = None
+    error_message: str | None = None
+
+
+class SyncChangeItem(BaseModel):
+    """One row in a pull delta."""
+
+    entity: str
+    op: Literal["upsert", "delete"]
+    server_id: int | None
+    client_id: str | None
+    updated_at: datetime
+    data: dict | None = None
+
+
+class SyncPullResponse(BaseModel):
+    """Incremental pull payload."""
+
+    cursor: str
+    changes: list[SyncChangeItem]
+
+
+class OrderChangeLogEntry(BaseModel):
+    """One order edit audit row."""
+
+    id: int
+    order_id: int
+    changed_by_user_id: int | None
+    changed_at: datetime
+    source: str
+    mutation_id: str | None
+    summary: str | None
+    before_json: dict | None
+    after_json: dict | None
 
     model_config = {"from_attributes": True}

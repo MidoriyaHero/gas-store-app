@@ -19,7 +19,6 @@ import CoreOperations from "./pages/CoreOperations";
 import FinanceGovernance from "./pages/FinanceGovernance";
 import CustomerExperience from "./pages/CustomerExperience";
 import StaffDeliveryMap from "./pages/StaffDeliveryMap";
-import DebtCollection from "./pages/DebtCollection";
 import CustomerProfilesMock from "./pages/CustomerProfilesMock";
 import NotFound from "./pages/NotFound.tsx";
 import { AuthProvider, useAuth } from "@/lib/auth";
@@ -182,16 +181,7 @@ const App = () => (
                 </GuardedRoute>
               }
             />
-            <Route
-              path="/doi-no"
-              element={
-                <GuardedRoute allowedRoles={["admin"]}>
-                  <DebtCollection />
-                </GuardedRoute>
-              }
-            />
             <Route path="/ban-do-mock" element={<Navigate to="/ban-do" replace />} />
-            <Route path="/doi-no-mock" element={<Navigate to="/doi-no" replace />} />
             <Route path="/home" element={<HomeRedirect />} />
             <Route path="*" element={<NotFound />} />
           </Routes>

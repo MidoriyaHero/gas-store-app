@@ -1,10 +1,13 @@
 """Unit tests for Google Maps paste parsing (no network)."""
 
 from app.services.map_paste_resolve import (
+    extract_lat_lng_from_maps_html,
     extract_lat_lng_from_maps_url,
+    extract_place_query_from_maps_url,
     parse_decimal_pair_line,
     parse_dms_pair,
     parse_plus_code_area,
+    place_query_variants,
     resolve_paste_to_lat_lng,
 )
 
@@ -49,6 +52,36 @@ def test_plus_code_short() -> None:
     la, lo = got
     assert 10.9 < la < 11.6
     assert 105.9 < lo < 106.5
+
+
+def test_extract_staticmap_center_from_html() -> None:
+    """Place-only Maps pages expose coords via og staticmap preview."""
+    html = (
+        '<meta content="https://maps.google.com/maps/api/staticmap'
+        '?center=11.1935488%2C106.2862848&amp;zoom=14&amp;size=900x900">'
+    )
+    got = extract_lat_lng_from_maps_html(html)
+    assert got == (11.1935488, 106.2862848)
+
+
+def test_extract_place_query_from_maps_url() -> None:
+    """Place-only redirect URLs still expose a geocodable label in the path."""
+    u = (
+        "https://www.google.com/maps/place/GAS+Huy+Ho%C3%A0ng,+199+%C4%90T784,"
+        "+T%C3%A2y+Ninh,+Vietnam/data=!4m2!3m1!1s0x310b39ee50e0a661:0xc0801bda119e916d"
+    )
+    q = extract_place_query_from_maps_url(u)
+    assert q is not None
+    assert "GAS Huy Hoàng" in q
+    assert "Tây Ninh" in q
+
+
+def test_place_query_variants_shortens_suffix() -> None:
+    """Fallback tries commune/province when the full business label misses."""
+    full = "GAS Huy Hoàng, 199 ĐT784, Trường Mít, Tây Ninh, Vietnam"
+    variants = place_query_variants(full)
+    assert variants[0] == full
+    assert "Trường Mít, Tây Ninh, Vietnam" in variants
 
 
 def test_resolve_paste_decimal_without_network() -> None:

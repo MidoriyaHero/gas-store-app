@@ -35,6 +35,10 @@ _D3D_RE = re.compile(r"!3d(-?\d+\.?\d*)!4d(-?\d+\.?\d*)", re.IGNORECASE)
 _LL_RE = re.compile(r"[?&]ll=(-?\d+\.?\d*),(-?\d+\.?\d*)", re.IGNORECASE)
 _Q_PAIR_RE = re.compile(r"[?&]q=(-?\d+\.?\d*)(?:%2C|,)(-?\d+\.?\d*)(?:\b|&)", re.IGNORECASE)
 _CENTER_RE = re.compile(r"[?&]center=(-?\d+\.?\d*)(?:%2C|,)(-?\d+\.?\d*)", re.IGNORECASE)
+_STATICMAP_CENTER_RE = re.compile(
+    r"staticmap\?center=(-?\d+\.?\d*)(?:%2C|,)(-?\d+\.?\d*)",
+    re.IGNORECASE,
+)
 
 _DMS_BLOCK_RE = re.compile(
     r"""
@@ -106,6 +110,18 @@ def follow_maps_url(url: str, *, user_agent: str, timeout_sec: float = 12.0) -> 
     return final
 
 
+def _parse_lat_lng_groups(g1: str, g2: str) -> tuple[float, float] | None:
+    """Parse two coordinate strings when both fall in valid WGS84 ranges."""
+    try:
+        la = float(g1.replace(",", "."))
+        lo = float(g2.replace(",", "."))
+    except (TypeError, ValueError):
+        return None
+    if -90 <= la <= 90 and -180 <= lo <= 180:
+        return la, lo
+    return None
+
+
 def extract_lat_lng_from_maps_url(url: str) -> tuple[float, float] | None:
     """Try common Google Maps URL patterns for WGS84 decimal degrees."""
     u = url.strip()
@@ -113,14 +129,42 @@ def extract_lat_lng_from_maps_url(url: str) -> tuple[float, float] | None:
         m = rx.search(u)
         if not m:
             continue
-        try:
-            la = float(m.group(1).replace(",", "."))
-            lo = float(m.group(2).replace(",", "."))
-        except (TypeError, ValueError, IndexError):
-            continue
-        if -90 <= la <= 90 and -180 <= lo <= 180:
-            return la, lo
+        hit = _parse_lat_lng_groups(m.group(1), m.group(2))
+        if hit:
+            return hit
     return None
+
+
+def extract_lat_lng_from_maps_html(html: str) -> tuple[float, float] | None:
+    """
+    Parse coordinates embedded in a Google Maps HTML page.
+
+    Short ``maps.app.goo.gl`` links often redirect to place-only URLs without
+    ``@lat,lng``; Google still exposes ``staticmap?center=…`` in ``og:*`` meta.
+    """
+    body = html or ""
+    hit = extract_lat_lng_from_maps_url(body)
+    if hit:
+        return hit
+    m = _STATICMAP_CENTER_RE.search(body)
+    if m:
+        return _parse_lat_lng_groups(m.group(1), m.group(2))
+    return None
+
+
+def fetch_coords_from_maps_page(url: str, *, user_agent: str, timeout_sec: float = 12.0) -> tuple[float, float] | None:
+    """GET a Maps URL and parse coordinates from the HTML body (SSRF-safe host check)."""
+    trimmed = (url or "").strip()
+    if not trimmed or not _host_ok_for_redirect(urlparse(trimmed)):
+        return None
+    req = urllib.request.Request(trimmed, headers={"User-Agent": user_agent})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout_sec) as resp:
+            chunk = resp.read(262_144)
+    except (urllib.error.URLError, OSError, ValueError):
+        return None
+    html = chunk.decode("utf-8", errors="replace")
+    return extract_lat_lng_from_maps_html(html)
 
 
 def _dms_component(deg: str, minutes: str, sec: str, hemi: str, sign_prefix: str) -> float:
@@ -201,6 +245,46 @@ def parse_plus_code_area(text: str) -> tuple[float, float] | None:
         if -90 <= la <= 90 and -180 <= lo <= 180:
             return la, lo
     return None
+
+
+def extract_place_query_from_maps_url(url: str) -> str | None:
+    """Decode ``/maps/place/…`` slug into a human address string for Nominatim."""
+    m = re.search(r"/maps/place/([^/@?]+)", url, re.IGNORECASE)
+    if not m:
+        return None
+    slug = urllib.parse.unquote(m.group(1).replace("+", " ")).split("/data=")[0].strip()
+    slug = " ".join(slug.split())
+    return slug if len(slug) >= 8 else None
+
+
+def place_query_variants(place_q: str) -> list[str]:
+    """Try full pasted place label, then shorter suffixes (commune / province)."""
+    base = " ".join((place_q or "").split()).strip()
+    if not base:
+        return []
+    parts = [p.strip() for p in base.split(",") if p.strip()]
+    variants: list[str] = [base]
+    if len(parts) > 2:
+        variants.append(", ".join(parts[-3:]))
+    if len(parts) > 1:
+        variants.append(", ".join(parts[-2:]))
+    out: list[str] = []
+    for v in variants:
+        if v and v not in out:
+            out.append(v)
+    return out
+
+
+def resolve_place_query_from_paste(raw: str, *, user_agent: str) -> str | None:
+    """Follow a pasted Maps URL and decode the ``/place/`` label when present."""
+    url = _first_url_in_text(raw)
+    if not url:
+        return None
+    try:
+        final = follow_maps_url(url, user_agent=user_agent)
+    except (urllib.error.URLError, ValueError, OSError):
+        final = url
+    return extract_place_query_from_maps_url(final)
 
 
 def _first_url_in_text(text: str) -> str | None:

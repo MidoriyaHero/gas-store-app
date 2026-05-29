@@ -176,9 +176,7 @@ function computeClientGasLedgerGaps(o: OrderRow): string[] {
     const miss: string[] = [];
     if (!li.owner_name?.trim()) miss.push("chủ sở hữu");
     if (!li.cylinder_type?.trim()) miss.push("loại chai");
-    if (!li.cylinder_serial?.trim()) miss.push("số sê ri");
     if (!li.inspection_expiry?.trim()) miss.push("hạn kiểm định");
-    if (!li.import_source?.trim()) miss.push("nơi nhập");
     if (!li.import_date?.trim()) miss.push("ngày nhập");
     if (miss.length > 0) out.push(`Mặt hàng ${idx} (${label}): thiếu ${miss.join(", ")}.`);
   });
@@ -209,6 +207,9 @@ interface CartLine {
 }
 
 const NONE_TEMPLATE = "__none__";
+
+/** Default cylinder owner when template or line is empty. */
+const DEFAULT_OWNER = "Gas Huy Hoàng";
 
 /** Chuỗi in phiếu / lưu ``store_contact`` — có thể override bằng ``VITE_DEFAULT_STORE_CONTACT``. */
 const DEFAULT_STORE_CONTACT_LINE =
@@ -251,6 +252,8 @@ export default function Orders() {
   const [ordersTotal, setOrdersTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
+  const [searchInput, setSearchInput] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
   const [products, setProducts] = useState<Product[]>([]);
   const [open, setOpen] = useState(false);
   const [editingOrderId, setEditingOrderId] = useState<number | null>(null);
@@ -286,7 +289,8 @@ export default function Orders() {
       const templatesPromise = apiGet<ApiCylinderTemplate[]>("/api/cylinder-templates");
       const usersPromise = apiGet<StaffUserRow[]>("/api/users");
       const offset = (page - 1) * pageSize;
-      const ordersPromise = apiGet<OrdersListPayload>(`/api/orders?limit=${pageSize}&offset=${offset}`);
+      const qParam = searchQuery.trim() ? `&q=${encodeURIComponent(searchQuery.trim())}` : "";
+      const ordersPromise = apiGet<OrdersListPayload>(`/api/orders?limit=${pageSize}&offset=${offset}${qParam}`);
       const [ordersRes, p, tpl, users] = await Promise.all([ordersPromise, productsPromise, templatesPromise, usersPromise]);
       const total = ordersRes.total ?? 0;
       const maxPage = Math.max(1, Math.ceil(total / pageSize) || 1);
@@ -302,11 +306,19 @@ export default function Orders() {
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Không tải được dữ liệu");
     }
-  }, [page, pageSize]);
+  }, [page, pageSize, searchQuery]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      setSearchQuery(searchInput);
+      setPage(1);
+    }, 300);
+    return () => window.clearTimeout(t);
+  }, [searchInput]);
 
   useEffect(() => {
     if (adminSection === "notes" || adminSection === "map") {
@@ -361,8 +373,7 @@ export default function Orders() {
       toast.error(`Không đủ tồn kho (${p.stock_quantity - reserved} còn lại cho mặt hàng này)`);
       return;
     }
-    const owner = selectedPreset?.owner_name?.trim() ?? "";
-    const src = selectedPreset?.import_source?.trim() ?? "";
+    const owner = selectedPreset?.owner_name?.trim() || DEFAULT_OWNER;
     const insp = selectedPreset?.inspection_expiry ?? "";
     const impD = selectedPreset?.import_date ?? "";
     setCart((prev) => [
@@ -377,7 +388,7 @@ export default function Orders() {
         cylinder_type: cylinderTypeFromProductName(p.name),
         cylinder_serial: "",
         inspection_expiry: insp,
-        import_source: src,
+        import_source: "",
         import_date: impD,
       },
     ]);
@@ -738,6 +749,18 @@ export default function Orders() {
 
       {adminSection === "orders" && (
         <>
+        <Card className="mb-4 p-3 shadow-card">
+          <div className="grid gap-1.5">
+            <Label htmlFor="orders-search">Tìm theo mã đơn / khách / SĐT</Label>
+            <Input
+              id="orders-search"
+              className="min-h-11"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              placeholder="Ví dụ: DH- hoặc 0909..."
+            />
+          </div>
+        </Card>
         <Card className="shadow-card">
           <div className="overflow-x-auto">
             <Table>
@@ -758,7 +781,9 @@ export default function Orders() {
                   <TableRow>
                     <TableCell colSpan={8} className="py-12 text-center">
                       <ShoppingBag className="mx-auto mb-2 h-8 w-8 text-muted-foreground" />
-                      <p className="text-sm text-muted-foreground">Chưa có đơn hàng nào.</p>
+                      <p className="text-sm text-muted-foreground">
+                        {searchQuery.trim() ? "Không tìm thấy đơn phù hợp." : "Chưa có đơn hàng nào."}
+                      </p>
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -1186,7 +1211,7 @@ export default function Orders() {
             <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
               <Label className="text-sm font-medium">Mẫu thông tin chai</Label>
               <p className="text-xs text-muted-foreground">
-                Chọn mẫu do admin cấu hình — mỗi lần &quot;Thêm&quot; sẽ điền sẵn (trừ số seri). Loại chai theo tên sản phẩm.
+                Chọn mẫu — mỗi lần &quot;Thêm&quot; điền chủ sở hữu (mặc định Gas Huy Hoàng) và ngày kiểm/nhập. Loại chai theo tên SP. Số seri không bắt buộc.
               </p>
               <Select value={selectedTemplateId} onValueChange={setSelectedTemplateId}>
                 <SelectTrigger className="min-h-11 w-full bg-background">
@@ -1277,11 +1302,12 @@ export default function Orders() {
                         />
                       </div>
                       <div className="grid gap-1">
-                        <Label className="text-xs">Số sê ri chai</Label>
+                        <Label className="text-xs">Số sê ri chai (tuỳ chọn)</Label>
                         <Input
                           className="font-mono text-sm"
                           value={i.cylinder_serial}
                           onChange={(e) => updateLine(i.lineKey, { cylinder_serial: e.target.value })}
+                          placeholder="Không bắt buộc"
                         />
                       </div>
                       <div className="grid gap-1">

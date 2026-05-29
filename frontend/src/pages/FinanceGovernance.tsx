@@ -37,6 +37,7 @@ import autoTable from "jspdf-autotable";
 import { registerVietnameseFont } from "@/lib/fonts/registerVietnameseFont";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { summarizeSeries, topDebtors, type TopDebtorChartRow } from "@/lib/dashboard-analytics";
+import { ShellDebtLedgerTab } from "@/components/finance/ShellDebtLedgerTab";
 
 interface OrderRow {
   id: number;
@@ -492,6 +493,7 @@ export default function FinanceGovernance() {
           <TabsList className="h-11">
             <TabsTrigger value="overview" className="min-h-11 px-4">Tổng quan</TabsTrigger>
             <TabsTrigger value="accounts" className="min-h-11 px-4">Sổ nợ</TabsTrigger>
+            <TabsTrigger value="shell-debt" className="min-h-11 px-4">Sổ nợ vỏ</TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview" className="space-y-4">
@@ -688,6 +690,10 @@ export default function FinanceGovernance() {
                 </Table>
               </div>
             </Card>
+          </TabsContent>
+
+          <TabsContent value="shell-debt" className="space-y-4">
+            <ShellDebtLedgerTab />
           </TabsContent>
         </Tabs>
       )}

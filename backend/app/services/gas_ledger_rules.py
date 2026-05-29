@@ -24,11 +24,12 @@ def sales_order_header_complete_for_gas_ledger(order: SalesOrder) -> bool:
 def sales_order_item_complete_for_gas_ledger(item: SalesOrderItem) -> bool:
     """
     Return True when line-level cylinder fields required by the gas ledger are present.
+
+    ``cylinder_serial`` is optional — rows may appear in the ledger without a serial number.
     """
     return (
         _non_empty_text(item.owner_name)
         and _non_empty_text(item.cylinder_type)
-        and _non_empty_text(item.cylinder_serial)
         and item.inspection_expiry is not None
         and _non_empty_text(item.import_source)
         and item.import_date is not None
@@ -77,8 +78,6 @@ def gas_ledger_gap_messages(order: SalesOrder) -> list[str]:
             missing_parts.append("chủ sở hữu")
         if not _non_empty_text(li.cylinder_type):
             missing_parts.append("loại chai")
-        if not _non_empty_text(li.cylinder_serial):
-            missing_parts.append("số sê ri")
         if li.inspection_expiry is None:
             missing_parts.append("hạn kiểm định")
         if not _non_empty_text(li.import_source):

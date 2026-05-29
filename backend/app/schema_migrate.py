@@ -580,6 +580,127 @@ def ensure_gas_schema() -> None:
         so_cols2 = cols("sales_orders")
         if "borrowed_shell_units" not in so_cols2:
             conn.execute(text("ALTER TABLE sales_orders ADD COLUMN borrowed_shell_units INTEGER NOT NULL DEFAULT 0"))
+        if "client_id" not in so_cols2:
+            conn.execute(
+                text(
+                    "ALTER TABLE sales_orders ADD COLUMN client_id VARCHAR(36)"
+                    if dialect != "sqlite"
+                    else "ALTER TABLE sales_orders ADD COLUMN client_id TEXT"
+                )
+            )
+            conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS idx_sales_orders_client_id ON sales_orders(client_id)"))
+        if "updated_at" not in so_cols2:
+            if dialect == "sqlite":
+                conn.execute(text("ALTER TABLE sales_orders ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP"))
+            else:
+                conn.execute(text("ALTER TABLE sales_orders ADD COLUMN updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()"))
+            conn.execute(text("UPDATE sales_orders SET updated_at = created_at WHERE updated_at IS NULL"))
+        if "deleted_at" not in so_cols2:
+            ts_type = "DATETIME" if dialect == "sqlite" else "TIMESTAMPTZ"
+            conn.execute(text(f"ALTER TABLE sales_orders ADD COLUMN deleted_at {ts_type}"))
+
+        on_cols = cols("order_notes")
+        if on_cols and "client_id" not in on_cols:
+            conn.execute(
+                text(
+                    "ALTER TABLE order_notes ADD COLUMN client_id VARCHAR(36)"
+                    if dialect != "sqlite"
+                    else "ALTER TABLE order_notes ADD COLUMN client_id TEXT"
+                )
+            )
+            conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS idx_order_notes_client_id ON order_notes(client_id)"))
+
+        final_names = set(inspect(engine).get_table_names())
+        if "order_change_log" not in final_names:
+            if dialect == "sqlite":
+                conn.execute(
+                    text(
+                        """
+                        CREATE TABLE order_change_log (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            order_id INTEGER NOT NULL REFERENCES sales_orders(id),
+                            changed_by_user_id INTEGER REFERENCES users(id),
+                            changed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                            source VARCHAR(16) NOT NULL DEFAULT 'web',
+                            mutation_id VARCHAR(36),
+                            summary TEXT,
+                            before_json TEXT,
+                            after_json TEXT
+                        )
+                        """
+                    )
+                )
+            else:
+                conn.execute(
+                    text(
+                        """
+                        CREATE TABLE order_change_log (
+                            id SERIAL PRIMARY KEY,
+                            order_id INTEGER NOT NULL REFERENCES sales_orders(id),
+                            changed_by_user_id INTEGER REFERENCES users(id),
+                            changed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                            source VARCHAR(16) NOT NULL DEFAULT 'web',
+                            mutation_id VARCHAR(36),
+                            summary TEXT,
+                            before_json JSONB,
+                            after_json JSONB
+                        )
+                        """
+                    )
+                )
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_order_change_log_order ON order_change_log(order_id)"))
+
+        if "sync_applied_mutations" not in final_names:
+            if dialect == "sqlite":
+                conn.execute(
+                    text(
+                        """
+                        CREATE TABLE sync_applied_mutations (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            client_mutation_id VARCHAR(36) NOT NULL UNIQUE,
+                            entity VARCHAR(64) NOT NULL,
+                            server_id VARCHAR(64),
+                            applied_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                        )
+                        """
+                    )
+                )
+            else:
+                conn.execute(
+                    text(
+                        """
+                        CREATE TABLE sync_applied_mutations (
+                            id SERIAL PRIMARY KEY,
+                            client_mutation_id VARCHAR(36) NOT NULL UNIQUE,
+                            entity VARCHAR(64) NOT NULL,
+                            server_id VARCHAR(64),
+                            applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                        )
+                        """
+                    )
+                )
+            conn.execute(
+                text("CREATE UNIQUE INDEX IF NOT EXISTS idx_sync_mut_client ON sync_applied_mutations(client_mutation_id)")
+            )
+
+        if dialect == "postgresql" and "order_change_log" in set(inspect(engine).get_table_names()):
+            conn.execute(
+                text(
+                    """
+                    ALTER TABLE order_change_log
+                    DROP CONSTRAINT IF EXISTS order_change_log_order_id_fkey
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    ALTER TABLE order_change_log
+                    ADD CONSTRAINT order_change_log_order_id_fkey
+                    FOREIGN KEY (order_id) REFERENCES sales_orders(id) ON DELETE CASCADE
+                    """
+                )
+            )
 
         dp_cols = cols("debt_payments")
         if "returned_shell_units" not in dp_cols:

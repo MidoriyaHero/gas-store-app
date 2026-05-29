@@ -4,12 +4,20 @@ from __future__ import annotations
 
 import jwt
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.database import get_db
 from app.models import User, UserRole
-from app.schemas import AuthSessionResponse, AuthUser, LoginRequest, MapLocationIn
+from app.schemas import (
+    AuthSessionResponse,
+    AuthUser,
+    LoginRequest,
+    MapLocationIn,
+    MobileAuthResponse,
+    MobileRefreshRequest,
+)
 from app.services.auth import (
     authenticate_user,
     create_access_token,
@@ -24,6 +32,7 @@ REFRESH_COOKIE = "refresh_token"
 
 settings = get_settings()
 router = APIRouter(prefix="/auth", tags=["auth"])
+_bearer = HTTPBearer(auto_error=False)
 
 
 def _cookie_max_age(seconds: int) -> int:
@@ -81,13 +90,17 @@ def _to_auth_user(user: User) -> AuthUser:
 
 def get_current_user(
     access_token: str | None = Cookie(default=None, alias=ACCESS_COOKIE),
+    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
     db: Session = Depends(get_db),
 ) -> User:
-    """Resolve current user from access token cookie."""
-    if not access_token:
+    """Resolve current user from access cookie or ``Authorization: Bearer``."""
+    token = access_token
+    if credentials is not None and credentials.scheme.lower() == "bearer":
+        token = credentials.credentials
+    if not token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
     try:
-        payload = decode_access_token(access_token)
+        payload = decode_access_token(token)
     except jwt.InvalidTokenError as exc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized") from exc
     if payload.get("type") != "access":
@@ -131,6 +144,45 @@ def login(payload: LoginRequest, response: Response, db: Session = Depends(get_d
     refresh_token = issue_refresh_token(db, user)
     _set_auth_cookies(response, access_token, refresh_token)
     return AuthSessionResponse(user=_to_auth_user(user))
+
+
+def _mobile_auth_response(user: User, access_token: str, refresh_token: str) -> MobileAuthResponse:
+    """Build JSON token payload for native clients."""
+    return MobileAuthResponse(
+        user=_to_auth_user(user),
+        access_token=access_token,
+        refresh_token=refresh_token,
+        expires_in=settings.jwt_access_token_minutes * 60,
+    )
+
+
+@router.post("/mobile/login", response_model=MobileAuthResponse)
+def mobile_login(payload: LoginRequest, db: Session = Depends(get_db)) -> MobileAuthResponse:
+    """Login for mobile; returns Bearer tokens in JSON (no cookies)."""
+    user = authenticate_user(db, payload.username, payload.password)
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sai tài khoản hoặc mật khẩu")
+    access_token = create_access_token(user)
+    refresh_token = issue_refresh_token(db, user)
+    return _mobile_auth_response(user, access_token, refresh_token)
+
+
+@router.post("/mobile/refresh", response_model=MobileAuthResponse)
+def mobile_refresh(payload: MobileRefreshRequest, db: Session = Depends(get_db)) -> MobileAuthResponse:
+    """Rotate refresh token and return new access token for mobile."""
+    user = rotate_refresh_token(db, payload.refresh_token)
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+    access = create_access_token(user)
+    new_refresh = issue_refresh_token(db, user)
+    return _mobile_auth_response(user, access, new_refresh)
+
+
+@router.post("/mobile/logout")
+def mobile_logout(payload: MobileRefreshRequest, db: Session = Depends(get_db)) -> dict[str, str]:
+    """Revoke refresh token submitted by mobile client."""
+    revoke_refresh_token(db, payload.refresh_token)
+    return {"status": "ok"}
 
 
 @router.post("/refresh", response_model=AuthSessionResponse)

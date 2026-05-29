@@ -11,6 +11,7 @@ from app.models import Product, SalesOrder, SalesOrderItem, User, UserRole
 from app.schemas import SalesOrderCreate, SalesOrderItemOut, SalesOrderLineIn, SalesOrderResponse
 from app.services.gas_ledger_rules import gas_ledger_gap_messages, order_fully_ready_for_gas_ledger
 from app.services.phone import normalize_phone
+from app.timezone import utc_now
 
 
 def _assign_order_code_after_flush(order_id: int) -> str:
@@ -38,7 +39,7 @@ def _resolve_assigned_to_user_id(db: Session, user_id: int | None) -> int | None
 
 
 def create_sales_order(
-    db: Session, payload: SalesOrderCreate, *, created_by_user_id: int | None = None
+    db: Session, payload: SalesOrderCreate, *, created_by_user_id: int | None = None, commit: bool = True
 ) -> SalesOrderResponse:
     """
     Persist header + lines, decrement product stock, compute VAT totals.
@@ -141,7 +142,11 @@ def create_sales_order(
         )
         p.stock_quantity -= qty
 
-    db.commit()
+    header.updated_at = utc_now()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
 
     db.refresh(header)
     order = db.scalars(
@@ -186,7 +191,9 @@ def _build_order_payload(
     return by_id, built_lines, cart_subtotal, vat_amount, grand_total
 
 
-def update_sales_order(db: Session, order_id: int, payload: SalesOrderCreate) -> SalesOrderResponse:
+def update_sales_order(
+    db: Session, order_id: int, payload: SalesOrderCreate, *, commit: bool = True
+) -> SalesOrderResponse:
     """Replace order header + lines and recalculate stock deltas."""
     order = db.scalars(
         select(SalesOrder).options(joinedload(SalesOrder.lines), joinedload(SalesOrder.assigned_to)).where(SalesOrder.id == order_id)
@@ -253,22 +260,28 @@ def update_sales_order(db: Session, order_id: int, payload: SalesOrderCreate) ->
         )
         p.stock_quantity -= qty
 
-    db.commit()
+    order.updated_at = utc_now()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     return load_sales_order_response(db, order.id)
 
 
 def delete_sales_order(db: Session, order_id: int) -> None:
-    """Delete order and return reserved stock back to inventory."""
+    """Soft-delete order, restore stock, and bump ``updated_at`` for sync pull."""
     order = db.scalars(
         select(SalesOrder).options(joinedload(SalesOrder.lines), joinedload(SalesOrder.assigned_to)).where(SalesOrder.id == order_id)
     ).first()
-    if order is None:
+    if order is None or order.deleted_at is not None:
         raise ValueError("Order not found")
     for li in order.lines:
         p = db.get(Product, li.product_id)
         if p is not None:
             p.stock_quantity += li.quantity
-    db.delete(order)
+    now = utc_now()
+    order.deleted_at = now
+    order.updated_at = now
     db.commit()
 
 
@@ -328,6 +341,6 @@ def load_sales_order_response(db: Session, order_id: int) -> SalesOrderResponse:
     order = db.scalars(
         select(SalesOrder).options(joinedload(SalesOrder.lines), joinedload(SalesOrder.assigned_to)).where(SalesOrder.id == order_id)
     ).first()
-    if order is None:
+    if order is None or order.deleted_at is not None:
         raise ValueError("Order not found")
     return order_to_response(order)
