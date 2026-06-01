@@ -72,10 +72,28 @@ Login from mobile APK built with `EXPO_PUBLIC_API_URL=https://api.<domain>`.
 | RAM | 1 GB (after images built) | 2 GB |
 | Disk | 10 GB SSD | 20 GB SSD |
 
-Run `cloudflared` on the same host as Docker Compose.
+Run `cloudflared` on the **Windows host** (not inside Docker) on the same machine as Docker Compose. Origins use `http://127.0.0.1:8686` and `:8000`.
+
+## Windows — auto-start at logon
+
+1. Set `CLOUDFLARE_TUNNEL_TOKEN` in repo root `.env` (from Zero Trust → Tunnels → your tunnel → Install connector).
+2. Install connector CLI once: `winget install Cloudflare.cloudflared`
+3. Register scheduled task (PowerShell **as Administrator**):
+
+```powershell
+cd C:\path\to\gas-store-app
+.\scripts\install-windows-startup.ps1
+```
+
+At each Windows logon: `docker compose up -d` then `cloudflared tunnel run` (see `logs/startup-windows.log`).
+
+Manual start: `.\scripts\start-production-windows.ps1`
+
+Remove task: `.\scripts\uninstall-windows-startup.ps1`
 
 ## Troubleshooting
 
-- **502 from Cloudflare:** Docker not running or wrong tunnel origin port.
+- **502 from Cloudflare:** Docker not running, wrong tunnel origin port, or `cloudflared` running in Docker (use host `cloudflared` on Windows).
+- **Site down after reboot:** Docker Desktop and logon task must run; check `logs/startup-windows.log`.
 - **CORS errors on web:** add web origin to `CORS_ORIGINS` and restart `api` container.
 - **Mobile login fails:** confirm APK was built with HTTPS API URL; release builds disable cleartext HTTP.

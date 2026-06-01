@@ -177,6 +177,7 @@ function computeClientGasLedgerGaps(o: OrderRow): string[] {
     if (!li.owner_name?.trim()) miss.push("chủ sở hữu");
     if (!li.cylinder_type?.trim()) miss.push("loại chai");
     if (!li.inspection_expiry?.trim()) miss.push("hạn kiểm định");
+    if (!li.import_source?.trim()) miss.push("nơi nhập");
     if (!li.import_date?.trim()) miss.push("ngày nhập");
     if (miss.length > 0) out.push(`Mặt hàng ${idx} (${label}): thiếu ${miss.join(", ")}.`);
   });
@@ -375,6 +376,7 @@ export default function Orders() {
     }
     const owner = selectedPreset?.owner_name?.trim() || DEFAULT_OWNER;
     const insp = selectedPreset?.inspection_expiry ?? "";
+    const impSrc = selectedPreset?.import_source?.trim() ?? "";
     const impD = selectedPreset?.import_date ?? "";
     setCart((prev) => [
       ...prev,
@@ -388,7 +390,7 @@ export default function Orders() {
         cylinder_type: cylinderTypeFromProductName(p.name),
         cylinder_serial: "",
         inspection_expiry: insp,
-        import_source: "",
+        import_source: impSrc,
         import_date: impD,
       },
     ]);

@@ -2,6 +2,9 @@ backend/.venv/
 backend/gas_store.db
 backend/.env
 .env
+logs/
+.cloudflared-quick.log
+.cloudflared-named.log
 frontend/node_modules/
 frontend/dist/
 .DS_Store

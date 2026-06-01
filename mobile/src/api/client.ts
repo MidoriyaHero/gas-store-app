@@ -208,6 +208,7 @@ export async function fetchCylinderTemplates(): Promise<
     id: number;
     name: string;
     owner_name: string | null;
+    import_source: string | null;
     inspection_expiry: string | null;
     import_date: string | null;
     is_active: boolean;

@@ -11,6 +11,7 @@ export type CreateCartLine = {
   owner_name: string;
   cylinder_type: string;
   cylinder_serial: string;
+  import_source: string;
   inspection_expiry: string;
   import_date: string;
 };
@@ -71,7 +72,7 @@ export function buildCreateOrderPayload(form: CreateOrderForm, cart: CreateCartL
       cylinder_type: i.cylinder_type.trim() || cylinderTypeFromProductName(i.name),
       cylinder_serial: i.cylinder_serial.trim() || null,
       inspection_expiry: i.inspection_expiry || null,
-      import_source: null,
+      import_source: i.import_source.trim() || null,
       import_date: i.import_date || null,
     })),
   };
@@ -92,6 +93,7 @@ export function newCartLine(
     owner_name: defaults.owner_name,
     cylinder_type: cylinderTypeFromProductName(product.name),
     cylinder_serial: "",
+    import_source: defaults.import_source,
     inspection_expiry: defaults.inspection_expiry,
     import_date: defaults.import_date,
   };

@@ -402,6 +402,11 @@ export function AdminCreateOrderPanel() {
                   onChangeText={(v) => updateLine(line.lineKey, { cylinder_serial: v })}
                 />
                 <TextField
+                  label="Nơi nhập chai chứa cho cửa hàng"
+                  value={line.import_source}
+                  onChangeText={(v) => updateLine(line.lineKey, { import_source: v })}
+                />
+                <TextField
                   label="Hạn kiểm định (YYYY-MM-DD)"
                   value={line.inspection_expiry}
                   onChangeText={(v) => updateLine(line.lineKey, { inspection_expiry: v })}

@@ -6,12 +6,14 @@ export type CylinderTemplateRow = {
   id: number;
   name: string;
   owner_name: string | null;
+  import_source: string | null;
   inspection_expiry: string | null;
   import_date: string | null;
 };
 
 export type CylinderLineDefaults = {
   owner_name: string;
+  import_source: string;
   inspection_expiry: string;
   import_date: string;
 };
@@ -27,6 +29,7 @@ export function cylinderTypeFromProductName(productName: string): string {
 export function lineDefaultsFromTemplate(template: CylinderTemplateRow | null): CylinderLineDefaults {
   return {
     owner_name: template?.owner_name?.trim() || DEFAULT_OWNER,
+    import_source: template?.import_source?.trim() ?? "",
     inspection_expiry: template?.inspection_expiry ?? "",
     import_date: template?.import_date ?? "",
   };
@@ -38,6 +41,7 @@ export function localDefaultTemplate(): CylinderTemplateRow {
     id: 0,
     name: DEFAULT_OWNER,
     owner_name: DEFAULT_OWNER,
+    import_source: null,
     inspection_expiry: null,
     import_date: null,
   };
