@@ -28,6 +28,7 @@ export default function AdminLayout() {
       <Stack.Screen name="module/operations" options={{ title: "Vận hành" }} />
       <Stack.Screen name="order/[id]" options={{ title: "Chi tiết đơn" }} />
       <Stack.Screen name="order/create" options={{ title: "Tạo đơn" }} />
+      <Stack.Screen name="order/from-calls" options={{ title: "Cuộc gọi gần đây" }} />
     </Stack>
   );
 }

@@ -111,6 +111,18 @@ Production API via Cloudflare Tunnel: [`../docs/deploy/cloudflare-tunnel.md`](..
 
 Staff **Maps** needs `delivery_latitude/longitude` or `delivery_address` on the order (pull sync from web).
 
+## Admin: tạo đơn từ lịch sử cuộc gọi
+
+**Android only**, admin role. Dữ liệu cuộc gọi **không gửi lên server**.
+
+1. **Tạo đơn** → **Chọn từ cuộc gọi** (nút cam), hoặc tab **Đơn hàng** → **Từ cuộc gọi**
+2. Cấp quyền **Lịch sử cuộc gọi** khi được hỏi
+3. Chọn SĐT (gộp theo số, badge `×N`, không có gọi nhỡ) → form tạo đơn prefill tên/địa chỉ từ đơn cũ
+
+Emulator thường **không có** call log — test trên **máy thật**. `READ_CALL_LOG` bị hạn chế trên Google Play; app sideload APK vẫn OK.
+
+Sau khi đổi plugin: `npx expo prebuild --platform android --no-install`
+
 ## OpenAPI codegen
 
 With API running:

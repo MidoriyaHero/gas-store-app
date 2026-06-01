@@ -19,6 +19,7 @@
 
 ## Frame: `Admin / Create Order — Step 1`
 
+- Nút **Chọn từ cuộc gọi** (cam) → stack `order/from-calls`
 - Label **Địa chỉ** full width → hàng **input + nút Maps** (cùng baseline 48dp) → hint ghim tọa độ **dưới**
 - Block dán link Google Maps + **Áp dụng**
 - Nhân viên giao: horizontal chips từ users role `user`

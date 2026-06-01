@@ -202,6 +202,23 @@ export async function createOrder(payload: JsonBody): Promise<{ id: number; orde
   return apiFetch("/api/orders", { method: "POST", body: JSON.stringify(payload) });
 }
 
+/** Search orders by code, customer name, or phone (admin). */
+export async function searchOrders(
+  q: string,
+  limit = 10,
+): Promise<{
+  items: Array<{
+    customer_name: string;
+    phone: string;
+    delivery_address?: string | null;
+    delivery_latitude?: number | null;
+    delivery_longitude?: number | null;
+  }>;
+  total: number;
+}> {
+  return apiFetch(`/api/orders?q=${encodeURIComponent(q)}&limit=${limit}&offset=0`);
+}
+
 /** Cylinder field presets for order lines. */
 export async function fetchCylinderTemplates(): Promise<
   Array<{

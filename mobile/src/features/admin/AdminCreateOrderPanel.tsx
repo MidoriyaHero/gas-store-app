@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
-import { router, type Href } from "expo-router";
+import { router, useLocalSearchParams, type Href } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 
 import { createOrder, fetchCylinderTemplates, fetchUsers, geocodeFromPaste, geocodeSearch } from "@/api/client";
@@ -43,6 +43,14 @@ function todayIso(): string {
 /** Two-step admin create order form (online POST or offline outbox). */
 export function AdminCreateOrderPanel() {
   const toast = useToast();
+  const params = useLocalSearchParams<{
+    phone?: string;
+    customerName?: string;
+    address?: string;
+    lat?: string;
+    lng?: string;
+  }>();
+  const prefillApplied = useRef(false);
   const [step, setStep] = useState<1 | 2>(1);
   const [saving, setSaving] = useState(false);
   const [productRows, setProductRows] = useState<(typeof products.$inferSelect)[]>([]);
@@ -101,6 +109,27 @@ export function AdminCreateOrderPanel() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (prefillApplied.current) return;
+    const phone = typeof params.phone === "string" ? params.phone : "";
+    const customerName = typeof params.customerName === "string" ? params.customerName : "";
+    const address = typeof params.address === "string" ? params.address : "";
+    const latRaw = typeof params.lat === "string" ? params.lat : "";
+    const lngRaw = typeof params.lng === "string" ? params.lng : "";
+    if (!phone && !customerName && !address) return;
+
+    prefillApplied.current = true;
+    setForm((f) => ({
+      ...f,
+      ...(phone ? { phone } : {}),
+      ...(customerName ? { customerName } : {}),
+      ...(address ? { address } : {}),
+      ...(latRaw && lngRaw
+        ? { deliveryLatitude: Number(latRaw), deliveryLongitude: Number(lngRaw) }
+        : {}),
+    }));
+  }, [params]);
 
   function patchForm(partial: Partial<CreateOrderForm>) {
     setForm((f) => ({ ...f, ...partial }));
@@ -269,6 +298,12 @@ export function AdminCreateOrderPanel() {
 
         {step === 1 ? (
           <Card style={styles.card}>
+            <Button
+              label="Chọn từ cuộc gọi"
+              variant="accent"
+              onPress={() => router.push("/(admin)/order/from-calls" as Href)}
+              style={styles.callPickBtn}
+            />
             <TextField label="Tên khách *" value={form.customerName} onChangeText={(v) => patchForm({ customerName: v })} />
             <TextField label="Số điện thoại *" value={form.phone} onChangeText={(v) => patchForm({ phone: v })} keyboardType="phone-pad" />
             <View style={styles.addressBlock}>
@@ -470,6 +505,7 @@ const styles = StyleSheet.create({
   scroll: { padding: spacing.md, paddingBottom: spacing.xxl, gap: spacing.sm },
   stepLabel: { marginBottom: spacing.xs },
   card: { gap: spacing.sm },
+  callPickBtn: { marginBottom: spacing.xs },
   chips: { flexDirection: "row", gap: spacing.sm, flexWrap: "wrap" },
   addRow: { flexDirection: "row", gap: spacing.sm, alignItems: "flex-end" },
   qtyCol: { width: 72 },

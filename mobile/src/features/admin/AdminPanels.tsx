@@ -107,6 +107,11 @@ export function AdminOrdersPanel() {
             onChangeText={setSearch}
             placeholder="Mã đơn, tên khách hoặc SĐT…"
           />
+          <Button
+            label="Từ cuộc gọi"
+            variant="accent"
+            onPress={() => router.push("/(admin)/order/from-calls" as Href)}
+          />
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
             <FilterChip label="Tất cả" active={filter === "all"} onPress={() => setFilter("all")} />
             <FilterChip label="Đang giao" active={filter === "active"} onPress={() => setFilter("active")} />

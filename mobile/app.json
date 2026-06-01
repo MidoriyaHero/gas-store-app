@@ -29,7 +29,8 @@
       "expo-sqlite",
       "expo-asset",
       "expo-font",
-      "./plugins/withAndroidQueries.js"
+      "./plugins/withAndroidQueries.js",
+      "./plugins/withCallLogPermission.js"
     ],
     "experiments": {
       "typedRoutes": true
