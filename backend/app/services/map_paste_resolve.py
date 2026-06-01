@@ -123,9 +123,13 @@ def _parse_lat_lng_groups(g1: str, g2: str) -> tuple[float, float] | None:
 
 
 def extract_lat_lng_from_maps_url(url: str) -> tuple[float, float] | None:
-    """Try common Google Maps URL patterns for WGS84 decimal degrees."""
+    """Try common Google Maps URL patterns for WGS84 decimal degrees.
+
+    Prefer ``!3d…!4d`` (place pin) over ``@lat,lng`` (map viewport) — short links
+    often expand to URLs where both appear but viewport lng/lat can be offset.
+    """
     u = url.strip()
-    for rx in (_AT_COORD_RE, _D3D_RE, _LL_RE, _Q_PAIR_RE, _CENTER_RE):
+    for rx in (_D3D_RE, _AT_COORD_RE, _LL_RE, _Q_PAIR_RE, _CENTER_RE):
         m = rx.search(u)
         if not m:
             continue

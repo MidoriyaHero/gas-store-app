@@ -13,13 +13,45 @@ from app.services.map_paste_resolve import (
 
 
 def test_extract_at_coord_from_maps_url() -> None:
-    """``@lat,lng`` appears in shared desktop Maps URLs."""
+    """``@lat,lng`` appears in shared desktop Maps URLs without a separate pin."""
     u = "https://www.google.com/maps/place/X/@11.2036875,106.2860625,17z/data=!3m1!4b1"
     got = extract_lat_lng_from_maps_url(u)
     assert got is not None
     la, lo = got
     assert abs(la - 11.2036875) < 1e-9
     assert abs(lo - 106.2860625) < 1e-9
+
+
+def test_extract_pin_over_viewport_for_maps_app_short_url() -> None:
+    """``maps.app.goo.gl`` expands to URLs with both ``@`` viewport and ``!3d!4d`` pin."""
+    final = (
+        "https://www.google.com/maps/place/CHI+NH%C3%81NH+C%C3%94NG+TY+TNHH+TRINITY+VI%E1%BB%86T+NAM/"
+        "@11.1930275,106.2915278,880m/data=!3m2!1e3!4b1!4m6!3m5!1s0x310b3947e7a03289:0xe5e8f8143e87adcc"
+        "!8m2!3d11.1930275!4d106.2941027!16s%2Fg%2F11ltgnp7hw?entry=tts"
+    )
+    got = extract_lat_lng_from_maps_url(final)
+    assert got == (11.1930275, 106.2941027)
+
+
+def test_resolve_maps_app_short_url_uses_pin_coords(monkeypatch) -> None:
+    """Full paste resolve for a short link uses expanded pin, not viewport ``@``."""
+    final = (
+        "https://www.google.com/maps/place/CHI+NH%C3%81NH+C%C3%94NG+TY+TNHH+TRINITY+VI%E1%BB%86T+NAM/"
+        "@11.1930275,106.2915278,880m/data=!3m2!1e3!4b1!4m6!3m5!1s0x310b3947e7a03289:0xe5e8f8143e87adcc"
+        "!8m2!3d11.1930275!4d106.2941027!16s%2Fg%2F11ltgnp7hw?entry=tts"
+    )
+    short = "https://maps.app.goo.gl/vGZXLRP7WFzvCPj28"
+
+    def _fake_follow(url: str, *, user_agent: str, timeout_sec: float = 12.0) -> str:
+        assert url == short
+        return final
+
+    monkeypatch.setattr(
+        "app.services.map_paste_resolve.follow_maps_url",
+        _fake_follow,
+    )
+    ua = "GasStoreTest/1.0"
+    assert resolve_paste_to_lat_lng(short, user_agent=ua) == (11.1930275, 106.2941027)
 
 
 def test_extract_bang_d3d() -> None:

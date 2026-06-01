@@ -22,9 +22,9 @@ function parsePair(a: string, b: string): { lat: number; lng: number } | null {
   return { lat, lng };
 }
 
-/** Extract the first coordinate pair from Maps URL/HTML text. */
+/** Extract the first coordinate pair from Maps URL/HTML text (pin before viewport @). */
 function extractCoordsFromText(text: string): { lat: number; lng: number } | null {
-  for (const rx of [AT_COORD, D3D, LL, Q_PAIR, STATICMAP]) {
+  for (const rx of [D3D, AT_COORD, LL, Q_PAIR, STATICMAP]) {
     const m = text.match(rx);
     if (!m) {
       continue;
