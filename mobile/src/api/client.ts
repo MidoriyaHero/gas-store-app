@@ -85,7 +85,7 @@ export async function uploadVoiceOrderNote(
   fileUri: string,
   mimeType = "audio/mp4",
   durationSec?: number,
-): Promise<{ id: number; client_id?: string | null }> {
+): Promise<{ id: number; client_id?: string | null; audio_url?: string | null }> {
   const token = await getAccessToken();
   if (!token) {
     notifySessionExpired();
@@ -117,7 +117,7 @@ export async function uploadVoiceOrderNote(
     const text = await res.text();
     throw new Error(text || `HTTP ${res.status}`);
   }
-  const body = (await res.json()) as { id: number; client_id?: string | null };
+  const body = (await res.json()) as { id: number; client_id?: string | null; audio_url?: string | null };
   return body;
 }
 
@@ -334,10 +334,16 @@ export async function deleteProduct(productId: number): Promise<void> {
   await apiFetch(`/api/products/${productId}`, { method: "DELETE" });
 }
 
-export async function createStockReceipt(productId: number, quantity: number, note?: string): Promise<JsonBody> {
+export async function createStockReceipt(
+  productId: number,
+  quantity: number,
+  note?: string,
+  receiptDate?: string,
+): Promise<JsonBody> {
+  const date = receiptDate ?? new Date().toISOString().slice(0, 10);
   return apiFetch(`/api/products/${productId}/stock-receipts`, {
     method: "POST",
-    body: JSON.stringify({ quantity, note: note ?? null }),
+    body: JSON.stringify({ quantity, note: note ?? null, receipt_date: date }),
   });
 }
 
@@ -354,9 +360,17 @@ export async function deleteUser(userId: number): Promise<void> {
 }
 
 export async function fetchCylinderTemplatesAll(): Promise<
-  Array<{ id: number; name: string; owner_name: string | null; is_active: boolean }>
+  Array<{
+    id: number;
+    name: string;
+    owner_name: string | null;
+    import_source: string | null;
+    inspection_expiry: string | null;
+    import_date: string | null;
+    is_active: boolean;
+  }>
 > {
-  return apiFetch("/api/cylinder-templates");
+  return apiFetch("/api/cylinder-templates?include_inactive=true");
 }
 
 export async function createCylinderTemplate(payload: JsonBody): Promise<JsonBody> {

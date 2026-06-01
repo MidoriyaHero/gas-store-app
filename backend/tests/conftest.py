@@ -1,5 +1,10 @@
 """Shared pytest fixtures: in-memory SQLite and FastAPI TestClient with DB override."""
 
+import os
+
+os.environ.setdefault("SEED_ADMIN_USERNAME", "admin")
+os.environ.setdefault("SEED_ADMIN_PASSWORD", "admin123")
+
 from collections.abc import Generator
 
 import pytest

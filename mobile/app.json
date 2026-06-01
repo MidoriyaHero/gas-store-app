@@ -1,24 +1,35 @@
 {
   "expo": {
-    "name": "Gas Store",
+    "name": "Gas Huy Hoàng",
     "slug": "gas-store-mobile",
     "scheme": "gasstore",
     "version": "1.0.0",
     "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#2563EB"
+    },
     "platforms": [
       "android"
     ],
     "android": {
       "package": "com.gasstore.mobile",
       "minSdkVersion": 26,
-      "usesCleartextTraffic": true
+      "usesCleartextTraffic": false,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#2563EB"
+      }
     },
     "plugins": [
       "expo-router",
       "expo-secure-store",
       "expo-sqlite",
       "expo-asset",
-      "expo-font"
+      "expo-font",
+      "./plugins/withAndroidQueries.js"
     ],
     "experiments": {
       "typedRoutes": true

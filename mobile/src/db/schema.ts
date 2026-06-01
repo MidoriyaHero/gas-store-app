@@ -37,6 +37,7 @@ export const orderNotes = sqliteTable("order_notes", {
   title: text("title"),
   rawText: text("raw_text"),
   voicePath: text("voice_path"),
+  audioUrl: text("audio_url"),
   mimeType: text("mime_type"),
   voiceDurationSec: integer("voice_duration_sec"),
   uploadStatus: text("upload_status").default("pending"),

@@ -82,6 +82,7 @@ export function migrateLocalDb(): void {
   ensureColumn("sales_orders", "delivery_longitude", "delivery_longitude REAL");
   ensureColumn("sales_orders", "created_at", "created_at TEXT");
   ensureColumn("order_notes", "voice_duration_sec", "voice_duration_sec INTEGER");
+  ensureColumn("order_notes", "audio_url", "audio_url TEXT");
   backfillSalesOrderCreatedAt();
 }
 

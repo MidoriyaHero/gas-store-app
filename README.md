@@ -13,6 +13,16 @@ Open-source app quản lý cửa hàng gas: kho hàng, đơn hàng, sổ gas, b�
 
 Tài liệu kỹ thuật chi tiết (architecture, database ER, API, features + diagrams): **[docs/README.md](./docs/README.md)**
 
+Deploy production (Cloudflare Tunnel, domain, mobile APK): **[docs/deploy/cloudflare-tunnel.md](./docs/deploy/cloudflare-tunnel.md)**
+
+Mobile app (Expo Android): **[mobile/README.md](./mobile/README.md)**
+
+## CI
+
+GitHub Actions: [`.github/workflows/ci.yml`](./.github/workflows/ci.yml) — backend pytest, frontend build, mobile typecheck on push/PR.
+
+Release APK: [`.github/workflows/mobile-release.yml`](./.github/workflows/mobile-release.yml) — tag `mobile/v*` or manual dispatch.
+
 ## Main Features
 
 - Quản lý sản phẩm kho hàng (CRUD)
@@ -50,26 +60,42 @@ Video giới thiệu / walkthrough: [YouTube — Gas Store App](https://www.yout
 
 ### Default Admin Account
 
-Được seed tự động khi backend khởi động lần đầu:
+Không còn mật khẩu mặc định trong code. Lần **đầu** chạy trên host mới, truyền tài khoản admin qua `setup.sh` (lưu vào `.env`, không commit):
 
-- Username: `admin`
-- Password: `admin123`
+```bash
+./setup.sh --admin-user shopadmin --admin-pass 'YourStrongPass!'
+```
 
-Bạn nên đổi thông tin này khi deploy thật (qua biến môi trường).
+Production (Cloudflare):
 
-## Quick Start (Docker)
+```bash
+./setup.sh --admin-user shopadmin --admin-pass 'YourStrongPass!' \
+  --cors 'https://app.gashuyhoang.io.vn,https://gashuyhoang.io.vn'
+```
 
-Từ thư mục gốc project:
+Chạy lại sau khi đã có `.env` (giữ nguyên admin đã seed):
 
 ```bash
 ./setup.sh
 ```
 
-Hoặc:
+Nếu DB đã có admin, API bỏ qua seed — đổi mật khẩu qua UI admin hoặc tạo user mới.
+
+## Quick Start (Docker)
+
+Từ thư mục gốc project — **host mới** (bắt buộc admin user/pass):
+
+```bash
+./setup.sh --admin-user shopadmin --admin-pass 'YourStrongPass!'
+```
+
+Hoặc thủ công:
 
 ```bash
 docker compose up --build
 ```
+
+*(Chỉ `docker compose up` khi `.env` đã có `SEED_ADMIN_USERNAME` / `SEED_ADMIN_PASSWORD` và DB chưa có admin, hoặc DB đã seed trước đó.)*
 
 Services mặc định:
 
@@ -86,7 +112,7 @@ WEB_PORT=9080 API_PORT=8001 POSTGRES_PORT=55432 ./setup.sh
 ### Kiểm tra UI (trình duyệt — nên dùng cho dashboard / form)
 
 1. Mở đúng URL web (theo cổng đã map, ví dụ `http://127.0.0.1:8686` hoặc giá trị `WEB_PORT` nếu bạn override).
-2. Vào `/login`, đăng nhập `admin` / `admin123` (tài khoản seed mặc định).
+2. Vào `/login`, đăng nhập bằng admin đã set lúc `./setup.sh`.
 3. Duyệt `/` (Tổng quan), `/tai-chinh-quan-tri`, `/dieu-hanh` và các màn khác cần kiểm.
 
 **Lưu ý:** Nếu cổng web bị app khác chiếm, đổi `WEB_PORT` (ví dụ `WEB_PORT=9080 ./setup.sh`) rồi mở đúng URL mới.
@@ -148,8 +174,7 @@ Mở `http://127.0.0.1:5173` (Vite proxy `/api` sang backend).
 - `JWT_REFRESH_TOKEN_DAYS`
 - `AUTH_COOKIE_SECURE`
 - `AUTH_COOKIE_SAMESITE`
-- `SEED_ADMIN_USERNAME`
-- `SEED_ADMIN_PASSWORD`
+- `SEED_ADMIN_USERNAME` / `SEED_ADMIN_PASSWORD` — first boot only (via `./setup.sh`)
 
 ### Docker Compose
 

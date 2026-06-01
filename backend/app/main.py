@@ -73,15 +73,22 @@ def _seed_demo_products() -> None:
 
 
 def _seed_admin_user() -> None:
-    """Create initial admin account when missing."""
+    """Create the first admin account when the database has none."""
     with SessionLocal() as db:
-        exists = db.scalar(select(User.id).where(User.username == settings.seed_admin_username.strip()))
-        if exists is not None:
+        any_admin = db.scalar(select(User.id).where(User.role == UserRole.ADMIN.value).limit(1))
+        if any_admin is not None:
             return
+        username = settings.seed_admin_username.strip()
+        password = settings.seed_admin_password
+        if not username or not password:
+            raise RuntimeError(
+                "No admin user in database. Set SEED_ADMIN_USERNAME and SEED_ADMIN_PASSWORD "
+                "for first-time setup (see ./setup.sh --help)."
+            )
         db.add(
             User(
-                username=settings.seed_admin_username.strip(),
-                password_hash=hash_password(settings.seed_admin_password),
+                username=username,
+                password_hash=hash_password(password),
                 role=UserRole.ADMIN.value,
                 is_active=True,
             )

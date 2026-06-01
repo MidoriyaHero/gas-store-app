@@ -20,8 +20,8 @@ class Settings(BaseSettings):
     jwt_refresh_token_days: int = 14
     auth_cookie_secure: bool = False
     auth_cookie_samesite: str = "lax"
-    seed_admin_username: str = "admin"
-    seed_admin_password: str = "admin123"
+    seed_admin_username: str = ""
+    seed_admin_password: str = ""
     media_root: str = "data/media"
     order_note_audio_max_bytes: int = 20 * 1024 * 1024
     nominatim_user_agent: str = "GasStoreApp/1.0 (internal geocode; contact: admin@localhost)"

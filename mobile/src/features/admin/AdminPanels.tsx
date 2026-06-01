@@ -63,7 +63,7 @@ export function AdminOrdersPanel() {
       });
       await runSyncCycle();
       await load();
-      toast.showSuccess("Đã +1 vỏ");
+      toast.showSuccess("Đã ghi nợ 1 vỏ");
     } catch (e) {
       toast.showError(e instanceof Error ? e.message : "Cập nhật vỏ thất bại");
     }
@@ -149,7 +149,9 @@ export function AdminOrdersPanel() {
               : undefined
           }
           secondaryAction={{
-            label: "+1 vỏ",
+            label: "Nợ 1 vỏ",
+            variant: "secondary",
+            accessibilityLabel: "Ghi nợ thêm một vỏ cho đơn này",
             onPress: () => void bumpBorrowed(item),
           }}
         />

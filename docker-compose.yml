@@ -30,6 +30,8 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-gas_store}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8686,http://127.0.0.1:8686,http://localhost:5173,http://127.0.0.1:5173}
+      SEED_ADMIN_USERNAME: ${SEED_ADMIN_USERNAME:-}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-}
       MEDIA_ROOT: /data/media
     volumes:
       - api_media:/data/media

@@ -10,3 +10,6 @@ backend/.venv-test
 __pycache__/
 **/__pycache__/
 .cursor/
+*.keystore
+mobile/android/keystore.properties
+mobile/android/app/release/

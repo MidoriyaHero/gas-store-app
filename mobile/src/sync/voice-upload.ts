@@ -20,6 +20,7 @@ export async function uploadPendingVoiceNotes(): Promise<void> {
         .update(orderNotes)
         .set({
           serverId: res.id,
+          audioUrl: res.audio_url ?? null,
           uploadStatus: "synced",
           updatedAt: new Date().toISOString(),
         })

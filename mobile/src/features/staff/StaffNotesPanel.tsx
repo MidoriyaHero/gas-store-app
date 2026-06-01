@@ -1,12 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
-import { FlatList, Pressable, RefreshControl, StyleSheet, View } from "react-native";
-import { Audio } from "expo-av";
-import { Ionicons } from "@expo/vector-icons";
+import { useCallback, useState } from "react";
+import { FlatList, RefreshControl, StyleSheet, View } from "react-native";
 import { eq, isNull } from "drizzle-orm";
 
-import { API_BASE_URL } from "@/config";
 import { deleteOrderNote, fetchOrderNotes } from "@/api/client";
-import { getAccessToken } from "@/auth/session";
 import { ConfirmSheet } from "@/components/ui/ConfirmSheet";
 import { AppText } from "@/components/ui/AppText";
 import { Button } from "@/components/ui/Button";
@@ -14,12 +10,15 @@ import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { TextField } from "@/components/ui/TextField";
+import { VoiceMeterBars } from "@/components/voice/VoiceMeterBars";
+import { VoiceMiniPlayer } from "@/components/voice/VoiceMiniPlayer";
 import { useToast } from "@/components/ui/ToastProvider";
 import { db } from "@/db/client";
 import { orderNotes, outbox } from "@/db/schema";
-import { useVoiceNoteRecorder } from "@/hooks/useVoiceNoteRecorder";
+import { formatVoiceTime, useVoiceNoteRecorder } from "@/hooks/useVoiceNoteRecorder";
 import { useAutoSyncScreen } from "@/hooks/useAutoSyncScreen";
 import { newClientId } from "@/lib/ids";
+import { persistVoiceRecording } from "@/lib/voice-note-file";
 import { runSyncCycle } from "@/sync/engine";
 import { discardOutboxRow, enqueueMutation } from "@/sync/outbox";
 import { formatDateTime } from "@/utils/format";
@@ -34,6 +33,7 @@ interface DisplayNote {
   voicePath?: string;
   audioUrl?: string;
   voiceDurationSec?: number;
+  uploadStatus?: string;
   updatedAt: string;
 }
 
@@ -48,19 +48,29 @@ export function StaffNotesPanel() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<DisplayNote | null>(null);
-  const [sound, setSound] = useState<Audio.Sound | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const local = await db.select().from(orderNotes).where(isNull(orderNotes.salesOrderId));
-      const localServerIds = new Set(local.map((n) => n.serverId).filter((id): id is number => id != null));
+      const localByServerId = new Map(local.filter((n) => n.serverId != null).map((n) => [n.serverId!, n]));
       const merged: DisplayNote[] = local.map(localToDisplay);
 
       try {
         const apiRows = await fetchOrderNotes(false);
         for (const row of apiRows) {
-          if (!localServerIds.has(row.id)) {
+          const existing = localByServerId.get(row.id);
+          if (existing && row.audio_url && !existing.audioUrl) {
+            await db
+              .update(orderNotes)
+              .set({ audioUrl: row.audio_url, updatedAt: new Date().toISOString() })
+              .where(eq(orderNotes.clientId, existing.clientId));
+            const idx = merged.findIndex((m) => m.clientId === existing.clientId);
+            if (idx >= 0) {
+              merged[idx] = { ...merged[idx], audioUrl: row.audio_url };
+            }
+          }
+          if (!localByServerId.has(row.id)) {
             merged.push({
               key: `srv-${row.id}`,
               serverId: row.id,
@@ -85,12 +95,6 @@ export function StaffNotesPanel() {
   }, [toast]);
 
   useAutoSyncScreen(load);
-
-  useEffect(() => {
-    return () => {
-      void sound?.unloadAsync();
-    };
-  }, [sound]);
 
   function resetDraft() {
     setDraft("");
@@ -155,10 +159,11 @@ export function StaffNotesPanel() {
       if (!result) return;
       const clientId = newClientId();
       const now = new Date().toISOString();
+      const voicePath = await persistVoiceRecording(result.uri, clientId);
       await db.insert(orderNotes).values({
         clientId,
         title: "Ghi chú giao",
-        voicePath: result.uri,
+        voicePath,
         mimeType: result.mimeType,
         voiceDurationSec: result.durationSec,
         uploadStatus: "pending",
@@ -179,27 +184,6 @@ export function StaffNotesPanel() {
     if (!ok) toast.showError("Cần quyền micro để ghi âm");
   }
 
-  async function playVoice(note: DisplayNote) {
-    try {
-      await sound?.unloadAsync();
-      if (note.voicePath) {
-        const { sound: s } = await Audio.Sound.createAsync({ uri: note.voicePath }, { shouldPlay: true });
-        setSound(s);
-        return;
-      }
-      if (!note.audioUrl) return;
-      const token = await getAccessToken();
-      const uri = note.audioUrl.startsWith("http") ? note.audioUrl : `${API_BASE_URL}${note.audioUrl}`;
-      const { sound: s } = await Audio.Sound.createAsync(
-        { uri, headers: token ? { Authorization: `Bearer ${token}` } : undefined },
-        { shouldPlay: true },
-      );
-      setSound(s);
-    } catch (e) {
-      toast.showError(e instanceof Error ? e.message : "Không phát được ghi âm");
-    }
-  }
-
   async function confirmDelete() {
     const note = deleteTarget;
     setDeleteTarget(null);
@@ -216,7 +200,7 @@ export function StaffNotesPanel() {
         try {
           await deleteOrderNote(note.serverId);
         } catch {
-          /* offline — local already removed if matched clientId */
+          /* offline */
         }
         await db.delete(orderNotes).where(eq(orderNotes.serverId, note.serverId));
       }
@@ -269,13 +253,31 @@ export function StaffNotesPanel() {
                   Ghi âm nhanh
                 </AppText>
                 {voice.isRecording ? (
-                  <View style={styles.row}>
-                    <Button label="Dừng & lưu" loading={saving} onPress={() => void saveVoiceNote()} />
-                    <Button label="Hủy ghi" variant="ghost" onPress={() => void voice.cancel()} />
+                  <View style={styles.recordingBlock}>
+                    <View style={styles.recRow}>
+                      <View style={styles.recDot} />
+                      <AppText variant="mono" style={styles.timer}>
+                        {formatVoiceTime(voice.elapsedSec)}
+                      </AppText>
+                      <AppText variant="caption" muted>
+                        Đang ghi…
+                      </AppText>
+                    </View>
+                    <VoiceMeterBars
+                      samples={voice.meteringSamples}
+                      animated={!voice.reduceMotion}
+                    />
+                    <View style={styles.row}>
+                      <Button label="Dừng & lưu" variant="accent" loading={saving} onPress={() => void saveVoiceNote()} />
+                      <Button label="Hủy ghi" variant="ghost" onPress={() => void voice.cancel()} />
+                    </View>
                   </View>
                 ) : (
                   <Button label="Bắt đầu ghi" variant="secondary" onPress={() => void startRecording()} />
                 )}
+                <AppText variant="caption" muted>
+                  Ghi âm sẽ tải lên khi có mạng
+                </AppText>
               </View>
             </Card>
             <AppText variant="bodyMedium" style={styles.listTitle}>
@@ -289,7 +291,10 @@ export function StaffNotesPanel() {
         renderItem={({ item }) => (
           <Card style={styles.card}>
             <View style={styles.cardHead}>
-              <StatusBadge label={item.noteType === "voice" ? "Ghi âm" : "Chữ"} tone={item.noteType === "voice" ? "info" : "neutral"} />
+              <View style={styles.badgeRow}>
+                <StatusBadge label={item.noteType === "voice" ? "Ghi âm" : "Chữ"} tone={item.noteType === "voice" ? "info" : "neutral"} />
+                {item.uploadStatus === "pending" ? <StatusBadge label="Chờ tải" tone="warning" /> : null}
+              </View>
               <AppText variant="caption" muted>
                 {formatDateTime(item.updatedAt)}
                 {item.voiceDurationSec ? ` · ${item.voiceDurationSec}s` : ""}
@@ -297,10 +302,11 @@ export function StaffNotesPanel() {
             </View>
             {item.rawText ? <AppText variant="body">{item.rawText}</AppText> : null}
             {item.noteType === "voice" ? (
-              <Pressable style={styles.voiceRow} onPress={() => void playVoice(item)}>
-                <Ionicons name="play-circle-outline" size={22} color={colors.primary} />
-                <AppText variant="caption">Phát ghi âm</AppText>
-              </Pressable>
+              <VoiceMiniPlayer
+                voicePath={item.voicePath}
+                audioUrl={item.audioUrl}
+                durationSec={item.voiceDurationSec}
+              />
             ) : null}
             {item.noteType === "text" ? (
               <View style={styles.row}>
@@ -335,14 +341,17 @@ export function StaffNotesPanel() {
 
 /** Map local SQLite row to list item. */
 function localToDisplay(n: typeof orderNotes.$inferSelect): DisplayNote {
+  const isVoice = Boolean(n.voicePath || n.audioUrl);
   return {
     key: n.clientId,
     clientId: n.clientId,
     serverId: n.serverId ?? undefined,
-    noteType: n.voicePath ? "voice" : "text",
+    noteType: isVoice ? "voice" : "text",
     rawText: n.rawText ?? undefined,
     voicePath: n.voicePath ?? undefined,
+    audioUrl: n.audioUrl ?? undefined,
     voiceDurationSec: n.voiceDurationSec ?? undefined,
+    uploadStatus: n.uploadStatus ?? undefined,
     updatedAt: n.updatedAt,
   };
 }
@@ -366,9 +375,13 @@ const styles = StyleSheet.create({
   compose: { gap: spacing.sm },
   composeActions: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
   voiceSection: { gap: spacing.xs, marginTop: spacing.xs },
+  recordingBlock: { gap: spacing.sm },
+  recRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  recDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.error },
+  timer: { fontSize: 16, color: colors.text },
   listTitle: { fontFamily: "Inter_600SemiBold" },
   card: { marginBottom: spacing.sm, gap: spacing.xs },
   cardHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.sm },
+  badgeRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.xs },
   row: { flexDirection: "row", gap: spacing.sm, flexWrap: "wrap" },
-  voiceRow: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
 });

@@ -8,6 +8,8 @@ import { Card } from "@/components/ui/Card";
 import { StatusBadge, StatusTone } from "@/components/ui/StatusBadge";
 import { colors, spacing } from "@/theme/tokens";
 
+type ButtonVariant = "primary" | "secondary" | "accent" | "ghost" | "danger";
+
 type OrderCardProps = {
   orderCode: string;
   customerName: string;
@@ -16,7 +18,7 @@ type OrderCardProps = {
   statusTone: StatusTone;
   meta?: { icon: keyof typeof Ionicons.glyphMap; text: string }[];
   primaryAction?: { label: string; onPress: () => void; loading?: boolean };
-  secondaryAction?: { label: string; onPress: () => void };
+  secondaryAction?: { label: string; onPress: () => void; variant?: ButtonVariant; accessibilityLabel?: string };
   footer?: ReactNode;
   onPress?: () => void;
 };
@@ -69,7 +71,13 @@ export function OrderCard({
       {(primaryAction || secondaryAction) && (
         <View style={styles.actions}>
           {secondaryAction ? (
-            <Button label={secondaryAction.label} variant="ghost" onPress={secondaryAction.onPress} style={styles.actionBtn} />
+            <Button
+              label={secondaryAction.label}
+              variant={secondaryAction.variant ?? "ghost"}
+              accessibilityLabel={secondaryAction.accessibilityLabel}
+              onPress={secondaryAction.onPress}
+              style={styles.actionBtn}
+            />
           ) : null}
           {primaryAction ? (
             <Button

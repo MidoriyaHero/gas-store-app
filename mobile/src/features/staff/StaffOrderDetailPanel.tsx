@@ -240,7 +240,7 @@ export function StaffOrderDetailPanel({ orderId }: Props) {
           {payload.payment_mode ? ` · ${String(payload.payment_mode)}` : ""}
         </AppText>
         {Number(order.borrowedShellUnits ?? 0) > 0 ? (
-          <AppText variant="caption" muted>Vỏ cho mượn: {order.borrowedShellUnits} bình</AppText>
+          <AppText variant="caption" muted>Nợ vỏ: {order.borrowedShellUnits} bình</AppText>
         ) : null}
         {lineItems.length > 0 ? (
           <View style={{ marginTop: spacing.sm, gap: 4 }}>

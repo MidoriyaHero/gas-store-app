@@ -16,6 +16,17 @@ npm install
 cp .env.example .env
 ```
 
+## App icon & splash
+
+Logo nguồn: [`../logo.png`](../logo.png). Regenerate assets:
+
+```bash
+npm run icons
+npx expo prebuild --platform android --no-install
+```
+
+Commit `assets/icon.png`, `adaptive-icon.png`, `splash-icon.png` và native `mipmap-*` sau khi đổi logo.
+
 ## Android emulator + Docker API
 
 1. Start stack from repo root: `docker compose up -d` (API `:8000`, web `:8686`).
@@ -34,7 +45,7 @@ adb reverse tcp:8000 tcp:8000
 npx expo run:android
 ```
 
-**Cleartext HTTP:** enabled in `app.json` / `AndroidManifest.xml` for local dev.
+**Cleartext HTTP:** debug builds allow HTTP via `android/app/src/debug/AndroidManifest.xml`. Release APK requires HTTPS (`usesCleartextTraffic: false`).
 
 **Alternative host URL:** `http://10.0.2.2:8000` works without `adb reverse` on some AVDs; prefer `127.0.0.1` + reverse when login fails with network errors.
 
@@ -50,6 +61,44 @@ Ensure the emulator is online:
 adb devices
 adb kill-server && adb start-server   # if offline
 ```
+
+## Release APK (local)
+
+1. Create keystore (once):
+
+```bash
+keytool -genkeypair -v -storetype PKCS12 -keystore mobile/android/app/release.keystore \
+  -alias gasstore -keyalg RSA -keysize 2048 -validity 10000
+```
+
+2. Copy `mobile/android/keystore.properties.example` → `keystore.properties` and fill passwords.
+
+3. Build with production API URL:
+
+```bash
+EXPO_PUBLIC_API_URL=https://api.your-domain.com ../scripts/build-android-release.sh
+```
+
+Or: `EXPO_PUBLIC_API_URL=https://api.your-domain.com npm run build:android:release`
+
+Output: `android/app/build/outputs/apk/release/app-release.apk`
+
+## CI / GitHub Actions
+
+- **CI** (`.github/workflows/ci.yml`): backend pytest, frontend build, mobile `tsc`.
+- **Mobile Release** (`.github/workflows/mobile-release.yml`): `workflow_dispatch` or tag `mobile/v1.0.0` → signed APK artifact.
+
+**GitHub Secrets:**
+
+| Secret | Value |
+|--------|-------|
+| `EXPO_PUBLIC_API_URL` | `https://api.<domain>` |
+| `ANDROID_KEYSTORE_BASE64` | `base64 -i release.keystore` |
+| `ANDROID_KEYSTORE_PASSWORD` | |
+| `ANDROID_KEY_ALIAS` | e.g. `gasstore` |
+| `ANDROID_KEY_PASSWORD` | |
+
+Production API via Cloudflare Tunnel: [`../docs/deploy/cloudflare-tunnel.md`](../docs/deploy/cloudflare-tunnel.md).
 
 ## Emulator vs physical device (P1)
 

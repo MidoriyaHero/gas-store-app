@@ -19,19 +19,23 @@ import {
   fetchProductsList,
   fetchTaxReport,
   fetchUsers,
+  patchCylinderTemplate,
   patchProduct,
   patchUser,
 } from "@/api/client";
 import { AppText } from "@/components/ui/AppText";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { ConfirmSheet } from "@/components/ui/ConfirmSheet";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { FilterChip } from "@/components/ui/FilterChip";
+import { FormBottomSheet } from "@/components/ui/FormBottomSheet";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { TextField } from "@/components/ui/TextField";
 import { useToast } from "@/components/ui/ToastProvider";
 import { openAuthenticatedExport } from "@/lib/export-open";
 import { isOnline } from "@/lib/network";
+import { runSyncCycle } from "@/sync/engine";
 import { colors, spacing } from "@/theme/tokens";
 
 type DebtRow = { id: number; customer_name: string; phone: string; current_balance: string; status: string };
@@ -233,6 +237,17 @@ export function AdminInventoryCrudPanel() {
   const [price, setPrice] = useState("");
   const [stock, setStock] = useState("0");
   const [loading, setLoading] = useState(true);
+  const [adding, setAdding] = useState(false);
+  const [editId, setEditId] = useState<number | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editPrice, setEditPrice] = useState("");
+  const [editStock, setEditStock] = useState("");
+  const [editActive, setEditActive] = useState(true);
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [stockTarget, setStockTarget] = useState<{ id: number; name: string } | null>(null);
+  const [stockQty, setStockQty] = useState("10");
+  const [stockDate, setStockDate] = useState(new Date().toISOString().slice(0, 10));
+  const [stockSaving, setStockSaving] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -250,46 +265,160 @@ export function AdminInventoryCrudPanel() {
   }, [load]);
 
   async function addProduct() {
-    if (!name.trim()) return;
+    if (!name.trim()) {
+      toast.showError("Nhập tên sản phẩm");
+      return;
+    }
+    setAdding(true);
     try {
       await createProduct({ name: name.trim(), sell_price: price || "0", stock_quantity: Number(stock) || 0 });
       setName("");
+      setPrice("");
+      setStock("0");
       await load();
+      void runSyncCycle();
       toast.showSuccess("Đã thêm sản phẩm");
     } catch (e) {
       toast.showError(e instanceof Error ? e.message : "Thêm thất bại");
+    } finally {
+      setAdding(false);
+    }
+  }
+
+  function openEdit(item: (typeof rows)[0]) {
+    setEditId(item.id);
+    setEditName(item.name);
+    setEditPrice(String(item.sell_price));
+    setEditStock(String(item.stock_quantity));
+    setEditActive(item.is_active);
+  }
+
+  async function saveEdit() {
+    if (editId == null || !editName.trim()) {
+      toast.showError("Nhập tên sản phẩm");
+      return;
+    }
+    setSavingEdit(true);
+    try {
+      await patchProduct(editId, {
+        name: editName.trim(),
+        sell_price: editPrice || "0",
+        stock_quantity: Number(editStock) || 0,
+        is_active: editActive,
+      });
+      setEditId(null);
+      await load();
+      void runSyncCycle();
+      toast.showSuccess("Đã cập nhật sản phẩm");
+    } catch (e) {
+      toast.showError(e instanceof Error ? e.message : "Lưu thất bại");
+    } finally {
+      setSavingEdit(false);
+    }
+  }
+
+  async function confirmStockReceipt() {
+    if (!stockTarget) return;
+    const qty = Number(stockQty);
+    if (!Number.isFinite(qty) || qty <= 0) {
+      toast.showError("Nhập số lượng hợp lệ");
+      return;
+    }
+    setStockSaving(true);
+    try {
+      await createStockReceipt(stockTarget.id, qty, undefined, stockDate);
+      setStockTarget(null);
+      await load();
+      void runSyncCycle();
+      toast.showSuccess("Đã nhập kho");
+    } catch (e) {
+      toast.showError(e instanceof Error ? e.message : "Nhập kho thất bại");
+    } finally {
+      setStockSaving(false);
     }
   }
 
   return (
-    <FlatList
-      data={rows}
-      keyExtractor={(item) => String(item.id)}
-      contentContainerStyle={styles.list}
-      refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void load()} tintColor={colors.primary} />}
-      ListHeaderComponent={
-        <Card style={[styles.card, { gap: spacing.sm }]}>
-          <AppText variant="bodyMedium">Thêm sản phẩm</AppText>
-          <TextField label="Tên" value={name} onChangeText={setName} />
-          <TextField label="Giá bán" value={price} onChangeText={setPrice} keyboardType="numeric" />
-          <TextField label="Tồn" value={stock} onChangeText={setStock} keyboardType="number-pad" />
-          <Button label="Thêm" onPress={() => void addProduct()} />
-        </Card>
-      }
-      renderItem={({ item }) => (
-        <Card style={styles.card}>
-          <View style={styles.row}>
-            <AppText variant="bodyMedium">{item.name}</AppText>
-            <StatusBadge label={item.is_active ? "Active" : "Off"} tone={item.is_active ? "success" : "neutral"} />
-          </View>
-          <AppText variant="caption" muted>Tồn: {item.stock_quantity} · {item.sell_price} đ</AppText>
-          <View style={styles.row}>
-            <Button label="+10 tồn" variant="secondary" onPress={() => void createStockReceipt(item.id, 10).then(load).catch((e) => toast.showError(String(e)))} />
-            <Button label="Xóa" variant="ghost" onPress={() => void deleteProduct(item.id).then(load).catch((e) => toast.showError(String(e)))} />
-          </View>
-        </Card>
-      )}
-    />
+    <>
+      <FlatList
+        data={rows}
+        keyExtractor={(item) => String(item.id)}
+        contentContainerStyle={styles.list}
+        refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void load()} tintColor={colors.primary} />}
+        ListHeaderComponent={
+          <Card style={[styles.card, { gap: spacing.sm }]}>
+            <AppText variant="bodyMedium">Thêm sản phẩm</AppText>
+            <TextField label="Tên" value={name} onChangeText={setName} />
+            <TextField label="Giá bán" value={price} onChangeText={setPrice} keyboardType="numeric" />
+            <TextField label="Tồn" value={stock} onChangeText={setStock} keyboardType="number-pad" />
+            <Button label="Thêm" loading={adding} onPress={() => void addProduct()} />
+          </Card>
+        }
+        renderItem={({ item }) => (
+          <Pressable onPress={() => openEdit(item)}>
+            <Card style={styles.card}>
+              <View style={styles.row}>
+                <AppText variant="bodyMedium">{item.name}</AppText>
+                <StatusBadge label={item.is_active ? "Active" : "Off"} tone={item.is_active ? "success" : "neutral"} />
+              </View>
+              <AppText variant="caption" muted>
+                Tồn: {item.stock_quantity} · {item.sell_price} đ
+              </AppText>
+              <View style={styles.row}>
+                <Button
+                  label="Nhập kho"
+                  variant="secondary"
+                  onPress={() => {
+                    setStockTarget({ id: item.id, name: item.name });
+                    setStockQty("10");
+                    setStockDate(new Date().toISOString().slice(0, 10));
+                  }}
+                />
+                <Button
+                  label="Xóa"
+                  variant="ghost"
+                  onPress={() => void deleteProduct(item.id).then(load).catch((e) => toast.showError(String(e)))}
+                />
+              </View>
+            </Card>
+          </Pressable>
+        )}
+      />
+      <FormBottomSheet
+        visible={editId != null}
+        title="Sửa sản phẩm"
+        onClose={() => setEditId(null)}
+        footer={
+          <>
+            <Button label="Lưu" loading={savingEdit} fullWidth onPress={() => void saveEdit()} />
+            <Button label="Hủy" variant="ghost" fullWidth onPress={() => setEditId(null)} />
+          </>
+        }
+      >
+        <TextField label="Tên" value={editName} onChangeText={setEditName} />
+        <TextField label="Giá bán" value={editPrice} onChangeText={setEditPrice} keyboardType="numeric" />
+        <TextField label="Tồn" value={editStock} onChangeText={setEditStock} keyboardType="number-pad" />
+        <View style={styles.chips}>
+          <FilterChip label="Đang bán" active={editActive} onPress={() => setEditActive(true)} />
+          <FilterChip label="Ngừng bán" active={!editActive} onPress={() => setEditActive(false)} />
+        </View>
+      </FormBottomSheet>
+      <FormBottomSheet
+        visible={stockTarget != null}
+        title="Nhập kho"
+        subtitle={stockTarget?.name}
+        onClose={() => setStockTarget(null)}
+        footer={
+          <>
+            <Button label="Xác nhận nhập kho" variant="accent" loading={stockSaving} fullWidth onPress={() => void confirmStockReceipt()} />
+            <Button label="Hủy" variant="ghost" fullWidth onPress={() => setStockTarget(null)} />
+          </>
+        }
+      >
+        <TextField label="Số lượng" value={stockQty} onChangeText={setStockQty} keyboardType="number-pad" />
+        <TextField label="Ngày nhập (YYYY-MM-DD)" value={stockDate} onChangeText={setStockDate} />
+      </FormBottomSheet>
+    </>
   );
 }
 
@@ -368,13 +497,23 @@ export function AdminUsersCrudPanel() {
   );
 }
 
-/** Cylinder template CRUD. */
+/** Cylinder template CRUD with view/edit bottom sheet. */
 export function AdminCylinderTemplatesPanel() {
   const toast = useToast();
   const [rows, setRows] = useState<Awaited<ReturnType<typeof fetchCylinderTemplatesAll>>>([]);
   const [name, setName] = useState("");
   const [owner, setOwner] = useState("");
   const [loading, setLoading] = useState(true);
+  const [adding, setAdding] = useState(false);
+  const [editId, setEditId] = useState<number | null>(null);
+  const [formName, setFormName] = useState("");
+  const [formOwner, setFormOwner] = useState("");
+  const [formSource, setFormSource] = useState("");
+  const [formInspection, setFormInspection] = useState("");
+  const [formImportDate, setFormImportDate] = useState("");
+  const [formActive, setFormActive] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [deleteId, setDeleteId] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -392,38 +531,130 @@ export function AdminCylinderTemplatesPanel() {
   }, [load]);
 
   async function addTemplate() {
-    if (!name.trim()) return;
+    if (!name.trim()) {
+      toast.showError("Nhập tên mẫu");
+      return;
+    }
+    setAdding(true);
     try {
       await createCylinderTemplate({ name: name.trim(), owner_name: owner.trim() || null, is_active: true });
       setName("");
       setOwner("");
       await load();
+      toast.showSuccess("Đã thêm mẫu");
     } catch (e) {
       toast.showError(e instanceof Error ? e.message : "Thêm mẫu thất bại");
+    } finally {
+      setAdding(false);
+    }
+  }
+
+  function openEdit(item: (typeof rows)[0]) {
+    setEditId(item.id);
+    setFormName(item.name);
+    setFormOwner(item.owner_name ?? "");
+    setFormSource(item.import_source ?? "");
+    setFormInspection(item.inspection_expiry ?? "");
+    setFormImportDate(item.import_date ?? "");
+    setFormActive(item.is_active);
+  }
+
+  async function saveEdit() {
+    if (editId == null || !formName.trim()) {
+      toast.showError("Nhập tên mẫu");
+      return;
+    }
+    setSaving(true);
+    try {
+      await patchCylinderTemplate(editId, {
+        name: formName.trim(),
+        owner_name: formOwner.trim() || null,
+        import_source: formSource.trim() || null,
+        inspection_expiry: formInspection.trim() || null,
+        import_date: formImportDate.trim() || null,
+        is_active: formActive,
+      });
+      setEditId(null);
+      await load();
+      toast.showSuccess("Đã lưu mẫu chai");
+    } catch (e) {
+      toast.showError(e instanceof Error ? e.message : "Lưu thất bại");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function confirmDelete() {
+    if (deleteId == null) return;
+    const id = deleteId;
+    setDeleteId(null);
+    setEditId(null);
+    try {
+      await deleteCylinderTemplate(id);
+      await load();
+      toast.showSuccess("Đã xóa mẫu");
+    } catch (e) {
+      toast.showError(e instanceof Error ? e.message : "Xóa thất bại");
     }
   }
 
   return (
-    <FlatList
-      data={rows}
-      keyExtractor={(item) => String(item.id)}
-      contentContainerStyle={styles.list}
-      refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void load()} tintColor={colors.primary} />}
-      ListHeaderComponent={
-        <Card style={[styles.card, { gap: spacing.sm }]}>
-          <TextField label="Tên mẫu" value={name} onChangeText={setName} />
-          <TextField label="Chủ sở hữu" value={owner} onChangeText={setOwner} />
-          <Button label="Thêm mẫu" onPress={() => void addTemplate()} />
-        </Card>
-      }
-      renderItem={({ item }) => (
-        <Card style={styles.card}>
-          <AppText variant="bodyMedium">{item.name}</AppText>
-          <AppText variant="caption" muted>{item.owner_name ?? "—"}</AppText>
-          <Button label="Xóa" variant="ghost" onPress={() => void deleteCylinderTemplate(item.id).then(load)} />
-        </Card>
-      )}
-    />
+    <>
+      <FlatList
+        data={rows}
+        keyExtractor={(item) => String(item.id)}
+        contentContainerStyle={styles.list}
+        refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void load()} tintColor={colors.primary} />}
+        ListHeaderComponent={
+          <Card style={[styles.card, { gap: spacing.sm }]}>
+            <TextField label="Tên mẫu" value={name} onChangeText={setName} />
+            <TextField label="Chủ sở hữu" value={owner} onChangeText={setOwner} />
+            <Button label="Thêm mẫu" loading={adding} onPress={() => void addTemplate()} />
+          </Card>
+        }
+        renderItem={({ item }) => (
+          <Pressable onPress={() => openEdit(item)}>
+            <Card style={styles.card}>
+              <View style={styles.row}>
+                <AppText variant="bodyMedium">{item.name}</AppText>
+                <StatusBadge label={item.is_active ? "Active" : "Off"} tone={item.is_active ? "success" : "neutral"} />
+              </View>
+              <AppText variant="caption" muted>{item.owner_name ?? "—"}</AppText>
+            </Card>
+          </Pressable>
+        )}
+      />
+      <FormBottomSheet
+        visible={editId != null}
+        title="Sửa mẫu chai"
+        onClose={() => setEditId(null)}
+        footer={
+          <>
+            <Button label="Lưu" loading={saving} fullWidth onPress={() => void saveEdit()} />
+            <Button label="Xóa mẫu" variant="danger" fullWidth onPress={() => editId != null && setDeleteId(editId)} />
+            <Button label="Hủy" variant="ghost" fullWidth onPress={() => setEditId(null)} />
+          </>
+        }
+      >
+        <TextField label="Tên mẫu" value={formName} onChangeText={setFormName} />
+        <TextField label="Chủ sở hữu" value={formOwner} onChangeText={setFormOwner} />
+        <TextField label="Nguồn nhập" value={formSource} onChangeText={setFormSource} />
+        <TextField label="Hạn kiểm định (YYYY-MM-DD)" value={formInspection} onChangeText={setFormInspection} />
+        <TextField label="Ngày nhập (YYYY-MM-DD)" value={formImportDate} onChangeText={setFormImportDate} />
+        <View style={styles.chips}>
+          <FilterChip label="Đang dùng" active={formActive} onPress={() => setFormActive(true)} />
+          <FilterChip label="Ngừng dùng" active={!formActive} onPress={() => setFormActive(false)} />
+        </View>
+      </FormBottomSheet>
+      <ConfirmSheet
+        visible={deleteId != null}
+        title="Xóa mẫu chai?"
+        message="Mẫu sẽ bị xóa vĩnh viễn trên máy chủ."
+        confirmLabel="Xóa"
+        onConfirm={() => void confirmDelete()}
+        onCancel={() => setDeleteId(null)}
+      />
+    </>
   );
 }
 

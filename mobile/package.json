@@ -7,6 +7,8 @@
     "android": "expo run:android",
     "lint": "tsc --noEmit",
     "codegen": "../scripts/generate-api-client.sh",
+    "icons": "../scripts/generate-mobile-icons.sh",
+    "build:android:release": "cd android && ./gradlew assembleRelease",
     "ios": "expo run:ios"
   },
   "dependencies": {
