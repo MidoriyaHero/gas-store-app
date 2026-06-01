@@ -13,3 +13,9 @@ __pycache__/
 *.keystore
 mobile/android/keystore.properties
 mobile/android/app/release/
+
+# wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example
+!.env.example
