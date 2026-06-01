@@ -4,7 +4,7 @@ import { Screen } from "@/components/ui/Screen";
 /** Admin orders screen shell. */
 export default function AdminOrdersScreen() {
   return (
-    <Screen padded={false}>
+    <Screen padded={false} safeTop>
       <AdminOrdersPanel />
     </Screen>
   );

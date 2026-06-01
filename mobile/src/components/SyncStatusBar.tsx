@@ -4,7 +4,7 @@ import { router, type Href } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 
 import { AppText } from "@/components/ui/AppText";
-import { subscribeAutoSync, triggerAutoSync, type AutoSyncSnapshot } from "@/sync/auto-sync";
+import { subscribeAutoSync, type AutoSyncSnapshot } from "@/sync/auto-sync";
 import { colors, spacing } from "@/theme/tokens";
 
 /** Pending sync banner — auto-sync runs on WiFi/mobile data without user action. */
@@ -19,7 +19,7 @@ export function SyncStatusBar() {
 
   useEffect(() => subscribeAutoSync(setSnap), []);
 
-  if (snap.online && snap.pending === 0 && !snap.syncing) {
+  if (snap.online && snap.pending === 0) {
     return null;
   }
 
@@ -30,8 +30,6 @@ export function SyncStatusBar() {
       onPress={() => {
         if (snap.pending > 0) {
           router.push("/outbox" as Href);
-        } else if (snap.online) {
-          void triggerAutoSync("manual-tap");
         }
       }}
       style={[styles.bar, offline ? styles.offline : styles.pending]}
@@ -39,7 +37,7 @@ export function SyncStatusBar() {
       accessibilityHint={offline ? "Đang offline" : "Chạm để xem hàng đợi"}
     >
       <Ionicons
-        name={offline ? "cloud-offline-outline" : snap.syncing ? "sync-outline" : "cloud-upload-outline"}
+        name={offline ? "cloud-offline-outline" : "cloud-upload-outline"}
         size={18}
         color={offline ? colors.offlineText : colors.warning}
       />
@@ -47,10 +45,6 @@ export function SyncStatusBar() {
         {offline ? (
           <AppText variant="label" style={{ color: colors.offlineText }}>
             Offline — sẽ tự đồng bộ khi có WiFi/4G
-          </AppText>
-        ) : snap.syncing ? (
-          <AppText variant="label" style={{ color: colors.warning }}>
-            Đang tự động đồng bộ…
           </AppText>
         ) : (
           <AppText variant="label" style={{ color: colors.warning }}>

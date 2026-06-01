@@ -164,7 +164,7 @@ export default function AdminHome() {
   }
 
   return (
-    <Screen scroll padded={false}>
+    <Screen scroll padded={false} safeTop>
       <ScrollView
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
@@ -173,12 +173,7 @@ export default function AdminHome() {
         }
       >
         <View style={styles.header}>
-          <View>
-            <AppText variant="caption" muted>
-              Quản trị
-            </AppText>
-            <AppText variant="h1">Tổng quan</AppText>
-          </View>
+          <AppText variant="h2">Tổng quan</AppText>
           <Pressable
             onPress={() => void logout()}
             style={styles.logoutBtn}
@@ -259,7 +254,7 @@ export default function AdminHome() {
 
 const styles = StyleSheet.create({
   scroll: { padding: spacing.md, paddingBottom: spacing.xxl, gap: spacing.sm },
-  header: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" },
+  header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   logoutBtn: { padding: spacing.xs },
   chips: { gap: spacing.sm, paddingVertical: spacing.xs },
   kpiRow: { flexDirection: "row", gap: spacing.sm },

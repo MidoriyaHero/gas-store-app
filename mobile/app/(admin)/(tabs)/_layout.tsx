@@ -8,7 +8,7 @@ import { navTheme } from "@/theme/tokens";
 export default function AdminTabsLayout() {
   return (
     <Tabs
-      screenOptions={navTheme}
+      screenOptions={{ ...navTheme, headerShown: false }}
       tabBar={(props) => <AdminTabBar {...props} />}
     >
       <Tabs.Screen

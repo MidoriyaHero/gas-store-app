@@ -8,17 +8,21 @@ type ScreenProps = {
   children: ReactNode;
   scroll?: boolean;
   padded?: boolean;
+  /** Include top safe inset when native header is hidden (e.g. admin tabs). */
+  safeTop?: boolean;
   style?: ViewStyle;
 };
 
 /** Safe-area screen shell with consistent background. */
-export function Screen({ children, scroll, padded = true, style }: ScreenProps) {
+export function Screen({ children, scroll, padded = true, safeTop = false, style }: ScreenProps) {
   const content = (
     <View style={[styles.fill, padded ? styles.padded : undefined, style]}>{children}</View>
   );
 
+  const edges = safeTop ? (["top", "left", "right"] as const) : (["left", "right"] as const);
+
   return (
-    <SafeAreaView style={styles.safe} edges={["left", "right"]}>
+    <SafeAreaView style={styles.safe} edges={edges}>
       <StatusBar barStyle="dark-content" backgroundColor={colors.background} />
       {scroll ? (
         <ScrollView

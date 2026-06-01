@@ -38,6 +38,7 @@ export function useVoicePlayback(note: VoiceSource) {
     if (status.didJustFinish) {
       setIsPlaying(false);
       setPositionMs(0);
+      void soundRef.current?.setPositionAsync(0).catch(() => undefined);
     }
   }, []);
 
@@ -101,6 +102,12 @@ export function useVoicePlayback(note: VoiceSource) {
     if (status.isPlaying) {
       await s.pauseAsync();
     } else {
+      const duration = status.durationMillis ?? 0;
+      const atEnd = duration > 0 && (status.positionMillis ?? 0) >= duration - 250;
+      if (atEnd) {
+        await s.setPositionAsync(0);
+        setPositionMs(0);
+      }
       await s.playAsync();
     }
   }, [loadSound]);
