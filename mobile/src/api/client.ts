@@ -17,7 +17,9 @@ export async function refreshSession(): Promise<boolean> {
     body: JSON.stringify({ refresh_token: refresh }),
   });
   if (!res.ok) {
-    await clearTokens();
+    if (res.status === 401) {
+      await clearTokens();
+    }
     return false;
   }
   const body = (await res.json()) as { access_token: string; refresh_token: string };

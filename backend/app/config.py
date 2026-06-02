@@ -16,8 +16,8 @@ class Settings(BaseSettings):
         "http://localhost:8081,http://127.0.0.1:8081"
     )
     jwt_secret_key: str = "change-this-jwt-secret"
-    jwt_access_token_minutes: int = 15
-    jwt_refresh_token_days: int = 14
+    jwt_access_token_minutes: int = 60 * 24 * 7
+    jwt_refresh_token_days: int = 3650
     auth_cookie_secure: bool = False
     auth_cookie_samesite: str = "lax"
     seed_admin_username: str = ""

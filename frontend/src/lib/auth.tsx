@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
-import { apiGet, apiPatch, apiPost } from "@/lib/api";
+import { apiGet, apiPatch, apiPost, refreshAuthSession } from "@/lib/api";
 
 /** Geographic point persisted on the user profile (backend JSON). */
 export interface MapLocationPoint {
@@ -48,6 +48,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     (async () => {
+      await refreshAuthSession();
       await refreshMe();
       setLoading(false);
     })();

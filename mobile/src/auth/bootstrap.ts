@@ -1,21 +1,38 @@
 import type { Href } from "expo-router";
 
-import { apiFetch } from "@/api/client";
-import { clearTokens, getAccessToken } from "@/auth/session";
+import { apiFetch, refreshSession } from "@/api/client";
+import { SessionExpiredError } from "@/auth/session-events";
+import { clearTokens, getAccessToken, getRefreshToken } from "@/auth/session";
+import { roleFromAccessToken } from "@/lib/jwt";
 
 type SessionRoute = "/login" | "/(admin)/(tabs)" | "/(staff)/(tabs)";
 
-/** Resolve post-launch route from stored Bearer token. */
+function routeForRole(role: string): SessionRoute {
+  return role === "admin" ? "/(admin)/(tabs)" : "/(staff)/(tabs)";
+}
+
+/** Resolve post-launch route; refresh tokens on cold start when possible. */
 export async function resolveSessionRoute(): Promise<SessionRoute> {
-  const token = await getAccessToken();
-  if (!token) {
+  const refresh = await getRefreshToken();
+  if (!refresh) {
     return "/login";
   }
+
+  await refreshSession();
+
   try {
     const me = await apiFetch<{ user: { role: string } }>("/api/auth/me");
-    return me.user.role === "admin" ? "/(admin)/(tabs)" : "/(staff)/(tabs)";
-  } catch {
-    await clearTokens();
+    return routeForRole(me.user.role);
+  } catch (e) {
+    if (e instanceof SessionExpiredError) {
+      await clearTokens();
+      return "/login";
+    }
+    const access = await getAccessToken();
+    const role = access ? roleFromAccessToken(access) : null;
+    if (role) {
+      return routeForRole(role);
+    }
     return "/login";
   }
 }

@@ -22,6 +22,15 @@ async function errorBody(r: Response): Promise<string> {
   }
 }
 
+/** Renew web session cookies when a refresh token cookie is still valid. */
+export async function refreshAuthSession(): Promise<boolean> {
+  const r = await fetch(`${prefix}/api/auth/refresh`, {
+    method: "POST",
+    credentials: "include",
+  });
+  return r.ok;
+}
+
 /**
  * Perform fetch with cookie credentials and one-time refresh retry on ``401``.
  */
