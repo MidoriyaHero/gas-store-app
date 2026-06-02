@@ -412,11 +412,14 @@ def test_soft_deleted_order_excluded_from_dashboard_and_gas_ledger():
     with TestClient(app) as client:
         _login_admin(client)
         pid = _create_test_product(client, "Soft Delete Report")
+        customer_marker = f"Khach Xoa Dashboard {uuid4().hex[:8]}"
+        dash_count_before = len(client.get("/api/dashboard").json()["orders"])
+
         created = client.post(
             "/api/orders",
             json={
-                "customer_name": "Khach Xoa Dashboard",
-                "phone": "0909111222",
+                "customer_name": customer_marker,
+                "phone": f"090{int(uuid4().hex[:7], 16) % 10_000_000:07d}",
                 "address": "99 Duong Test",
                 "delivery_date": "2026-05-01",
                 "vat_rate": 0,
@@ -436,19 +439,18 @@ def test_soft_deleted_order_excluded_from_dashboard_and_gas_ledger():
         )
         assert created.status_code == 200
         oid = created.json()["id"]
-        created_at = created.json()["created_at"]
 
-        dash_before = client.get("/api/dashboard").json()
-        assert any(o.get("created_at") == created_at for o in dash_before["orders"])
+        dash_count_created = len(client.get("/api/dashboard").json()["orders"])
+        assert dash_count_created == dash_count_before + 1
         ledger_before = client.get("/api/gas-ledger").json()
-        assert any("Khach Xoa Dashboard" in (r.get("customer_name_and_address") or "") for r in ledger_before)
+        assert any(customer_marker in (r.get("customer_name_and_address") or "") for r in ledger_before)
 
         assert client.delete(f"/api/orders/{oid}").status_code == 200
 
-        dash_after = client.get("/api/dashboard").json()
-        assert not any(o.get("created_at") == created_at for o in dash_after["orders"])
+        dash_count_after = len(client.get("/api/dashboard").json()["orders"])
+        assert dash_count_after == dash_count_before
         ledger_after = client.get("/api/gas-ledger").json()
-        assert not any("Khach Xoa Dashboard" in (r.get("customer_name_and_address") or "") for r in ledger_after)
+        assert not any(customer_marker in (r.get("customer_name_and_address") or "") for r in ledger_after)
 
 
 def test_staff_cannot_create_orders_sees_assigned():
