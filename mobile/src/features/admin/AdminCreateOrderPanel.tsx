@@ -74,7 +74,7 @@ export function AdminCreateOrderPanel() {
     assignedToUserId: "",
     paymentMode: "cash",
     paidAmount: 0,
-    vatRate: 10,
+    vatRate: 0,
     borrowedShellUnits: 0,
   });
 
