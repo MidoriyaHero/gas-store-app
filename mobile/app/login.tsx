@@ -53,7 +53,7 @@ export default function LoginScreen() {
       const msg = e instanceof Error ? e.message : "";
       setError(
         msg.includes("Network request failed") || msg.includes("Failed to fetch")
-          ? "Không kết nối được API. Chạy Docker (port 8000) và adb reverse tcp:8000 tcp:8000."
+          ? "Không kết nối được API. Kiểm tra mạng và địa chỉ server."
           : msg || "Đăng nhập thất bại. Kiểm tra mạng và tài khoản.",
       );
     } finally {
@@ -84,11 +84,8 @@ export default function LoginScreen() {
         style={styles.formWrap}
       >
         <Card elevated padding={spacing.lg} style={styles.formCard}>
-          <AppText variant="h2" style={{ marginBottom: spacing.xs }}>
+          <AppText variant="h2" style={{ marginBottom: spacing.lg }}>
             Đăng nhập
-          </AppText>
-          <AppText variant="caption" muted style={{ marginBottom: spacing.lg }}>
-            Emulator: API http://127.0.0.1:8000 (cần adb reverse + Docker)
           </AppText>
 
           <View style={styles.fields}>
@@ -106,6 +103,7 @@ export default function LoginScreen() {
               onChangeText={setPassword}
               placeholder="••••••••"
               secureTextEntry
+              passwordToggle
             />
           </View>
 

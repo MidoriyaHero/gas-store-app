@@ -349,7 +349,7 @@ def _allocate_credit_to_orders(db: Session, *, phone: str, credit_amount: Decima
         return
     rows = db.scalars(
         select(SalesOrder)
-        .where(SalesOrder.phone == phone, SalesOrder.outstanding_amount > 0)
+        .where(sales.active_order_clause(SalesOrder.phone == phone, SalesOrder.outstanding_amount > 0))
         .order_by(SalesOrder.created_at.asc())
     ).all()
     for order in rows:
@@ -387,7 +387,9 @@ def _recompute_order_outstanding_from_ledger(db: Session, *, account: DebtAccoun
         elif amount < 0:
             total_credit += -amount
     orders = db.scalars(
-        select(SalesOrder).where(SalesOrder.phone == account.customer_key).order_by(SalesOrder.created_at.asc(), SalesOrder.id.asc())
+        select(SalesOrder)
+        .where(sales.active_order_clause(SalesOrder.phone == account.customer_key))
+        .order_by(SalesOrder.created_at.asc(), SalesOrder.id.asc())
     ).all()
     for order in orders:
         base_outstanding = max(Decimal("0"), invoice_by_order.get(order.id, Decimal("0")))
@@ -1365,7 +1367,7 @@ def debt_aging(as_of: datetime | None = Query(default=None), db: Session = Depen
         "16-30 ngày": Decimal("0"),
         "31+ ngày": Decimal("0"),
     }
-    rows = db.scalars(select(SalesOrder).where(SalesOrder.outstanding_amount > 0)).all()
+    rows = db.scalars(select(SalesOrder).where(sales.active_order_clause(SalesOrder.outstanding_amount > 0))).all()
     for row in rows:
         if row.created_at is None:
             days = 0
@@ -1390,6 +1392,7 @@ def gas_ledger(db: Session = Depends(get_db)) -> list[GasLedgerRow]:
     stmt = (
         select(SalesOrder)
         .options(joinedload(SalesOrder.lines))
+        .where(sales.active_order_clause())
         .order_by(SalesOrder.created_at.desc())
     )
     orders = db.execute(stmt).unique().scalars().all()
@@ -1557,6 +1560,7 @@ def sales_gas_export_csv(db: Session = Depends(get_db)):
     stmt = (
         select(SalesOrder)
         .options(joinedload(SalesOrder.lines).joinedload(SalesOrderItem.product))
+        .where(sales.active_order_clause())
         .order_by(SalesOrder.id.desc())
     )
     orders = db.execute(stmt).unique().scalars().all()
@@ -1993,7 +1997,7 @@ def dashboard_bundle(db: Session = Depends(get_db)) -> DashboardPayload:
     since = datetime.now(tz=UTC) - timedelta(days=29)
     since = since.replace(hour=0, minute=0, second=0, microsecond=0)
     order_rows = db.scalars(
-        select(SalesOrder).where(SalesOrder.created_at >= since).order_by(SalesOrder.created_at)
+        select(SalesOrder).where(sales.active_order_clause(SalesOrder.created_at >= since)).order_by(SalesOrder.created_at)
     ).all()
     orders_json = [{"total": str(o.total), "created_at": o.created_at.isoformat()} for o in order_rows]
     products = db.scalars(select(Product).order_by(Product.name)).all()
@@ -2026,7 +2030,7 @@ def delivery_day_summary(
     stmt = (
         select(SalesOrder)
         .options(joinedload(SalesOrder.lines), joinedload(SalesOrder.assigned_to))
-        .where(SalesOrder.delivery_date.in_(unique_dates))
+        .where(sales.active_order_clause(SalesOrder.delivery_date.in_(unique_dates)))
         .order_by(SalesOrder.delivery_date.asc(), SalesOrder.id.asc())
     )
     rows = db.execute(stmt).unique().scalars().all()
@@ -2057,7 +2061,12 @@ def _aggregate_delivered_full(db: Session, business_date: date) -> int:
     q = (
         select(func.coalesce(func.sum(SalesOrderItem.quantity), 0))
         .join(SalesOrder, SalesOrderItem.order_id == SalesOrder.id)
-        .where(SalesOrder.delivery_date == business_date, SalesOrder.delivery_status == "completed")
+        .where(
+            sales.active_order_clause(
+                SalesOrder.delivery_date == business_date,
+                SalesOrder.delivery_status == "completed",
+            )
+        )
     )
     return int(db.scalar(q) or 0)
 
@@ -2065,7 +2074,10 @@ def _aggregate_delivered_full(db: Session, business_date: date) -> int:
 def _aggregate_borrowed_shells(db: Session, business_date: date) -> int:
     """Sum ``borrowed_shell_units`` on completed orders for that delivery day."""
     q = select(func.coalesce(func.sum(SalesOrder.borrowed_shell_units), 0)).where(
-        SalesOrder.delivery_date == business_date, SalesOrder.delivery_status == "completed"
+        sales.active_order_clause(
+            SalesOrder.delivery_date == business_date,
+            SalesOrder.delivery_status == "completed",
+        )
     )
     return int(db.scalar(q) or 0)
 
@@ -2196,7 +2208,7 @@ def tax_report(
         raise HTTPException(status_code=400, detail="Invalid date format") from e
     stmt = (
         select(SalesOrder)
-        .where(SalesOrder.created_at >= start, SalesOrder.created_at <= end)
+        .where(sales.active_order_clause(SalesOrder.created_at >= start, SalesOrder.created_at <= end))
         .order_by(SalesOrder.created_at.asc())
     )
     rows = db.scalars(stmt).all()
@@ -2292,6 +2304,7 @@ def tax_export_csv(
     stmt = (
         select(SalesOrder)
         .options(joinedload(SalesOrder.lines).joinedload(SalesOrderItem.product))
+        .where(sales.active_order_clause())
         .order_by(SalesOrder.id)
     )
     orders = db.execute(stmt).unique().scalars().all()

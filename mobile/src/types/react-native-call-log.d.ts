@@ -8,9 +8,11 @@ declare module "react-native-call-log" {
   export type CallLogEntry = {
     phoneNumber: string;
     type: string;
+    timestamp: string;
     dateTime: string;
-    duration: string;
+    duration: number | string;
     name?: string;
+    rawType?: number;
   };
 
   const CallLogs: {

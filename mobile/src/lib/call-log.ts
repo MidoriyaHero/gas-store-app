@@ -23,6 +23,20 @@ const PERMISSION_RATIONALE = {
   buttonNegative: "Từ chối",
 };
 
+export type CallLogRawEntry = {
+  phoneNumber: string;
+  type: string;
+  timestamp?: string;
+  dateTime: string;
+};
+
+/** Parse epoch ms from native call log row (`timestamp` is authoritative). */
+export function parseCallTimestamp(entry: CallLogRawEntry): number | null {
+  const raw = entry.timestamp ?? entry.dateTime;
+  const ts = Number(raw);
+  return Number.isFinite(ts) && ts > 0 ? ts : null;
+}
+
 /** Map native call log type to incoming/outgoing/missed. */
 function parseCallType(raw: string): "incoming" | "outgoing" | "missed" | null {
   const t = raw.trim().toUpperCase();
@@ -33,9 +47,7 @@ function parseCallType(raw: string): "incoming" | "outgoing" | "missed" | null {
 }
 
 /** Group non-missed calls by normalized phone. */
-export function groupCallEntries(
-  entries: Array<{ phoneNumber: string; type: string; dateTime: string }>,
-): CallHistoryGroup[] {
+export function groupCallEntries(entries: CallLogRawEntry[]): CallHistoryGroup[] {
   const minTs = Date.now() - WINDOW_DAYS * 24 * 3600_000;
   const groups = new Map<string, CallHistoryGroup>();
 
@@ -46,8 +58,8 @@ export function groupCallEntries(
     const phone = normalizePhoneKey(entry.phoneNumber);
     if (!phone || phone.length < 9) continue;
 
-    const ts = Number(entry.dateTime);
-    if (!Number.isFinite(ts) || ts < minTs) continue;
+    const ts = parseCallTimestamp(entry);
+    if (ts == null || ts < minTs) continue;
 
     const existing = groups.get(phone);
     if (!existing || ts > existing.lastCallAt) {

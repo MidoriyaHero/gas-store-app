@@ -4,7 +4,7 @@ from collections import defaultdict
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 
-from sqlalchemy import select
+from sqlalchemy import and_, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.models import Product, SalesOrder, SalesOrderItem, User, UserRole
@@ -12,6 +12,12 @@ from app.schemas import SalesOrderCreate, SalesOrderItemOut, SalesOrderLineIn, S
 from app.services.gas_ledger_rules import gas_ledger_gap_messages, order_fully_ready_for_gas_ledger
 from app.services.phone import normalize_phone
 from app.timezone import utc_now
+
+
+def active_order_clause(*conditions):
+    """Exclude soft-deleted sales orders from read/aggregate queries."""
+    parts = [SalesOrder.deleted_at.is_(None), *conditions]
+    return and_(*parts) if len(parts) > 1 else parts[0]
 
 
 def _assign_order_code_after_flush(order_id: int) -> str:

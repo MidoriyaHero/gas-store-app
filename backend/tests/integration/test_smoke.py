@@ -407,6 +407,50 @@ def test_admin_can_update_and_delete_order():
         assert client.get(f"/api/orders/{oid}").status_code == 404
 
 
+def test_soft_deleted_order_excluded_from_dashboard_and_gas_ledger():
+    """Soft-deleted orders must not appear in Tổng quan bundle or sổ gas exports."""
+    with TestClient(app) as client:
+        _login_admin(client)
+        pid = _create_test_product(client, "Soft Delete Report")
+        created = client.post(
+            "/api/orders",
+            json={
+                "customer_name": "Khach Xoa Dashboard",
+                "phone": "0909111222",
+                "address": "99 Duong Test",
+                "delivery_date": "2026-05-01",
+                "vat_rate": 0,
+                "lines": [
+                    {
+                        "product_id": pid,
+                        "quantity": 1,
+                        "owner_name": "CT Gas",
+                        "cylinder_type": "12kg",
+                        "cylinder_serial": "SR-DEL-1",
+                        "inspection_expiry": "2027-06-01",
+                        "import_source": "Kho trung tam",
+                        "import_date": "2026-03-01",
+                    }
+                ],
+            },
+        )
+        assert created.status_code == 200
+        oid = created.json()["id"]
+        created_at = created.json()["created_at"]
+
+        dash_before = client.get("/api/dashboard").json()
+        assert any(o.get("created_at") == created_at for o in dash_before["orders"])
+        ledger_before = client.get("/api/gas-ledger").json()
+        assert any("Khach Xoa Dashboard" in (r.get("customer_name_and_address") or "") for r in ledger_before)
+
+        assert client.delete(f"/api/orders/{oid}").status_code == 200
+
+        dash_after = client.get("/api/dashboard").json()
+        assert not any(o.get("created_at") == created_at for o in dash_after["orders"])
+        ledger_after = client.get("/api/gas-ledger").json()
+        assert not any("Khach Xoa Dashboard" in (r.get("customer_name_and_address") or "") for r in ledger_after)
+
+
 def test_staff_cannot_create_orders_sees_assigned():
     """Staff cannot POST /api/orders; admin-assigned orders appear on GET /api/me/orders."""
     _ensure_user_account()
