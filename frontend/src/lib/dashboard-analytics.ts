@@ -2,7 +2,7 @@
  * Shared chart-first analytics helpers for dashboard pages.
  */
 
-export type PeriodKey = "7d" | "30d" | "mtd";
+export type PeriodKey = "today" | "7d" | "30d" | "mtd";
 
 export interface TimeOrderRow {
   created_at: string;
@@ -15,17 +15,44 @@ export interface DebtAccountLite {
   current_balance: number | string;
 }
 
+export interface DailyMetricRow {
+  date: string;
+  revenue: number | string;
+  outstanding: number | string;
+  profit: number | string;
+  order_count: number;
+}
+
+export interface DashboardSummaryResponse {
+  range: string;
+  revenue: number | string;
+  outstanding: number | string;
+  profit: number | string;
+  order_count: number;
+  series: DailyMetricRow[];
+}
+
 export interface DailySeriesRow {
   dateKey: string;
   label: string;
   revenue: number;
   orderCount: number;
   outstanding: number;
+  profit: number;
 }
 
 export interface RangeWindow {
   start: Date;
   end: Date;
+}
+
+/** Map API summary range keys used by finance overview selectors. */
+export function financeRangeToSummaryKey(days: string): "today" | "7d" | "30d" | "90d" | "mtd" {
+  if (days === "today") return "today";
+  if (days === "7") return "7d";
+  if (days === "30") return "30d";
+  if (days === "90") return "90d";
+  return "30d";
 }
 
 /** ``YYYY-MM-DD`` key in local timezone for grouping. */
@@ -35,6 +62,7 @@ export function localDateKey(d: Date): string {
 
 /** Create day-level range from today by selected period. */
 export function currentWindow(period: PeriodKey, today: Date): RangeWindow {
+  if (period === "today") return { start: today, end: today };
   if (period === "7d") return { start: addDays(today, -6), end: today };
   if (period === "30d") return { start: addDays(today, -29), end: today };
   return { start: new Date(today.getFullYear(), today.getMonth(), 1), end: today };
@@ -43,12 +71,31 @@ export function currentWindow(period: PeriodKey, today: Date): RangeWindow {
 /** Previous window with equal day count for delta comparison. */
 export function previousWindow(period: PeriodKey, current: RangeWindow): RangeWindow {
   const dayCount = enumerateDays(current.start, current.end).length;
+  if (period === "today") {
+    const prev = addDays(current.start, -1);
+    return { start: prev, end: prev };
+  }
   if (period === "mtd") {
     const previousMonthStart = new Date(current.start.getFullYear(), current.start.getMonth() - 1, 1);
     return { start: previousMonthStart, end: addDays(previousMonthStart, dayCount - 1) };
   }
   const prevEnd = addDays(current.start, -1);
   return { start: addDays(prevEnd, -(dayCount - 1)), end: prevEnd };
+}
+
+/** Convert dashboard summary series into chart rows. */
+export function seriesFromSummary(rows: DailyMetricRow[]): DailySeriesRow[] {
+  return rows.map((row) => {
+    const d = new Date(`${row.date}T12:00:00`);
+    return {
+      dateKey: row.date,
+      label: `${d.getDate()}/${d.getMonth() + 1}`,
+      revenue: Number(row.revenue || 0),
+      orderCount: row.order_count,
+      outstanding: Number(row.outstanding || 0),
+      profit: Number(row.profit || 0),
+    };
+  });
 }
 
 /** Summarize daily series with revenue, order count, and outstanding debt by day. */
@@ -59,6 +106,7 @@ export function summarizeSeries(range: RangeWindow, orders: TimeOrderRow[]): Dai
     revenue: 0,
     orderCount: 0,
     outstanding: 0,
+    profit: 0,
   }));
   const byDate = new Map(rows.map((row) => [row.dateKey, row]));
   for (const order of orders) {

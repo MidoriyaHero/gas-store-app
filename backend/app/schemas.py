@@ -366,6 +366,27 @@ class DashboardPayload(BaseModel):
     products: list[ProductResponse]
 
 
+class DailyMetricRow(BaseModel):
+    """One day of dashboard revenue, debt, and profit metrics."""
+
+    date: str
+    revenue: Decimal
+    outstanding: Decimal
+    profit: Decimal
+    order_count: int
+
+
+class DashboardSummaryResponse(BaseModel):
+    """Aggregated KPIs and daily series for dashboard charts."""
+
+    range: str
+    revenue: Decimal
+    outstanding: Decimal
+    profit: Decimal
+    order_count: int
+    series: list[DailyMetricRow]
+
+
 class TaxReportRow(BaseModel):
     """Single order row for báo cáo thuế."""
 

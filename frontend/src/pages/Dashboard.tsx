@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowDownRight, ArrowUpRight, DollarSign, Scale, ShoppingCart } from "lucide-react";
+import { DollarSign, Scale, TrendingUp } from "lucide-react";
 import {
   Bar,
   BarChart,
@@ -23,16 +23,16 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { apiGet } from "@/lib/api";
-import { currentWindow, percentDelta, previousWindow, summarizeSeries, topDebtors, type DebtAccountLite, type PeriodKey } from "@/lib/dashboard-analytics";
+import {
+  seriesFromSummary,
+  topDebtors,
+  type DashboardSummaryResponse,
+  type DebtAccountLite,
+  type PeriodKey,
+} from "@/lib/dashboard-analytics";
 import { formatNumber, formatVND } from "@/lib/format";
 
 type ChartMode = "revenue" | "orders";
-
-interface OrderRow {
-  total: string;
-  created_at: string;
-  outstanding_amount?: string;
-}
 
 interface ProductRow {
   id: number;
@@ -44,13 +44,14 @@ interface ProductRow {
 }
 
 const PERIOD_LABEL: Record<PeriodKey, string> = {
+  today: "Hôm nay",
   "7d": "7 ngày",
   "30d": "30 ngày",
   mtd: "Từ đầu tháng",
 };
 
 export default function Dashboard() {
-  const [orders, setOrders] = useState<OrderRow[]>([]);
+  const [summary, setSummary] = useState<DashboardSummaryResponse | null>(null);
   const [products, setProducts] = useState<ProductRow[]>([]);
   const [debtAccounts, setDebtAccounts] = useState<DebtAccountLite[]>([]);
   const [period, setPeriod] = useState<PeriodKey>("7d");
@@ -62,50 +63,40 @@ export default function Dashboard() {
     setLoading(true);
     setError(null);
     try {
-      const data = await apiGet<{ orders: OrderRow[]; products: ProductRow[] }>("/api/dashboard");
-      const accounts = await apiGet<DebtAccountLite[]>("/api/debt-accounts?status=all&limit=200");
-      setOrders(data.orders ?? []);
-      setProducts(data.products ?? []);
+      const [bundle, accounts, summaryData] = await Promise.all([
+        apiGet<{ products: ProductRow[] }>("/api/dashboard"),
+        apiGet<DebtAccountLite[]>("/api/debt-accounts?status=all&limit=200"),
+        apiGet<DashboardSummaryResponse>(`/api/dashboard/summary?range=${period}`),
+      ]);
+      setProducts(bundle.products ?? []);
       setDebtAccounts(accounts ?? []);
+      setSummary(summaryData);
     } catch (e) {
-      setOrders([]);
+      setSummary(null);
       setProducts([]);
       setDebtAccounts([]);
       setError(e instanceof Error ? e.message : "Không tải được số liệu tổng quan");
     }
     setLoading(false);
-  }, []);
+  }, [period]);
 
   useEffect(() => {
     void loadData();
   }, [loadData]);
 
-  const now = useMemo(() => {
-    const d = new Date();
-    d.setHours(0, 0, 0, 0);
-    return d;
-  }, []);
-  const current = currentWindow(period, now);
-  const previous = previousWindow(period, current);
-
-  const currentSeries = useMemo(() => summarizeSeries(current, orders), [current, orders]);
-  const previousSeries = useMemo(() => summarizeSeries(previous, orders), [previous, orders]);
+  const currentSeries = useMemo(
+    () => (summary ? seriesFromSummary(summary.series) : []),
+    [summary],
+  );
   const currentMetrics = useMemo(() => {
-    const revenue = currentSeries.reduce((sum, row) => sum + row.revenue, 0);
-    const orderCount = currentSeries.reduce((sum, row) => sum + row.orderCount, 0);
-    const outstanding = currentSeries.reduce((sum, row) => sum + row.outstanding, 0);
-    return { revenue, orderCount, outstanding, aov: orderCount > 0 ? revenue / orderCount : 0 };
-  }, [currentSeries]);
-  const previousMetrics = useMemo(() => {
-    const revenue = previousSeries.reduce((sum, row) => sum + row.revenue, 0);
-    const orderCount = previousSeries.reduce((sum, row) => sum + row.orderCount, 0);
-    const outstanding = previousSeries.reduce((sum, row) => sum + row.outstanding, 0);
-    return { revenue, orderCount, outstanding };
-  }, [previousSeries]);
-
-  const revenueDelta = percentDelta(currentMetrics.revenue, previousMetrics.revenue);
-  const orderDelta = percentDelta(currentMetrics.orderCount, previousMetrics.orderCount);
-  const debtDelta = percentDelta(currentMetrics.outstanding, previousMetrics.outstanding);
+    if (!summary) return { revenue: 0, orderCount: 0, outstanding: 0, profit: 0 };
+    return {
+      revenue: Number(summary.revenue || 0),
+      orderCount: summary.order_count,
+      outstanding: Number(summary.outstanding || 0),
+      profit: Number(summary.profit || 0),
+    };
+  }, [summary]);
 
   const bestDay = useMemo(() => {
     const candidates = currentSeries.filter((d) => d.orderCount > 0);
@@ -147,32 +138,6 @@ export default function Dashboard() {
   }, [debtAccounts]);
   const topDebtorData = useMemo(() => topDebtors(debtAccounts, 5), [debtAccounts]);
 
-  const deltaChip = (value: number | null) => {
-    if (value === null) return <span className="text-xs text-muted-foreground">Chưa đủ dữ liệu kỳ trước</span>;
-    const positive = value >= 0;
-    return (
-      <span className={`inline-flex items-center gap-1 text-xs font-medium ${positive ? "text-success" : "text-destructive"}`}>
-        {positive ? <ArrowUpRight className="h-3.5 w-3.5" /> : <ArrowDownRight className="h-3.5 w-3.5" />}
-        {Math.abs(value).toFixed(1)}%
-      </span>
-    );
-  };
-
-  /** Neutral delta for debt so green/red is not read as good/bad for nợ. */
-  const debtDeltaChip = (value: number | null) => {
-    if (value === null) return <span className="text-xs text-muted-foreground">Chưa đủ dữ liệu kỳ trước</span>;
-    const up = value >= 0;
-    return (
-      <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-        {up ? <ArrowUpRight className="h-3.5 w-3.5 shrink-0" aria-hidden /> : <ArrowDownRight className="h-3.5 w-3.5 shrink-0" aria-hidden />}
-        <span>
-          {Math.abs(value).toFixed(1)}% so với kỳ trước
-          <span className="sr-only">{up ? " — dư nợ tăng" : " — dư nợ giảm"}</span>
-        </span>
-      </span>
-    );
-  };
-
   return (
     <AppLayout
       title="Tổng quan"
@@ -190,7 +155,7 @@ export default function Dashboard() {
       }
     >
       <AsyncStatePanel
-        state={error ? "error" : loading ? "loading" : orders.length === 0 ? "empty" : "success"}
+        state={error ? "error" : loading ? "loading" : (summary?.order_count ?? 0) === 0 ? "empty" : "success"}
         title={error ? "Không tải được số liệu tổng quan" : "Đang tải số liệu tổng quan"}
         description={error ?? "Chưa có đơn hàng để hiển thị dashboard chart-first."}
         onRetry={error ? () => void loadData() : undefined}
@@ -199,6 +164,7 @@ export default function Dashboard() {
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <Tabs value={period} onValueChange={(v) => setPeriod(v as PeriodKey)}>
           <TabsList className="h-11">
+            <TabsTrigger value="today" className="min-h-11 px-4">Hôm nay</TabsTrigger>
             <TabsTrigger value="7d" className="min-h-11 px-4">7 ngày</TabsTrigger>
             <TabsTrigger value="30d" className="min-h-11 px-4">30 ngày</TabsTrigger>
             <TabsTrigger value="mtd" className="min-h-11 px-4">
@@ -222,7 +188,6 @@ export default function Dashboard() {
                 <div>
                   <p className="text-xs text-muted-foreground">Doanh thu ({PERIOD_LABEL[period]})</p>
                   <p className="mt-2 text-2xl font-semibold">{formatVND(currentMetrics.revenue)}</p>
-                  {deltaChip(revenueDelta)}
                 </div>
                 <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
                   <DollarSign className="h-5 w-5" />
@@ -232,12 +197,11 @@ export default function Dashboard() {
             <Card className="p-5 shadow-card">
               <div className="flex items-start justify-between">
                 <div>
-                  <p className="text-xs text-muted-foreground">Số đơn ({PERIOD_LABEL[period]})</p>
-                  <p className="mt-2 text-2xl font-semibold">{formatNumber(currentMetrics.orderCount)}</p>
-                  {deltaChip(orderDelta)}
+                  <p className="text-xs text-muted-foreground">Tiền lời ({PERIOD_LABEL[period]})</p>
+                  <p className="mt-2 text-2xl font-semibold">{formatVND(currentMetrics.profit)}</p>
                 </div>
                 <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent text-accent-foreground">
-                  <ShoppingCart className="h-5 w-5" />
+                  <TrendingUp className="h-5 w-5" />
                 </div>
               </div>
             </Card>
@@ -246,7 +210,6 @@ export default function Dashboard() {
                 <div>
                   <p className="text-xs text-muted-foreground">Dư nợ phát sinh ({PERIOD_LABEL[period]})</p>
                   <p className="mt-2 text-2xl font-semibold">{formatVND(currentMetrics.outstanding)}</p>
-                  {debtDeltaChip(debtDelta)}
                 </div>
                 <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-muted/40 text-muted-foreground" aria-hidden>
                   <Scale className="h-5 w-5" />

@@ -36,24 +36,18 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { registerVietnameseFont } from "@/lib/fonts/registerVietnameseFont";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { summarizeSeries, topDebtors, type TopDebtorChartRow } from "@/lib/dashboard-analytics";
+import {
+  financeRangeToSummaryKey,
+  seriesFromSummary,
+  topDebtors,
+  type DashboardSummaryResponse,
+  type TopDebtorChartRow,
+} from "@/lib/dashboard-analytics";
 import { ShellDebtLedgerTab } from "@/components/finance/ShellDebtLedgerTab";
 
-interface OrderRow {
-  id: number;
-  order_code: string;
-  customer_name: string;
-  total: number | string;
-  created_at: string;
-  outstanding_amount?: number | string;
-}
-
-interface OrdersEnvelope {
-  items: OrderRow[];
-  total: number;
-}
-
 const BUCKETS = ["0-7 ngày", "8-15 ngày", "16-30 ngày", "31+ ngày"] as const;
+
+type DebtStatusFilter = "all" | "open" | "paid";
 
 interface DebtAccountRow {
   id: number;
@@ -89,10 +83,11 @@ interface DebtAgingRow {
 export default function FinanceGovernance() {
   const [state, setState] = useState<AsyncViewState>("idle");
   const [error, setError] = useState<string | null>(null);
-  const [orders, setOrders] = useState<OrderRow[]>([]);
+  const [summary, setSummary] = useState<DashboardSummaryResponse | null>(null);
   const [rangeDays, setRangeDays] = useState("30");
   const [tab, setTab] = useState("overview");
   const [search, setSearch] = useState("");
+  const [debtStatusFilter, setDebtStatusFilter] = useState<DebtStatusFilter>("all");
   const [accounts, setAccounts] = useState<DebtAccountRow[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
   const [selectedLedger, setSelectedLedger] = useState<DebtLedgerRow[]>([]);
@@ -110,46 +105,36 @@ export default function FinanceGovernance() {
     setState("loading");
     setError(null);
     try {
-      const payload = await apiGet<OrdersEnvelope>("/api/orders?limit=100&offset=0");
-      const debtAccounts = await apiGet<DebtAccountRow[]>("/api/debt-accounts?status=all&limit=200");
-      const agingRows = await apiGet<DebtAgingRow[]>("/api/debt-aging");
-      const rows = payload.items ?? [];
-      setOrders(rows);
+      const rangeKey = financeRangeToSummaryKey(rangeDays);
+      const [summaryData, debtAccounts, agingRows] = await Promise.all([
+        apiGet<DashboardSummaryResponse>(`/api/dashboard/summary?range=${rangeKey}`),
+        apiGet<DebtAccountRow[]>("/api/debt-accounts?status=all&limit=200"),
+        apiGet<DebtAgingRow[]>("/api/debt-aging"),
+      ]);
+      setSummary(summaryData);
       setAccounts(debtAccounts ?? []);
       setAging(agingRows ?? []);
       if (debtAccounts.length > 0 && selectedAccountId === null) setSelectedAccountId(debtAccounts[0].id);
-      setState(rows.length > 0 || (debtAccounts ?? []).length > 0 ? "success" : "empty");
+      setState((summaryData.order_count ?? 0) > 0 || (debtAccounts ?? []).length > 0 ? "success" : "empty");
     } catch (e) {
       setState("error");
       setError(e instanceof Error ? e.message : "Không tải được dữ liệu tài chính");
     }
-  }, [selectedAccountId]);
+  }, [rangeDays, selectedAccountId]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  const filtered = useMemo(() => {
-    const cut = new Date();
-    cut.setDate(cut.getDate() - Number(rangeDays));
-    return orders.filter((o) => new Date(o.created_at) >= cut);
-  }, [orders, rangeDays]);
-
   const totals = useMemo(() => {
-    const revenue = filtered.reduce((sum, o) => sum + Number(o.total || 0), 0);
-    const orderCount = filtered.length;
+    if (!summary) return { revenue: 0, orderCount: 0, avgOrder: 0, grossProfit: 0 };
+    const revenue = Number(summary.revenue || 0);
+    const orderCount = summary.order_count;
     const avgOrder = orderCount > 0 ? revenue / orderCount : 0;
-    const grossProfit = Math.round(revenue * 0.18);
+    const grossProfit = Number(summary.profit || 0);
     return { revenue, orderCount, avgOrder, grossProfit };
-  }, [filtered]);
-  const chartRange = useMemo(() => {
-    const end = new Date();
-    end.setHours(0, 0, 0, 0);
-    const start = new Date(end);
-    start.setDate(start.getDate() - Number(rangeDays) + 1);
-    return { start, end };
-  }, [rangeDays]);
-  const lineSeries = useMemo(() => summarizeSeries(chartRange, filtered), [chartRange, filtered]);
+  }, [summary]);
+  const lineSeries = useMemo(() => (summary ? seriesFromSummary(summary.series) : []), [summary]);
   const chartInterval = Math.max(0, Math.ceil(lineSeries.length / 7) - 1);
 
   const agingBuckets = useMemo(() => {
@@ -175,13 +160,27 @@ export default function FinanceGovernance() {
   );
   const topDebtChart = useMemo(() => topDebtors(accounts, 7), [accounts]);
 
+  const debtFilterLabel = useMemo(() => {
+    if (debtStatusFilter === "open") return "Còn nợ";
+    if (debtStatusFilter === "paid") return "Đã trả";
+    return "Tất cả";
+  }, [debtStatusFilter]);
+
   const filteredAccounts = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return accounts;
-    return accounts.filter(
-      (a) => a.customer_name.toLowerCase().includes(q) || (a.phone ?? "").toLowerCase().includes(q)
-    );
-  }, [accounts, search]);
+    return accounts.filter((a) => {
+      const balance = Number(a.current_balance || 0);
+      if (debtStatusFilter === "open" && balance <= 0) return false;
+      if (debtStatusFilter === "paid" && balance > 0) return false;
+      if (!q) return true;
+      return a.customer_name.toLowerCase().includes(q) || (a.phone ?? "").toLowerCase().includes(q);
+    });
+  }, [accounts, debtStatusFilter, search]);
+
+  const filteredDebtTotal = useMemo(
+    () => filteredAccounts.reduce((sum, a) => sum + Number(a.current_balance || 0), 0),
+    [filteredAccounts],
+  );
 
   const selectedAccount = useMemo(
     () => accounts.find((a) => a.id === selectedAccountId) ?? null,
@@ -445,9 +444,10 @@ export default function FinanceGovernance() {
     doc.text("SỔ NỢ KHÁCH HÀNG", 105, 14, { align: "center" });
     doc.setFont("BeVietnamPro", "normal");
     doc.setFontSize(10);
-    doc.text(`Tổng dư nợ: ${formatVND(debtTotal)}`, 14, 22);
+    doc.text(`Bộ lọc: ${debtFilterLabel}`, 14, 22);
+    doc.text(`Tổng dư nợ (theo bộ lọc): ${formatVND(filteredDebtTotal)}`, 14, 28);
     autoTable(doc, {
-      startY: 28,
+      startY: 34,
       head: [["STT", "Khách hàng", "Số điện thoại", "Trạng thái", "Dư nợ"]],
       body: filteredAccounts.map((a, idx) => [
         idx + 1,
@@ -507,7 +507,7 @@ export default function FinanceGovernance() {
               <p className="mt-1 text-xl font-semibold">{totals.orderCount.toLocaleString("vi-VN")} / {formatVND(totals.avgOrder)}</p>
             </Card>
             <Card className="p-4 shadow-card">
-              <p className="text-xs text-muted-foreground">Dư nợ / LN gộp ước tính</p>
+              <p className="text-xs text-muted-foreground">Dư nợ / Tiền lời (ước tính)</p>
               <p className="mt-1 text-xl font-semibold">{formatVND(debtTotal)} / {formatVND(totals.grossProfit)}</p>
             </Card>
           </div>
@@ -643,9 +643,22 @@ export default function FinanceGovernance() {
           <TabsContent value="accounts" className="space-y-4">
             <Card id="finance-debt-accounts" className="p-4 shadow-card space-y-3">
               <div className="flex flex-wrap items-end justify-between gap-2">
-                <div className="grid min-w-[240px] flex-1 gap-1.5">
+                <div className="grid min-w-[200px] flex-1 gap-1.5">
                   <Label>Tìm khách hàng / số điện thoại</Label>
                   <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Ví dụ: 0909..." />
+                </div>
+                <div className="grid min-w-[160px] gap-1.5">
+                  <Label>Trạng thái nợ</Label>
+                  <Select value={debtStatusFilter} onValueChange={(v) => setDebtStatusFilter(v as DebtStatusFilter)}>
+                    <SelectTrigger className="h-11 bg-background" aria-label="Lọc trạng thái nợ">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Tất cả</SelectItem>
+                      <SelectItem value="open">Còn nợ</SelectItem>
+                      <SelectItem value="paid">Đã trả</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>

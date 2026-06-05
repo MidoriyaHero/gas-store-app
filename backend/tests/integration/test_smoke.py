@@ -141,6 +141,136 @@ def test_dashboard_bundle():
         assert "orders" in data and "products" in data
 
 
+def test_dashboard_summary_endpoint():
+    """GET /api/dashboard/summary returns KPI totals and daily series."""
+    with TestClient(app) as client:
+        _login_admin(client)
+        r = client.get("/api/dashboard/summary", params={"range": "7d"})
+        assert r.status_code == 200
+        data = r.json()
+        assert data["range"] == "7d"
+        assert "revenue" in data and "outstanding" in data and "profit" in data
+        assert isinstance(data["series"], list)
+        if data["series"]:
+            row = data["series"][0]
+            assert {"date", "revenue", "outstanding", "profit", "order_count"} <= set(row.keys())
+
+
+def test_partial_payment_keeps_outstanding_and_ledger():
+    """Partial payment orders retain correct outstanding and debt account balance."""
+    with TestClient(app) as client:
+        _login_admin(client)
+        pid = _create_test_product(client, "Partial Debt")
+        phone = f"090{int(uuid4().hex[:7], 16) % 10_000_000:07d}"
+        created = client.post(
+            "/api/orders",
+            json={
+                "customer_name": "Partial Customer",
+                "phone": phone,
+                "vat_rate": 0,
+                "payment_mode": "partial",
+                "paid_amount": 40000,
+                "lines": [{"product_id": pid, "quantity": 1}],
+            },
+        )
+        assert created.status_code == 200
+        body = created.json()
+        total = float(body["total"])
+        outstanding = float(body["outstanding_amount"])
+        assert outstanding == total - 40000
+        assert outstanding > 0
+
+        accounts = client.get("/api/debt-accounts", params={"status": "all"})
+        assert accounts.status_code == 200
+        account = next((a for a in accounts.json() if a["phone"] == phone), None)
+        assert account is not None
+        assert float(account["current_balance"]) == outstanding
+
+
+def test_delete_older_debt_order_preserves_newer_outstanding():
+    """Removing an older debt order must not reduce outstanding on a newer order with same phone."""
+    with TestClient(app) as client:
+        _login_admin(client)
+        pid = _create_test_product(client, "Delete Debt Isolation")
+        phone = f"090{int(uuid4().hex[:7], 16) % 10_000_000:07d}"
+        first = client.post(
+            "/api/orders",
+            json={
+                "customer_name": "Debt Same Phone Old",
+                "phone": phone,
+                "vat_rate": 0,
+                "payment_mode": "debt",
+                "lines": [{"product_id": pid, "quantity": 1}],
+            },
+        )
+        assert first.status_code == 200
+        first_id = first.json()["id"]
+        first_outstanding = float(first.json()["outstanding_amount"])
+
+        second = client.post(
+            "/api/orders",
+            json={
+                "customer_name": "Debt Same Phone New",
+                "phone": phone,
+                "vat_rate": 0,
+                "payment_mode": "debt",
+                "lines": [{"product_id": pid, "quantity": 1}],
+            },
+        )
+        assert second.status_code == 200
+        second_id = second.json()["id"]
+        second_outstanding_before = float(second.json()["outstanding_amount"])
+        assert second_outstanding_before == first_outstanding
+
+        deleted = client.delete(f"/api/orders/{first_id}")
+        assert deleted.status_code == 200
+
+        second_after = client.get(f"/api/orders/{second_id}")
+        assert second_after.status_code == 200
+        assert float(second_after.json()["outstanding_amount"]) == second_outstanding_before
+
+
+def test_cash_order_patch_to_debt_syncs_debt_ledger():
+    """PATCH cash order to debt must create ledger entry and matching account balance."""
+    with TestClient(app) as client:
+        _login_admin(client)
+        pid = _create_test_product(client, "Cash To Debt")
+        phone = f"090{int(uuid4().hex[:7], 16) % 10_000_000:07d}"
+        created = client.post(
+            "/api/orders",
+            json={
+                "customer_name": "Cash Then Debt",
+                "phone": phone,
+                "vat_rate": 0,
+                "payment_mode": "cash",
+                "lines": [{"product_id": pid, "quantity": 1}],
+            },
+        )
+        assert created.status_code == 200
+        oid = created.json()["id"]
+        total = float(created.json()["total"])
+        assert float(created.json()["outstanding_amount"]) == 0
+
+        patched = client.patch(
+            f"/api/orders/{oid}",
+            json={
+                "customer_name": "Cash Then Debt",
+                "phone": phone,
+                "vat_rate": 0,
+                "payment_mode": "debt",
+                "lines": [{"product_id": pid, "quantity": 1}],
+            },
+        )
+        assert patched.status_code == 200
+        assert float(patched.json()["outstanding_amount"]) == total
+
+        accounts = client.get("/api/debt-accounts", params={"status": "all"})
+        assert accounts.status_code == 200
+        account = next((a for a in accounts.json() if a["phone"] == phone), None)
+        assert account is not None
+        assert float(account["current_balance"]) == total
+
+
 def test_gas_ledger():
     """GET /api/gas-ledger returns JSON array."""
     with TestClient(app) as client:

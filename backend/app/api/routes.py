@@ -70,6 +70,8 @@ from app.schemas import (
     DebtPaymentUpdateIn,
     DebtWriteOffIn,
     DashboardPayload,
+    DashboardSummaryResponse,
+    DailyMetricRow,
     DeliveryDaySummaryResponse,
     FinanceKpiBaselineIn,
     FinanceKpiBaselineResponse,
@@ -364,8 +366,21 @@ def _allocate_credit_to_orders(db: Session, *, phone: str, credit_amount: Decima
         remaining -= used
 
 
+def _ledger_invoice_total_for_order(db: Session, order_id: int, *, account_id: int | None = None) -> Decimal:
+    """Sum positive invoice ledger rows linked to one sales order."""
+    stmt = select(DebtLedgerEntry).where(
+        DebtLedgerEntry.entry_type == "invoice",
+        DebtLedgerEntry.reference_type == "sales_order",
+        DebtLedgerEntry.reference_id == str(order_id),
+    )
+    if account_id is not None:
+        stmt = stmt.where(DebtLedgerEntry.debt_account_id == account_id)
+    rows = db.scalars(stmt).all()
+    return sum((Decimal(str(r.amount_signed)) for r in rows if Decimal(str(r.amount_signed)) > 0), Decimal("0"))
+
+
 def _recompute_order_outstanding_from_ledger(db: Session, *, account: DebtAccount) -> None:
-    """Rebuild order outstanding values using debt ledger invoices and total credits."""
+    """Rebuild order outstanding values using debt ledger invoices and payment credits."""
     entries = db.scalars(
         select(DebtLedgerEntry)
         .where(DebtLedgerEntry.debt_account_id == account.id)
@@ -383,8 +398,11 @@ def _recompute_order_outstanding_from_ledger(db: Session, *, account: DebtAccoun
             and amount > 0
         ):
             oid = int(str(e.reference_id))
+            linked = db.get(SalesOrder, oid)
+            if linked is None or linked.deleted_at is not None:
+                continue
             invoice_by_order[oid] = invoice_by_order.get(oid, Decimal("0")) + amount
-        elif amount < 0:
+        elif e.entry_type in ("payment", "write_off") and amount < 0:
             total_credit += -amount
     orders = db.scalars(
         select(SalesOrder)
@@ -402,6 +420,73 @@ def _recompute_order_outstanding_from_ledger(db: Session, *, account: DebtAccoun
         total_credit -= used
         order.outstanding_amount = left
         order.paid_amount = Decimal(str(order.total)) - left
+
+
+def _sync_order_debt_ledger(
+    db: Session,
+    order: SalesOrder,
+    before: SalesOrder,
+    *,
+    actor_user_id: int | None,
+) -> None:
+    """Keep debt ledger in sync when order payment/outstanding changes on PATCH."""
+    before_phone = before.phone
+    after_phone = order.phone
+    new_target = Decimal(str(order.outstanding_amount or 0))
+    before_inv = _ledger_invoice_total_for_order(db, before.id) if before_phone else Decimal("0")
+
+    if before_phone and before_phone != after_phone and before_inv > 0:
+        old_account = db.scalar(select(DebtAccount).where(DebtAccount.customer_key == before_phone))
+        if old_account is not None:
+            _append_debt_entry(
+                db,
+                account_id=old_account.id,
+                entry_type="adjustment",
+                amount_signed=-before_inv,
+                created_by_user_id=actor_user_id,
+                note=f"Chuyển công nợ đơn {order.order_code}",
+                reference_type="sales_order",
+                reference_id=str(order.id),
+            )
+            _recompute_debt_balance(db, old_account)
+            _recompute_order_outstanding_from_ledger(db, account=old_account)
+
+    if not after_phone:
+        return
+
+    ledger_inv = _ledger_invoice_total_for_order(db, order.id)
+    delta = new_target - ledger_inv
+    if delta == 0:
+        account = db.scalar(select(DebtAccount).where(DebtAccount.customer_key == after_phone))
+        if account is not None:
+            _recompute_order_outstanding_from_ledger(db, account=account)
+        return
+
+    account = _get_or_create_debt_account(db, order.customer_name, after_phone)
+    if delta > 0:
+        _append_debt_entry(
+            db,
+            account_id=account.id,
+            entry_type="invoice",
+            amount_signed=delta,
+            created_by_user_id=actor_user_id,
+            note=f"Đơn {order.order_code}",
+            reference_type="sales_order",
+            reference_id=str(order.id),
+        )
+    else:
+        _append_debt_entry(
+            db,
+            account_id=account.id,
+            entry_type="adjustment",
+            amount_signed=delta,
+            created_by_user_id=actor_user_id,
+            note=f"Giảm công nợ đơn {order.order_code}",
+            reference_type="sales_order",
+            reference_id=str(order.id),
+        )
+    _recompute_debt_balance(db, account)
+    _recompute_order_outstanding_from_ledger(db, account=account)
 
 
 def _ensure_note_access(note: OrderNote, actor: User) -> None:
@@ -1035,6 +1120,7 @@ def update_order_route(
             source="web",
             summary=None,
         )
+        _sync_order_debt_ledger(db, order, before, actor_user_id=actor.id)
         db.commit()
         return updated
     except ValueError as e:
@@ -1084,6 +1170,7 @@ def delete_order_route(order_id: int, db: Session = Depends(get_db)) -> dict[str
                     reference_id=str(order_id),
                 )
                 _recompute_debt_balance(db, account)
+                _recompute_order_outstanding_from_ledger(db, account=account)
                 db.commit()
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
@@ -1989,6 +2076,97 @@ def create_audit_log(
     db.commit()
     db.refresh(row)
     return AuditLogEntryResponse.model_validate(row)
+
+
+def _dashboard_date_range(range_key: str) -> tuple[date, date]:
+    """Resolve inclusive local-date window for dashboard summary ranges."""
+    today = datetime.now(tz=UTC).date()
+    if range_key == "today":
+        return today, today
+    if range_key == "7d":
+        return today - timedelta(days=6), today
+    if range_key == "30d":
+        return today - timedelta(days=29), today
+    if range_key == "mtd":
+        return today.replace(day=1), today
+    if range_key == "90d":
+        return today - timedelta(days=89), today
+    raise ValueError(f"Unsupported range: {range_key}")
+
+
+def _order_profit(db: Session, order: SalesOrder) -> Decimal:
+    """Estimate gross profit from line sell price minus current product cost."""
+    total = Decimal("0")
+    for li in order.lines:
+        product = db.get(Product, li.product_id)
+        cost = Decimal(str(product.cost_price)) if product is not None else Decimal("0")
+        unit = Decimal(str(li.unit_price))
+        total += (unit - cost) * Decimal(str(li.quantity))
+    return total
+
+
+@router.get("/dashboard/summary", response_model=DashboardSummaryResponse, dependencies=[Depends(require_admin_user)])
+def dashboard_summary(
+    range: Literal["today", "7d", "30d", "90d", "mtd"] = Query(default="7d"),
+    db: Session = Depends(get_db),
+) -> DashboardSummaryResponse:
+    """Daily revenue, outstanding debt, and estimated profit for dashboard charts."""
+    try:
+        start_d, end_d = _dashboard_date_range(range)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    start_dt = datetime.combine(start_d, datetime.min.time()).replace(tzinfo=UTC)
+    end_dt = datetime.combine(end_d, datetime.max.time()).replace(tzinfo=UTC)
+    orders = db.scalars(
+        select(SalesOrder)
+        .options(joinedload(SalesOrder.lines))
+        .where(sales.active_order_clause(SalesOrder.created_at >= start_dt, SalesOrder.created_at <= end_dt))
+        .order_by(SalesOrder.created_at.asc())
+    ).unique().all()
+
+    by_date: dict[str, dict[str, Decimal | int]] = {}
+    cur = start_d
+    while cur <= end_d:
+        by_date[cur.isoformat()] = {"revenue": Decimal("0"), "outstanding": Decimal("0"), "profit": Decimal("0"), "order_count": 0}
+        cur += timedelta(days=1)
+
+    total_revenue = Decimal("0")
+    total_outstanding = Decimal("0")
+    total_profit = Decimal("0")
+    for order in orders:
+        key = order.created_at.date().isoformat()
+        bucket = by_date.get(key)
+        if bucket is None:
+            continue
+        revenue = Decimal(str(order.total))
+        outstanding = Decimal(str(order.outstanding_amount or 0))
+        profit = _order_profit(db, order)
+        bucket["revenue"] = Decimal(str(bucket["revenue"])) + revenue
+        bucket["outstanding"] = Decimal(str(bucket["outstanding"])) + outstanding
+        bucket["profit"] = Decimal(str(bucket["profit"])) + profit
+        bucket["order_count"] = int(bucket["order_count"]) + 1
+        total_revenue += revenue
+        total_outstanding += outstanding
+        total_profit += profit
+
+    series = [
+        DailyMetricRow(
+            date=d,
+            revenue=Decimal(str(v["revenue"])),
+            outstanding=Decimal(str(v["outstanding"])),
+            profit=Decimal(str(v["profit"])),
+            order_count=int(v["order_count"]),
+        )
+        for d, v in by_date.items()
+    ]
+    return DashboardSummaryResponse(
+        range=range,
+        revenue=total_revenue,
+        outstanding=total_outstanding,
+        profit=total_profit,
+        order_count=len(orders),
+        series=series,
+    )
 
 
 @router.get("/dashboard", response_model=DashboardPayload, dependencies=[Depends(require_admin_user)])
