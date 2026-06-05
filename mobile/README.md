@@ -131,11 +131,19 @@ With API running:
 OPENAPI_URL=http://localhost:8000/openapi.json npm run codegen
 ```
 
+## Auth & offline
+
+- **Đăng nhập mới** luôn cần mạng (API xác thực username/password).
+- **Mở app sau khi đã login:** offline trong **72 giờ** kể từ lần xác thực online cuối → vào admin/staff, dùng SQLite + outbox.
+- **Access token hết hạn + offline trong 72h:** chế độ restricted (banner cảnh báo); sync API chờ có mạng.
+- **Quá 72h offline:** màn **Khóa phiên** (`/locked-session`) — không hiện form login vô ích.
+- **Online + refresh 401:** xóa token → về login.
+
 ## Architecture
 
 - `src/db/` — Drizzle SQLite mirror + outbox
 - `src/sync/` — single-flight push then pull
-- `src/auth/` — SecureStore tokens + `bootstrap.ts` restore session khi mở app
+- `src/auth/` — SecureStore tokens + `bootstrap.ts` restore session (online refresh; offline timebox 72h; màn `locked-session` khi quá hạn)
 - `src/lib/ids.ts` — `newClientId()` via `expo-crypto` (tránh lỗi `crypto.getRandomValues` của `uuid` trên RN)
 - `app/` — Expo Router (admin + staff layouts)
 - `src/components/navigation/AdminTabBar.tsx` — admin tabs + center FAB → `/(admin)/order/create`

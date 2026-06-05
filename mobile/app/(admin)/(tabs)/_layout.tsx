@@ -1,12 +1,15 @@
 import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 
+import { OfflineSessionBanner } from "@/components/OfflineSessionBanner";
 import { AdminTabBar } from "@/components/navigation/AdminTabBar";
 import { navTheme } from "@/theme/tokens";
 
 /** Admin bottom navigation with center FAB for create order. */
 export default function AdminTabsLayout() {
   return (
+    <>
+    <OfflineSessionBanner />
     <Tabs
       screenOptions={{ ...navTheme, headerShown: false }}
       tabBar={(props) => <AdminTabBar {...props} />}
@@ -40,5 +43,6 @@ export default function AdminTabsLayout() {
         }}
       />
     </Tabs>
+    </>
   );
 }

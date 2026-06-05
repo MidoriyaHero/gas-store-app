@@ -10,7 +10,9 @@ export default function Index() {
   const [route, setRoute] = useState<Awaited<ReturnType<typeof resolveSessionRoute>> | null>(null);
 
   useEffect(() => {
-    void resolveSessionRoute().then(setRoute);
+    void resolveSessionRoute()
+      .then(setRoute)
+      .catch(() => setRoute("/login"));
   }, []);
 
   if (!route) {

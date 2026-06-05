@@ -1,7 +1,8 @@
 import { API_BASE_URL } from "@/config";
-import { getAccessToken } from "@/auth/session";
+import { getAccessToken, touchLastOnlineAuth } from "@/auth/session";
 import { SessionExpiredError, notifySessionExpired } from "@/auth/session-events";
 import { clearTokens, getRefreshToken, saveTokens } from "@/auth/session";
+import { isOnline } from "@/lib/network";
 
 type JsonBody = Record<string, unknown>;
 
@@ -11,20 +12,25 @@ export async function refreshSession(): Promise<boolean> {
   if (!refresh) {
     return false;
   }
-  const res = await fetch(`${API_BASE_URL}/api/auth/mobile/refresh`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ refresh_token: refresh }),
-  });
-  if (!res.ok) {
-    if (res.status === 401) {
-      await clearTokens();
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/auth/mobile/refresh`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refresh_token: refresh }),
+    });
+    if (!res.ok) {
+      if (res.status === 401) {
+        await clearTokens();
+      }
+      return false;
     }
+    const body = (await res.json()) as { access_token: string; refresh_token: string };
+    await saveTokens(body.access_token, body.refresh_token);
+    await touchLastOnlineAuth();
+    return true;
+  } catch {
     return false;
   }
-  const body = (await res.json()) as { access_token: string; refresh_token: string };
-  await saveTokens(body.access_token, body.refresh_token);
-  return true;
 }
 
 /** Minimal fetch wrapper with Bearer auth and JSON helpers. */
@@ -42,6 +48,10 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
     const refreshed = await refreshSession();
     if (refreshed) {
       return apiFetch(path, init);
+    }
+    const online = await isOnline();
+    if (!online) {
+      throw new Error("Không có mạng — cần kết nối để làm mới phiên");
     }
     notifySessionExpired();
     throw new SessionExpiredError();
