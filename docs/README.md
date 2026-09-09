@@ -30,6 +30,8 @@ flowchart TB
 | [API — Sync](./api/sync.md) | Pull/push offline-first |
 | [API — Endpoints](./api/endpoints.md) | Bảng endpoint theo nhóm |
 | [Features — index](./features/README.md) | Danh sách feature × web × mobile |
+| [Deploy — Cloudflare Tunnel](./deploy/cloudflare-tunnel.md) | HTTPS production, DNS, CORS, APK |
+| [Deploy — Windows](./deploy/windows.md) | Auto-start Docker + tunnel trên Windows |
 
 ## Bắt đầu từ đâu?
 
@@ -39,6 +41,7 @@ flowchart TB
 | Dev frontend web | [architecture/overview](./architecture/overview.md) → [api/auth](./api/auth.md) → [features/](./features/README.md) |
 | Dev mobile | [architecture/overview](./architecture/overview.md) → [database/mobile-sqlite](./database/mobile-sqlite.md) → [api/sync](./api/sync.md) → [features/sync-offline-mobile](./features/sync-offline-mobile.md) |
 | Vận hành / deploy | [architecture/overview](./architecture/overview.md) (phần Docker) + [README gốc](../README.md) |
+| Vận hành Windows | [deploy/windows.md](./deploy/windows.md) + [deploy/cloudflare-tunnel.md](./deploy/cloudflare-tunnel.md) |
 
 ## Tài liệu có sẵn (legacy)
 
@@ -47,6 +50,7 @@ flowchart TB
 | [adr-mobile-sync.md](./adr-mobile-sync.md) | ADR quyết định kiến trúc sync mobile |
 | [thue-va-xuat-du-lieu.md](./thue-va-xuat-du-lieu.md) | Báo cáo thuế và export CSV |
 | [dashboard-feature-gate.md](./dashboard-feature-gate.md) | Feature gate dashboard admin |
+| [frontend/docs/ui-wireframe-phase1.md](../frontend/docs/ui-wireframe-phase1.md) | Wireframe phase 1 (historical, không khớp route hiện tại) |
 
 ## Thiết kế mobile (Figma / mockup)
 

@@ -40,8 +40,10 @@ stateDiagram-v2
 
 ## Web
 
-- Admin: `/don-hang` — ô tìm mã/khách/SĐT (debounce ~300ms), server filter `GET /orders?q=`, phân trang đúng `total`
+- Admin: `/don-hang` — ô tìm mã/khách/SĐT (debounce ~300ms), server filter `GET /orders?q=`, phân trang đúng `total`; tạo đơn 2 bước trên cùng trang (không còn route `/tao-don`)
+- Phiếu giao: `/don-hang/phieu/:id`
 - Staff history: `/don-cua-toi`
+- Mẫu chai: `/mau-chai` — [cylinder-templates](./cylinder-templates.md)
 
 ## Mobile
 

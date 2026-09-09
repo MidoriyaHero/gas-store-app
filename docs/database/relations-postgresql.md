@@ -173,6 +173,8 @@ erDiagram
   debt_accounts ||--o{ debt_ledger_entries : ledger
   debt_accounts ||--o{ debt_payments : payments
   debt_accounts ||--o{ debt_write_offs : writeoffs
+  sales_orders ||--o{ debt_ledger_entries : scoped
+  sales_orders ||--o{ debt_payments : collected
   users ||--o{ debt_ledger_entries : records
   users ||--o{ debt_payments : collects
   users ||--o{ debt_write_offs : approves
@@ -187,6 +189,7 @@ erDiagram
   debt_ledger_entries {
     int id PK
     int debt_account_id FK
+    int sales_order_id FK
     string entry_type
     numeric amount_signed
     string reference_type
@@ -196,6 +199,7 @@ erDiagram
   debt_payments {
     int id PK
     int debt_account_id FK
+    int sales_order_id FK
     numeric amount
     int returned_shell_units
     int created_by_user_id FK
@@ -212,11 +216,15 @@ erDiagram
 | Cột FK | Bảng đích |
 |--------|-----------|
 | `debt_ledger_entries.debt_account_id` | `debt_accounts.id` |
+| `debt_ledger_entries.sales_order_id` | `sales_orders.id` (nullable; legacy rows backfill) |
 | `debt_payments.debt_account_id` | `debt_accounts.id` |
+| `debt_payments.sales_order_id` | `sales_orders.id` (nullable; API tạo mới bắt buộc) |
 | `debt_write_offs.debt_account_id` | `debt_accounts.id` |
 | `debt_write_offs.approved_by_user_id` | `users.id` |
 
 **`customer_key`:** số điện thoại chuẩn hóa (unique). Ledger `amount_signed`: dương = tăng nợ, âm = giảm nợ.
+
+**Outstanding theo đơn:** `sales_orders.outstanding_amount` = max(0, tổng ledger scoped đơn đó). `debt_accounts.current_balance` = tổng outstanding các đơn active cùng SĐT — không FIFO cấp tài khoản. Logic: [debt_orders.py](../../backend/app/services/debt_orders.py).
 
 ---
 

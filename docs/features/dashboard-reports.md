@@ -25,6 +25,7 @@ flowchart LR
 | Method | Path |
 |--------|------|
 | GET | `/dashboard` |
+| GET | `/dashboard/summary` |
 | GET/POST | `/shift-settlements`, `/finance-kpis`, ... |
 
 → [endpoints.md](../api/endpoints.md) — Dashboard & governance
@@ -35,7 +36,8 @@ flowchart LR
 
 ## Web
 
-- `/` — dashboard chính
+- `/` — dashboard chính (KPI + chart; `GET /dashboard` và `GET /dashboard/summary`)
+- Widget governance (ca, CAPA, …) trên dashboard — API `/shift-settlements`, `/capa-items`, …; xem [endpoints.md](../api/endpoints.md)
 
 ## Mobile
 

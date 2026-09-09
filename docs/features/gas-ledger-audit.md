@@ -35,7 +35,8 @@ flowchart TD
 
 ## Web
 
-- `/so-gas`, `/dieu-hanh`
+- `/so-gas` — sổ gas / export CSV
+- `/dieu-hanh` — kiểm kê + đơn theo ngày giao — [daily-operations](./daily-operations.md)
 
 ## Mobile
 
