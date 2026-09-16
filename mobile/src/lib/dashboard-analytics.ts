@@ -4,8 +4,11 @@ export type PeriodKey = "7d" | "30d" | "mtd";
 
 export interface OrderAnalyticsRow {
   createdAt: string;
+  deliveryDate?: string | null;
   total: string;
+  unitQuantity?: number;
   borrowedShellUnits?: number | null;
+  customerSegment?: string | null;
 }
 
 export interface DailySeriesRow {
@@ -13,6 +16,7 @@ export interface DailySeriesRow {
   label: string;
   revenue: number;
   orderCount: number;
+  unitQuantity: number;
 }
 
 export interface RangeWindow {
@@ -44,6 +48,23 @@ export function localDateKey(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+/** Business metric date key: delivery date when set, else local created-at day. */
+export function orderMetricDateKey(order: Pick<OrderAnalyticsRow, "createdAt" | "deliveryDate">): string {
+  if (order.deliveryDate) return order.deliveryDate.slice(0, 10);
+  return localDateKey(new Date(order.createdAt));
+}
+
+/** Sum line quantities from a synced order payload JSON. */
+export function unitQuantityFromPayload(payloadJson: string): number {
+  try {
+    const payload = JSON.parse(payloadJson) as { order_items?: Array<{ quantity?: number }> };
+    const items = payload.order_items ?? [];
+    return items.reduce((sum, li) => sum + Number(li.quantity ?? 0), 0);
+  } catch {
+    return 0;
+  }
+}
+
 /** Day range from today for the selected period. */
 export function currentWindow(period: PeriodKey, today: Date): RangeWindow {
   const t = new Date(today);
@@ -64,21 +85,23 @@ export function previousWindow(period: PeriodKey, current: RangeWindow): RangeWi
   return { start: addDays(prevEnd, -(dayCount - 1)), end: prevEnd };
 }
 
-/** Aggregate orders into daily revenue and count series. */
+/** Aggregate orders into daily revenue, unit quantity, and count series. */
 export function summarizeSeries(range: RangeWindow, orders: OrderAnalyticsRow[]): DailySeriesRow[] {
   const rows = enumerateDays(range.start, range.end).map((d) => ({
     dateKey: localDateKey(d),
     label: `${d.getDate()}/${d.getMonth() + 1}`,
     revenue: 0,
     orderCount: 0,
+    unitQuantity: 0,
   }));
   const byDate = new Map(rows.map((row) => [row.dateKey, row]));
   for (const order of orders) {
-    const key = localDateKey(new Date(order.createdAt));
+    const key = orderMetricDateKey(order);
     const row = byDate.get(key);
     if (!row) continue;
     row.revenue += Number(order.total || 0);
     row.orderCount += 1;
+    row.unitQuantity += Number(order.unitQuantity ?? 0);
   }
   return rows;
 }
@@ -89,16 +112,51 @@ export function percentDelta(current: number, previous: number): number | null {
   return ((current - previous) / previous) * 100;
 }
 
-/** Sum revenue and order count in a window. */
+export type CustomerSegmentBucket = "wholesale" | "restaurant" | "retail" | "unspecified";
+
+export interface CustomerSegmentShare {
+  segment: CustomerSegmentBucket;
+  orderCount: number;
+  revenue: number;
+}
+
+const SEGMENT_ORDER: CustomerSegmentBucket[] = ["wholesale", "restaurant", "retail", "unspecified"];
+
+/** Mix of tagged customer segments for the selected window. */
+export function summarizeCustomerSegments(range: RangeWindow, orders: OrderAnalyticsRow[]): CustomerSegmentShare[] {
+  const acc: Record<CustomerSegmentBucket, CustomerSegmentShare> = {
+    wholesale: { segment: "wholesale", orderCount: 0, revenue: 0 },
+    restaurant: { segment: "restaurant", orderCount: 0, revenue: 0 },
+    retail: { segment: "retail", orderCount: 0, revenue: 0 },
+    unspecified: { segment: "unspecified", orderCount: 0, revenue: 0 },
+  };
+  const startKey = localDateKey(range.start);
+  const endKey = localDateKey(range.end);
+  for (const order of orders) {
+    const key = orderMetricDateKey(order);
+    if (key < startKey || key > endKey) continue;
+    const raw = order.customerSegment;
+    const segment: CustomerSegmentBucket =
+      raw === "wholesale" || raw === "restaurant" || raw === "retail" ? raw : "unspecified";
+    acc[segment].orderCount += 1;
+    acc[segment].revenue += Number(order.total || 0);
+  }
+  return SEGMENT_ORDER.map((s) => acc[s]);
+}
+
+/** Sum revenue and unit quantity in a window. */
 export function windowTotals(range: RangeWindow, orders: OrderAnalyticsRow[]) {
   const series = summarizeSeries(range, orders);
   return {
     revenue: series.reduce((s, r) => s + r.revenue, 0),
     orderCount: series.reduce((s, r) => s + r.orderCount, 0),
+    unitQuantity: series.reduce((s, r) => s + r.unitQuantity, 0),
     outstanding: orders
       .filter((o) => {
-        const d = new Date(o.createdAt);
-        return d >= range.start && d <= range.end;
+        const key = orderMetricDateKey(o);
+        const startKey = localDateKey(range.start);
+        const endKey = localDateKey(range.end);
+        return key >= startKey && key <= endKey;
       })
       .reduce((s, o) => s + (o.borrowedShellUnits ?? 0), 0),
   };

@@ -133,11 +133,29 @@ export async function uploadVoiceOrderNote(
   return body;
 }
 
-/** Admin debt accounts list. */
+/** Admin debt accounts list (legacy). */
 export async function fetchDebtAccounts(): Promise<
   Array<{ id: number; customer_name: string; phone: string; current_balance: string; status: string }>
 > {
   return apiFetch("/api/debt-accounts?status=all&limit=100");
+}
+
+/** Admin order-centric debt list. */
+export async function fetchDebtOrders(month?: string): Promise<
+  Array<{
+    id: number;
+    order_code: string;
+    customer_name: string;
+    phone: string | null;
+    delivery_date: string | null;
+    outstanding_amount: string;
+    total: string;
+    paid_amount: string;
+    payment_mode: string;
+  }>
+> {
+  const monthQuery = month ? `&month=${encodeURIComponent(month)}` : "";
+  return apiFetch(`/api/debt-orders?status=all&limit=200${monthQuery}`);
 }
 
 /** Admin users list. */
@@ -179,6 +197,15 @@ export type DailyCylinderAuditPayload = {
     expected_evening_shell: number;
     variance_full: number | null;
     variance_shell: number | null;
+    warehouse_import_full?: number;
+    sold_units_total?: number;
+    remaining_full?: number;
+    segment_mix?: Array<{
+      segment: string;
+      order_count: number;
+      unit_quantity: number;
+      revenue: string | number;
+    }>;
   };
 };
 
@@ -198,9 +225,9 @@ export async function putDailyCylinderAudit(
   });
 }
 
-/** Record debt collection payment. */
+/** Record debt collection payment against one order. */
 export async function createDebtPayment(payload: {
-  debt_account_id: number;
+  sales_order_id: number;
   amount: string;
   payment_method?: string;
   returned_shell_units?: number;
@@ -222,9 +249,11 @@ export async function searchOrders(
   items: Array<{
     customer_name: string;
     phone: string;
+    address?: string | null;
     delivery_address?: string | null;
     delivery_latitude?: number | null;
     delivery_longitude?: number | null;
+    customer_segment?: "wholesale" | "restaurant" | "retail" | null;
   }>;
   total: number;
 }> {
@@ -271,7 +300,7 @@ export async function geocodeFromPaste(raw: string): Promise<{ lat: number; lng:
   return apiFetch("/api/geocode/from-paste", { method: "POST", body: JSON.stringify({ raw }) });
 }
 
-/** Debt account detail with ledger history. */
+/** Debt account detail with ledger history (legacy). */
 export async function fetchDebtAccountDetail(
   accountId: number,
 ): Promise<{
@@ -286,6 +315,36 @@ export async function fetchDebtAccountDetail(
   }>;
 }> {
   return apiFetch(`/api/debt-accounts/${accountId}?ledger_limit=80`);
+}
+
+/** Order debt detail with ledger scoped to the order. */
+export async function fetchDebtOrderDetail(
+  orderId: number,
+  month?: string,
+): Promise<{
+  order: {
+    id: number;
+    order_code: string;
+    customer_name: string;
+    phone: string | null;
+    delivery_date: string | null;
+    outstanding_amount: string;
+    total: string;
+    paid_amount: string;
+    payment_mode: string;
+  };
+  ledger: Array<{
+    id: number;
+    entry_type: string;
+    amount_signed: string;
+    note: string | null;
+    created_at: string;
+    returned_shell_units?: number;
+    sales_order_id?: number | null;
+  }>;
+}> {
+  const monthQuery = month ? `&month=${encodeURIComponent(month)}` : "";
+  return apiFetch(`/api/debt-orders/${orderId}?ledger_limit=80${monthQuery}`);
 }
 
 /** Global delivery notes list. */
@@ -342,15 +401,25 @@ export async function fetchTaxReport(from: string, to: string): Promise<
   return apiFetch(`/api/orders/tax-report?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
 }
 
-export async function fetchProductsList(): Promise<
-  Array<{ id: number; name: string; sell_price: string; stock_quantity: number; is_active: boolean }>
-> {
+export type ProductListRow = {
+  id: number;
+  name: string;
+  sell_price: string;
+  wholesale_price?: string;
+  restaurant_price?: string;
+  stock_quantity: number;
+  is_active: boolean;
+};
+
+export async function fetchProductsList(): Promise<ProductListRow[]> {
   return apiFetch("/api/products");
 }
 
 export async function createProduct(payload: {
   name: string;
   sell_price: string;
+  wholesale_price?: string;
+  restaurant_price?: string;
   stock_quantity: number;
 }): Promise<JsonBody> {
   return apiFetch("/api/products", { method: "POST", body: JSON.stringify(payload) });
@@ -375,6 +444,21 @@ export async function createStockReceipt(
     method: "POST",
     body: JSON.stringify({ quantity, note: note ?? null, receipt_date: date }),
   });
+}
+
+export type StockReceiptRow = {
+  id: number;
+  product_id: number;
+  product_name: string | null;
+  receipt_date: string;
+  quantity: number;
+  receipt_kind: string;
+  note: string | null;
+};
+
+export async function fetchStockReceipts(receiptDate?: string): Promise<StockReceiptRow[]> {
+  const qs = receiptDate ? `?receipt_date=${encodeURIComponent(receiptDate)}` : "";
+  return apiFetch(`/api/stock-receipts${qs}`);
 }
 
 export async function createUser(payload: JsonBody): Promise<JsonBody> {
@@ -420,7 +504,13 @@ export async function deleteOrder(orderId: number): Promise<void> {
 }
 
 export async function fetchDashboard(): Promise<{
-  orders: Array<{ total: string; created_at: string }>;
+  orders: Array<{
+    total: string;
+    created_at: string;
+    delivery_date?: string | null;
+    line_quantity: number;
+    customer_segment?: "wholesale" | "restaurant" | "retail" | null;
+  }>;
   products: Array<{ id: number; name: string; stock_quantity: number; sell_price: string }>;
 }> {
   return apiFetch("/api/dashboard");

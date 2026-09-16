@@ -184,6 +184,10 @@ export function AdminAuditPanel() {
     expected_evening_shell: number;
     variance_full: number | null;
     variance_shell: number | null;
+    warehouse_import_full?: number;
+    sold_units_total?: number;
+    remaining_full?: number;
+    segment_mix?: Array<{ segment: string; unit_quantity: number; revenue: string | number }>;
   } | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -191,10 +195,10 @@ export function AdminAuditPanel() {
   const applyPayload = useCallback((data: Awaited<ReturnType<typeof fetchDailyCylinderAudit>>) => {
     setComputed(data.computed);
     const r = data.record;
+    setImportFull(String(data.computed.warehouse_import_full ?? r?.import_full ?? 0));
     if (r) {
       setMorningFull(String(r.morning_full));
       setMorningShell(String(r.morning_shell));
-      setImportFull(String(r.import_full));
       setSupplierShell(String(r.supplier_shell_units));
       setEveningFull(String(r.evening_full));
       setEveningShell(String(r.evening_shell));
@@ -202,7 +206,6 @@ export function AdminAuditPanel() {
     } else {
       setMorningFull("0");
       setMorningShell("0");
-      setImportFull("0");
       setSupplierShell("0");
       setEveningFull("0");
       setEveningShell("0");
@@ -231,7 +234,6 @@ export function AdminAuditPanel() {
     const payload = {
       morning_full: Number(morningFull) || 0,
       morning_shell: Number(morningShell) || 0,
-      import_full: Number(importFull) || 0,
       supplier_shell_units: Number(supplierShell) || 0,
       evening_full: Number(eveningFull) || 0,
       evening_shell: Number(eveningShell) || 0,
@@ -271,6 +273,10 @@ export function AdminAuditPanel() {
         <Card style={styles.formCard}>
           <SectionLabel>Đối chiếu (server)</SectionLabel>
           <AppText variant="caption" muted>
+            Nhập đầy (từ Kho): {computed.warehouse_import_full ?? importFull} · Đã bán: {computed.sold_units_total ?? "—"} · Còn lại:{" "}
+            {computed.remaining_full ?? "—"}
+          </AppText>
+          <AppText variant="caption" muted>
             Giao đầy: {computed.delivered_full} · Dự kiến tối đầy: {computed.expected_evening_full}
           </AppText>
           <AppText variant="caption" muted>
@@ -306,7 +312,7 @@ export function AdminAuditPanel() {
         <SectionLabel>Nhập / công ty</SectionLabel>
         <View style={styles.row}>
           <View style={styles.half}>
-            <TextField label="Nhập đầy" value={importFull} onChangeText={setImportFull} keyboardType="number-pad" />
+            <TextField label="Nhập đầy (Kho)" value={importFull} editable={false} />
           </View>
           <View style={styles.half}>
             <TextField label="Vỏ công ty" value={supplierShell} onChangeText={setSupplierShell} keyboardType="number-pad" />

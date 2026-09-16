@@ -29,7 +29,7 @@ export function ChartCard({ title, subtitle, children }: ChartCardProps) {
 
 type LineChartProps = {
   data: DailySeriesRow[];
-  dataKey: "revenue" | "orderCount";
+  dataKey: "revenue" | "unitQuantity";
   height?: number;
 };
 
@@ -39,30 +39,37 @@ export function MobileLineChart({ data, dataKey, height = 120 }: LineChartProps)
   const pad = { l: 28, r: 8, t: 8, b: 22 };
   const innerW = width - pad.l - pad.r;
   const innerH = height - pad.t - pad.b;
-  const values = data.map((d) => (dataKey === "revenue" ? d.revenue : d.orderCount));
+  const values = data.map((d) => (dataKey === "revenue" ? d.revenue : d.unitQuantity));
   const max = Math.max(...values, 1);
+  const xAt = (i: number) => pad.l + (i / Math.max(data.length - 1, 1)) * innerW;
   const points = values
     .map((v, i) => {
-      const x = pad.l + (i / Math.max(values.length - 1, 1)) * innerW;
+      const x = xAt(i);
       const y = pad.t + innerH - (v / max) * innerH;
       return `${x},${y}`;
     })
     .join(" ");
+
+  const tickStep = Math.max(1, Math.ceil(data.length / 4));
+  const tickIndices = data
+    .map((_, i) => i)
+    .filter((i) => i % tickStep === 0 || i === data.length - 1);
 
   return (
     <Svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`}>
       <Line x1={pad.l} y1={pad.t} x2={pad.l} y2={height - pad.b} stroke={colors.border} strokeWidth={1} />
       <Line x1={pad.l} y1={height - pad.b} x2={width - pad.r} y2={height - pad.b} stroke={colors.border} strokeWidth={1} />
       <Polyline points={points} fill="none" stroke={colors.primary} strokeWidth={2.5} />
-      {data.filter((_, i) => i % Math.ceil(data.length / 4) === 0 || i === data.length - 1).map((d, idx) => (
+      {tickIndices.map((i) => (
         <SvgText
-          key={d.dateKey}
-          x={pad.l + (idx / Math.max(3, 1)) * (innerW / Math.max(3, 1))}
+          key={data[i].dateKey}
+          x={xAt(i)}
           y={height - 4}
           fontSize={9}
           fill={colors.textMuted}
+          textAnchor="middle"
         >
-          {d.label}
+          {data[i].label}
         </SvgText>
       ))}
     </Svg>

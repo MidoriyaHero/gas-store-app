@@ -25,9 +25,12 @@ import {
   PERIOD_LABEL,
   previousWindow,
   summarizeSeries,
+  summarizeCustomerSegments,
+  unitQuantityFromPayload,
   windowTotals,
   type PeriodKey,
 } from "@/lib/dashboard-analytics";
+import { CUSTOMER_SEGMENT_COLOR, CUSTOMER_SEGMENT_LABEL } from "@/lib/customer-segment";
 import { useAutoSyncScreen } from "@/hooks/useAutoSyncScreen";
 import { triggerAutoSync } from "@/sync/auto-sync";
 import { countPendingOutbox } from "@/sync/outbox";
@@ -38,8 +41,17 @@ import { colors, spacing } from "@/theme/tokens";
 export default function AdminHome() {
   const toast = useToast();
   const [period, setPeriod] = useState<PeriodKey>("7d");
+  const [chartMode, setChartMode] = useState<"revenue" | "units">("revenue");
   const [orders, setOrders] = useState<(typeof salesOrders.$inferSelect)[]>([]);
-  const [apiOrders, setApiOrders] = useState<Array<{ total: string; created_at: string }> | null>(null);
+  const [apiOrders, setApiOrders] = useState<
+    Array<{
+      total: string;
+      created_at: string;
+      delivery_date?: string | null;
+      line_quantity: number;
+      customer_segment?: string | null;
+    }>
+  > | null>(null);
   const [productRows, setProductRows] = useState<(typeof products.$inferSelect)[]>([]);
   const [pending, setPending] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
@@ -74,16 +86,22 @@ export default function AdminHome() {
     if (apiOrders) {
       return apiOrders.map((o) => ({
         createdAt: o.created_at,
+        deliveryDate: o.delivery_date ?? null,
         total: String(o.total),
+        unitQuantity: Number(o.line_quantity ?? 0),
         borrowedShellUnits: 0,
+        customerSegment: o.customer_segment ?? null,
       }));
     }
     return orders
       .filter((o) => o.createdAt && new Date(o.createdAt) >= cacheSince)
       .map((o) => ({
         createdAt: o.createdAt,
+        deliveryDate: o.deliveryDate ?? null,
         total: o.total,
+        unitQuantity: unitQuantityFromPayload(o.payloadJson),
         borrowedShellUnits: o.borrowedShellUnits,
+        customerSegment: o.customerSegment ?? null,
       }));
   }, [apiOrders, orders, cacheSince]);
 
@@ -91,18 +109,22 @@ export default function AdminHome() {
   const previous = previousWindow(period, current);
   const currentSeries = useMemo(() => summarizeSeries(current, analyticsOrders), [current, analyticsOrders]);
   const previousSeries = useMemo(() => summarizeSeries(previous, analyticsOrders), [previous, analyticsOrders]);
+  const segmentShares = useMemo(
+    () => summarizeCustomerSegments(current, analyticsOrders),
+    [current, analyticsOrders],
+  );
 
   const currentMetrics = useMemo(() => {
     const revenue = currentSeries.reduce((s, r) => s + r.revenue, 0);
-    const orderCount = currentSeries.reduce((s, r) => s + r.orderCount, 0);
+    const unitQuantity = currentSeries.reduce((s, r) => s + r.unitQuantity, 0);
     const shells = orders.filter((o) => (o.borrowedShellUnits ?? 0) > 0).reduce((s, o) => s + (o.borrowedShellUnits ?? 0), 0);
-    return { revenue, orderCount, shells };
+    return { revenue, unitQuantity, shells };
   }, [currentSeries, orders]);
 
   const previousMetrics = useMemo(() => {
     const revenue = previousSeries.reduce((s, r) => s + r.revenue, 0);
-    const orderCount = previousSeries.reduce((s, r) => s + r.orderCount, 0);
-    return { revenue, orderCount };
+    const unitQuantity = previousSeries.reduce((s, r) => s + r.unitQuantity, 0);
+    return { revenue, unitQuantity };
   }, [previousSeries]);
 
   const lowStockChart = useMemo(
@@ -191,9 +213,9 @@ export default function AdminHome() {
             delta={percentDelta(todayMetrics.revenue, yesterdayMetrics.revenue)}
           />
           <CompactKpi
-            label="Đơn hôm nay"
-            value={String(todayMetrics.orderCount)}
-            delta={percentDelta(todayMetrics.orderCount, yesterdayMetrics.orderCount)}
+            label="Bình hôm nay"
+            value={String(todayMetrics.unitQuantity)}
+            delta={percentDelta(todayMetrics.unitQuantity, yesterdayMetrics.unitQuantity)}
           />
         </View>
 
@@ -201,6 +223,16 @@ export default function AdminHome() {
           {(Object.keys(PERIOD_LABEL) as PeriodKey[]).map((key) => (
             <FilterChip key={key} label={PERIOD_LABEL[key]} active={period === key} onPress={() => setPeriod(key)} />
           ))}
+          <FilterChip
+            label="Doanh thu"
+            active={chartMode === "revenue"}
+            onPress={() => setChartMode("revenue")}
+          />
+          <FilterChip
+            label="Số bình"
+            active={chartMode === "units"}
+            onPress={() => setChartMode("units")}
+          />
         </ScrollView>
 
         <View style={styles.kpiRow}>
@@ -210,16 +242,19 @@ export default function AdminHome() {
             delta={percentDelta(currentMetrics.revenue, previousMetrics.revenue)}
           />
           <CompactKpi
-            label="Đơn hàng"
-            value={String(currentMetrics.orderCount)}
-            delta={percentDelta(currentMetrics.orderCount, previousMetrics.orderCount)}
+            label="Số bình"
+            value={String(currentMetrics.unitQuantity)}
+            delta={percentDelta(currentMetrics.unitQuantity, previousMetrics.unitQuantity)}
           />
           <CompactKpi label="Chờ sync" value={String(pending)} />
         </View>
 
         <View style={styles.charts}>
-          <ChartCard title="Doanh thu theo ngày" subtitle={PERIOD_LABEL[period]}>
-            <MobileLineChart data={currentSeries} dataKey="revenue" />
+          <ChartCard
+            title={chartMode === "revenue" ? "Doanh thu theo ngày" : "Số bình theo ngày"}
+            subtitle={PERIOD_LABEL[period]}
+          >
+            <MobileLineChart data={currentSeries} dataKey={chartMode === "revenue" ? "revenue" : "unitQuantity"} />
           </ChartCard>
 
           <ChartCard title="Trạng thái giao" subtitle={`${completed} hoàn thành · ${inTransit} đang giao`}>
@@ -228,6 +263,16 @@ export default function AdminHome() {
                 { label: "Hoàn thành", value: completed, color: colors.success },
                 { label: "Đang giao", value: inTransit, color: colors.warning },
               ]}
+            />
+          </ChartCard>
+
+          <ChartCard title="Cơ cấu tệp khách" subtitle={PERIOD_LABEL[period]}>
+            <MobileDonutChart
+              slices={segmentShares.map((row) => ({
+                label: CUSTOMER_SEGMENT_LABEL[row.segment],
+                value: row.orderCount,
+                color: CUSTOMER_SEGMENT_COLOR[row.segment],
+              }))}
             />
           </ChartCard>
 
