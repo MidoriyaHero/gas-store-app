@@ -2,9 +2,11 @@
 
 from datetime import date
 
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models import Product, StockReceipt
+from app.models import DailyCylinderAudit, Product, StockReceipt
+from app.timezone import utc_now
 
 
 def record_opening_receipt(
@@ -31,6 +33,36 @@ def record_opening_receipt(
     return row
 
 
+def inbound_units_on_date(db: Session, receipt_date: date) -> int:
+    """Sum inbound cylinder qty recorded on ``receipt_date`` (opening rows excluded)."""
+    total = db.scalar(
+        select(func.coalesce(func.sum(StockReceipt.quantity), 0)).where(
+            StockReceipt.receipt_kind == "inbound",
+            StockReceipt.receipt_date == receipt_date,
+        )
+    )
+    return int(total or 0)
+
+
+def sync_audit_import_full(
+    db: Session,
+    receipt_date: date,
+    *,
+    created_by_user_id: int | None = None,
+) -> DailyCylinderAudit:
+    """Set ``DailyCylinderAudit.import_full`` to the inbound receipt total for that day."""
+    qty = inbound_units_on_date(db, receipt_date)
+    row = db.scalar(select(DailyCylinderAudit).where(DailyCylinderAudit.business_date == receipt_date))
+    if row is None:
+        row = DailyCylinderAudit(business_date=receipt_date, created_by_user_id=created_by_user_id, import_full=qty)
+        db.add(row)
+        db.flush()
+        return row
+    row.import_full = qty
+    row.updated_at = utc_now()
+    return row
+
+
 def apply_inbound_receipt(
     db: Session,
     *,
@@ -40,7 +72,7 @@ def apply_inbound_receipt(
     note: str | None,
     created_by_user_id: int | None,
 ) -> StockReceipt:
-    """Append ``inbound`` receipt and increment ``Product.stock_quantity``."""
+    """Append ``inbound`` receipt, increment SKU stock, and sync daily ``import_full``."""
     if quantity < 1:
         raise ValueError("quantity must be at least 1")
     p = db.get(Product, product_id)
@@ -56,4 +88,6 @@ def apply_inbound_receipt(
     )
     db.add(row)
     p.stock_quantity += quantity
+    db.flush()
+    sync_audit_import_full(db, receipt_date, created_by_user_id=created_by_user_id)
     return row

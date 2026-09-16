@@ -70,6 +70,8 @@ def _product_to_pull_dict(p: Product) -> dict[str, Any]:
         "name": p.name,
         "sku": p.sku,
         "sell_price": str(p.sell_price),
+        "wholesale_price": str(p.wholesale_price),
+        "restaurant_price": str(p.restaurant_price),
         "stock_quantity": p.stock_quantity,
         "is_active": p.is_active,
         "updated_at": (p.created_at or utc_now()).isoformat(),

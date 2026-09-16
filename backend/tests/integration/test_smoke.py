@@ -6,10 +6,12 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from uuid import uuid4
 
+from app.api.routes import reconcile_all_orders_debt_from_headers
 from app.database import SessionLocal
 from app.main import app
-from app.models import User, UserRole
+from app.models import DebtLedgerEntry, SalesOrder, User, UserRole
 from app.services.auth import hash_password
+from app.timezone import business_date_now
 
 
 def _login_admin(client: TestClient) -> None:
@@ -94,7 +96,7 @@ def test_order_requires_phone_and_debt_flow():
         pid = _create_test_product(client, "Debt Flow")
         missing_phone = client.post(
             "/api/orders",
-            json={"customer_name": "No Phone", "vat_rate": 0, "lines": [{"product_id": pid, "quantity": 1}]},
+            json={"customer_name": "No Phone", "vat_rate": 0, "customer_segment": "retail", "lines": [{"product_id": pid, "quantity": 1}]},
         )
         assert missing_phone.status_code == 422
 
@@ -103,27 +105,31 @@ def test_order_requires_phone_and_debt_flow():
             json={
                 "customer_name": "Debt Customer",
                 "phone": "0909777000",
-                "vat_rate": 0,
+                "vat_rate": 0, "customer_segment": "retail",
                 "payment_mode": "debt",
                 "lines": [{"product_id": pid, "quantity": 1}],
             },
         )
         assert created.status_code == 200
+        oid = created.json()["id"]
         assert float(created.json()["outstanding_amount"]) > 0
-        accounts = client.get("/api/debt-accounts", params={"status": "all"})
-        assert accounts.status_code == 200
-        account = next((a for a in accounts.json() if a["phone"] == "0909777000"), None)
-        assert account is not None
-        aid = account["id"]
 
-        payment = client.post("/api/debt-payments", json={"debt_account_id": aid, "amount": 10000, "payment_method": "cash"})
+        payment = client.post(
+            "/api/debt-payments",
+            json={"sales_order_id": oid, "amount": 10000, "payment_method": "cash"},
+        )
         assert payment.status_code == 200
         write_off = client.post(
             "/api/debt-write-offs",
-            json={"debt_account_id": aid, "amount": 5000, "reason": "Khách hỗ trợ", "approved_by_user_id": admin_id},
+            json={
+                "sales_order_id": oid,
+                "amount": 5000,
+                "reason": "Khách hỗ trợ",
+                "approved_by_user_id": admin_id,
+            },
         )
         assert write_off.status_code == 200
-        detail = client.get(f"/api/debt-accounts/{aid}")
+        detail = client.get(f"/api/debt-orders/{oid}")
         assert detail.status_code == 200
         assert len(detail.json().get("ledger", [])) >= 3
         aging = client.get("/api/debt-aging")
@@ -149,11 +155,57 @@ def test_dashboard_summary_endpoint():
         assert r.status_code == 200
         data = r.json()
         assert data["range"] == "7d"
-        assert "revenue" in data and "outstanding" in data and "profit" in data
+        assert "revenue" in data and "outstanding" in data and "profit" in data and "unit_quantity" in data
         assert isinstance(data["series"], list)
+        assert isinstance(data.get("customer_segments"), list)
+        assert {row["segment"] for row in data["customer_segments"]} == {
+            "wholesale",
+            "restaurant",
+            "retail",
+            "unspecified",
+        }
         if data["series"]:
             row = data["series"][0]
-            assert {"date", "revenue", "outstanding", "profit", "order_count"} <= set(row.keys())
+            assert {"date", "revenue", "outstanding", "profit", "order_count", "unit_quantity"} <= set(row.keys())
+
+
+def test_dashboard_backfill_buckets_by_delivery_date():
+    """Backfill orders count on delivery_date, not on created_at day."""
+    with TestClient(app) as client:
+        _login_admin(client)
+        pid = _create_test_product(client, "Backfill Metric Date")
+        today = business_date_now()
+        backfill_day = today - timedelta(days=1)
+        phone = f"090{int(uuid4().hex[:7], 16) % 10_000_000:07d}"
+        created = client.post(
+            "/api/orders",
+            json={
+                "customer_name": "Backfill Customer",
+                "phone": phone,
+                "delivery_date": backfill_day.isoformat(),
+                "vat_rate": 0, "customer_segment": "retail",
+                "lines": [{"product_id": pid, "quantity": 1}],
+            },
+        )
+        assert created.status_code == 200
+        order_total = float(created.json()["total"])
+
+        summary = client.get("/api/dashboard/summary", params={"range": "7d"})
+        assert summary.status_code == 200
+        series = {row["date"]: row for row in summary.json()["series"]}
+        backfill_row = series.get(backfill_day.isoformat())
+        assert backfill_row is not None
+        assert int(backfill_row["order_count"]) >= 1
+        assert float(backfill_row["revenue"]) >= order_total
+
+        bundle = client.get("/api/dashboard")
+        assert bundle.status_code == 200
+        bundle_row = next(
+            (o for o in bundle.json()["orders"] if o.get("delivery_date") == backfill_day.isoformat()),
+            None,
+        )
+        assert bundle_row is not None
+        assert bundle_row.get("delivery_date") == backfill_day.isoformat()
 
 
 def test_partial_payment_keeps_outstanding_and_ledger():
@@ -167,7 +219,7 @@ def test_partial_payment_keeps_outstanding_and_ledger():
             json={
                 "customer_name": "Partial Customer",
                 "phone": phone,
-                "vat_rate": 0,
+                "vat_rate": 0, "customer_segment": "retail",
                 "payment_mode": "partial",
                 "paid_amount": 40000,
                 "lines": [{"product_id": pid, "quantity": 1}],
@@ -198,7 +250,7 @@ def test_delete_older_debt_order_preserves_newer_outstanding():
             json={
                 "customer_name": "Debt Same Phone Old",
                 "phone": phone,
-                "vat_rate": 0,
+                "vat_rate": 0, "customer_segment": "retail",
                 "payment_mode": "debt",
                 "lines": [{"product_id": pid, "quantity": 1}],
             },
@@ -212,7 +264,7 @@ def test_delete_older_debt_order_preserves_newer_outstanding():
             json={
                 "customer_name": "Debt Same Phone New",
                 "phone": phone,
-                "vat_rate": 0,
+                "vat_rate": 0, "customer_segment": "retail",
                 "payment_mode": "debt",
                 "lines": [{"product_id": pid, "quantity": 1}],
             },
@@ -230,6 +282,82 @@ def test_delete_older_debt_order_preserves_newer_outstanding():
         assert float(second_after.json()["outstanding_amount"]) == second_outstanding_before
 
 
+def test_debt_payment_isolated_per_order():
+    """Collecting debt on one order must not reduce outstanding on another order with same phone."""
+    with TestClient(app) as client:
+        _login_admin(client)
+        pid = _create_test_product(client, "Isolated Debt Payment")
+        phone = f"090{int(uuid4().hex[:7], 16) % 10_000_000:07d}"
+        first = client.post(
+            "/api/orders",
+            json={
+                "customer_name": "Same Phone A",
+                "phone": phone,
+                "vat_rate": 0, "customer_segment": "retail",
+                "payment_mode": "debt",
+                "lines": [{"product_id": pid, "quantity": 1}],
+            },
+        )
+        assert first.status_code == 200
+        first_id = first.json()["id"]
+        first_outstanding = float(first.json()["outstanding_amount"])
+
+        second = client.post(
+            "/api/orders",
+            json={
+                "customer_name": "Same Phone B",
+                "phone": phone,
+                "vat_rate": 0, "customer_segment": "retail",
+                "payment_mode": "debt",
+                "lines": [{"product_id": pid, "quantity": 1}],
+            },
+        )
+        assert second.status_code == 200
+        second_id = second.json()["id"]
+        second_outstanding = float(second.json()["outstanding_amount"])
+        assert second_outstanding > 0
+
+        pay = client.post(
+            "/api/debt-payments",
+            json={"sales_order_id": first_id, "amount": 10000, "payment_method": "cash"},
+        )
+        assert pay.status_code == 200
+
+        first_after = client.get(f"/api/orders/{first_id}")
+        second_after = client.get(f"/api/orders/{second_id}")
+        assert float(first_after.json()["outstanding_amount"]) == first_outstanding - 10000
+        assert float(second_after.json()["outstanding_amount"]) == second_outstanding
+
+
+def test_debt_orders_month_filter_by_delivery_date():
+    """Debt order list month filter uses delivery_date, not created_at."""
+    with TestClient(app) as client:
+        _login_admin(client)
+        pid = _create_test_product(client, "Debt Month Filter")
+        phone = f"090{int(uuid4().hex[:7], 16) % 10_000_000:07d}"
+        created = client.post(
+            "/api/orders",
+            json={
+                "customer_name": "Debt Month Customer",
+                "phone": phone,
+                "delivery_date": "2026-05-15",
+                "vat_rate": 0, "customer_segment": "retail",
+                "payment_mode": "debt",
+                "lines": [{"product_id": pid, "quantity": 1}],
+            },
+        )
+        assert created.status_code == 200
+        oid = created.json()["id"]
+
+        may_rows = client.get("/api/debt-orders", params={"status": "all", "month": "2026-05"})
+        assert may_rows.status_code == 200
+        assert any(row["id"] == oid for row in may_rows.json())
+
+        june_rows = client.get("/api/debt-orders", params={"status": "all", "month": "2026-06"})
+        assert june_rows.status_code == 200
+        assert not any(row["id"] == oid for row in june_rows.json())
+
+
 def test_cash_order_patch_to_debt_syncs_debt_ledger():
     """PATCH cash order to debt must create ledger entry and matching account balance."""
     with TestClient(app) as client:
@@ -241,7 +369,7 @@ def test_cash_order_patch_to_debt_syncs_debt_ledger():
             json={
                 "customer_name": "Cash Then Debt",
                 "phone": phone,
-                "vat_rate": 0,
+                "vat_rate": 0, "customer_segment": "retail",
                 "payment_mode": "cash",
                 "lines": [{"product_id": pid, "quantity": 1}],
             },
@@ -256,7 +384,7 @@ def test_cash_order_patch_to_debt_syncs_debt_ledger():
             json={
                 "customer_name": "Cash Then Debt",
                 "phone": phone,
-                "vat_rate": 0,
+                "vat_rate": 0, "customer_segment": "retail",
                 "payment_mode": "debt",
                 "lines": [{"product_id": pid, "quantity": 1}],
             },
@@ -269,6 +397,293 @@ def test_cash_order_patch_to_debt_syncs_debt_ledger():
         account = next((a for a in accounts.json() if a["phone"] == phone), None)
         assert account is not None
         assert float(account["current_balance"]) == total
+
+
+def test_debt_order_patch_to_cash_zeros_outstanding():
+    """PATCH debt order to cash must zero outstanding and debt account balance."""
+    with TestClient(app) as client:
+        _login_admin(client)
+        pid = _create_test_product(client, "Debt To Cash")
+        phone = f"090{int(uuid4().hex[:7], 16) % 10_000_000:07d}"
+        created = client.post(
+            "/api/orders",
+            json={
+                "customer_name": "Debt Then Cash",
+                "phone": phone,
+                "vat_rate": 0, "customer_segment": "retail",
+                "payment_mode": "debt",
+                "lines": [{"product_id": pid, "quantity": 1}],
+            },
+        )
+        assert created.status_code == 200
+        oid = created.json()["id"]
+        total = float(created.json()["total"])
+        assert float(created.json()["outstanding_amount"]) == total
+
+        patched = client.patch(
+            f"/api/orders/{oid}",
+            json={
+                "customer_name": "Debt Then Cash",
+                "phone": phone,
+                "vat_rate": 0, "customer_segment": "retail",
+                "payment_mode": "cash",
+                "lines": [{"product_id": pid, "quantity": 1}],
+            },
+        )
+        assert patched.status_code == 200
+        assert float(patched.json()["outstanding_amount"]) == 0
+
+        accounts = client.get("/api/debt-accounts", params={"status": "all"})
+        assert accounts.status_code == 200
+        account = next((a for a in accounts.json() if a["phone"] == phone), None)
+        assert account is not None
+        assert float(account["current_balance"]) == 0
+
+
+def test_partial_patch_with_older_debt_keeps_per_order_outstanding():
+    """Order-linked ledger adjustments must not steal FIFO credits from older orders."""
+    with TestClient(app) as client:
+        _login_admin(client)
+        pid = _create_test_product(client, "Partial FIFO")
+        phone = f"090{int(uuid4().hex[:7], 16) % 10_000_000:07d}"
+        first = client.post(
+            "/api/orders",
+            json={
+                "customer_name": "Partial FIFO",
+                "phone": phone,
+                "vat_rate": 0, "customer_segment": "retail",
+                "payment_mode": "debt",
+                "lines": [{"product_id": pid, "quantity": 1}],
+            },
+        )
+        assert first.status_code == 200
+        first_id = first.json()["id"]
+        first_total = float(first.json()["total"])
+
+        second = client.post(
+            "/api/orders",
+            json={
+                "customer_name": "Partial FIFO",
+                "phone": phone,
+                "vat_rate": 0, "customer_segment": "retail",
+                "payment_mode": "debt",
+                "lines": [{"product_id": pid, "quantity": 1}],
+            },
+        )
+        assert second.status_code == 200
+        second_id = second.json()["id"]
+        second_total = float(second.json()["total"])
+
+        paid_now = second_total - 20000
+        patched = client.patch(
+            f"/api/orders/{second_id}",
+            json={
+                "customer_name": "Partial FIFO",
+                "phone": phone,
+                "vat_rate": 0, "customer_segment": "retail",
+                "payment_mode": "partial",
+                "paid_amount": paid_now,
+                "lines": [{"product_id": pid, "quantity": 1}],
+            },
+        )
+        assert patched.status_code == 200
+        assert float(patched.json()["outstanding_amount"]) == 20000
+
+        first_after = client.get(f"/api/orders/{first_id}")
+        second_after = client.get(f"/api/orders/{second_id}")
+        assert first_after.status_code == 200
+        assert second_after.status_code == 200
+        assert float(first_after.json()["outstanding_amount"]) == first_total
+        assert float(second_after.json()["outstanding_amount"]) == 20000
+
+        accounts = client.get("/api/debt-accounts", params={"status": "all"})
+        account = next((a for a in accounts.json() if a["phone"] == phone), None)
+        assert account is not None
+        assert float(account["current_balance"]) == first_total + 20000
+
+
+def test_partial_repatch_does_not_duplicate_ledger():
+    """Saving the same partial payment twice must not inflate debt ledger."""
+    with TestClient(app) as client:
+        _login_admin(client)
+        pid = _create_test_product(client, "Partial Repatch")
+        phone = f"090{int(uuid4().hex[:7], 16) % 10_000_000:07d}"
+        created = client.post(
+            "/api/orders",
+            json={
+                "customer_name": "Partial Repatch",
+                "phone": phone,
+                "vat_rate": 0, "customer_segment": "retail",
+                "payment_mode": "debt",
+                "lines": [{"product_id": pid, "quantity": 1}],
+            },
+        )
+        assert created.status_code == 200
+        oid = created.json()["id"]
+        total = float(created.json()["total"])
+        paid_now = total - 20000
+        payload = {
+            "customer_name": "Partial Repatch",
+            "phone": phone,
+            "vat_rate": 0, "customer_segment": "retail",
+            "payment_mode": "partial",
+            "paid_amount": paid_now,
+            "lines": [{"product_id": pid, "quantity": 1}],
+        }
+        first_patch = client.patch(f"/api/orders/{oid}", json=payload)
+        assert first_patch.status_code == 200
+        assert float(first_patch.json()["outstanding_amount"]) == 20000
+
+        second_patch = client.patch(f"/api/orders/{oid}", json=payload)
+        assert second_patch.status_code == 200
+        assert float(second_patch.json()["outstanding_amount"]) == 20000
+
+        accounts = client.get("/api/debt-accounts", params={"status": "all"})
+        account = next((a for a in accounts.json() if a["phone"] == phone), None)
+        assert account is not None
+        assert float(account["current_balance"]) == 20000
+
+
+def test_startup_reconcile_does_not_append_ledger_from_stale_header():
+    """Startup reconcile must not derive new ledger rows from mutable order headers."""
+    with TestClient(app) as client:
+        _login_admin(client)
+        pid = _create_test_product(client, "Reconcile Partial")
+        phone = f"090{int(uuid4().hex[:7], 16) % 10_000_000:07d}"
+        created = client.post(
+            "/api/orders",
+            json={
+                "customer_name": "Reconcile Partial",
+                "phone": phone,
+                "vat_rate": 0, "customer_segment": "retail",
+                "payment_mode": "debt",
+                "lines": [{"product_id": pid, "quantity": 1}],
+            },
+        )
+        assert created.status_code == 200
+        oid = created.json()["id"]
+        total = float(created.json()["total"])
+        paid_now = total - 20000
+        patched = client.patch(
+            f"/api/orders/{oid}",
+            json={
+                "customer_name": "Reconcile Partial",
+                "phone": phone,
+                "vat_rate": 0, "customer_segment": "retail",
+                "payment_mode": "partial",
+                "paid_amount": paid_now,
+                "lines": [{"product_id": pid, "quantity": 1}],
+            },
+        )
+        assert patched.status_code == 200
+
+        with SessionLocal() as db:
+            rows_before = db.scalars(
+                select(DebtLedgerEntry).where(
+                    DebtLedgerEntry.reference_type == "sales_order",
+                    DebtLedgerEntry.reference_id == str(oid),
+                )
+            ).all()
+            order = db.get(SalesOrder, oid)
+            order.paid_amount = total
+            order.outstanding_amount = 0
+            db.commit()
+            row_count_before = len(rows_before)
+
+        with SessionLocal() as db:
+            reconcile_all_orders_debt_from_headers(db)
+
+        with SessionLocal() as db:
+            rows_after = db.scalars(
+                select(DebtLedgerEntry).where(
+                    DebtLedgerEntry.reference_type == "sales_order",
+                    DebtLedgerEntry.reference_id == str(oid),
+                )
+            ).all()
+            assert len(rows_after) == row_count_before
+
+        accounts = client.get("/api/debt-accounts", params={"status": "all"})
+        account = next((a for a in accounts.json() if a["phone"] == phone), None)
+        assert account is not None
+        assert float(account["current_balance"]) == 20000
+
+        order_after = client.get(f"/api/orders/{oid}")
+        assert order_after.status_code == 200
+        assert float(order_after.json()["outstanding_amount"]) == 20000
+
+
+def test_debt_payment_does_not_rewrite_order_paid_amount():
+    """Debt collection changes remaining debt, not the sale-time paid_amount header."""
+    with TestClient(app) as client:
+        _login_admin(client)
+        pid = _create_test_product(client, "Debt Payment Header")
+        phone = f"090{int(uuid4().hex[:7], 16) % 10_000_000:07d}"
+        created = client.post(
+            "/api/orders",
+            json={
+                "customer_name": "Debt Payment Header",
+                "phone": phone,
+                "vat_rate": 0, "customer_segment": "retail",
+                "payment_mode": "debt",
+                "lines": [{"product_id": pid, "quantity": 1}],
+            },
+        )
+        assert created.status_code == 200
+        oid = created.json()["id"]
+        total = float(created.json()["total"])
+
+        payment = client.post(
+            "/api/debt-payments",
+            json={
+                "sales_order_id": oid,
+                "amount": 20000,
+                "payment_method": "cash",
+            },
+        )
+        assert payment.status_code == 200
+
+        order_after = client.get(f"/api/orders/{oid}")
+        assert order_after.status_code == 200
+        assert float(order_after.json()["paid_amount"]) == 0
+        assert float(order_after.json()["outstanding_amount"]) == total - 20000
+
+
+def test_dashboard_summary_outstanding_zero_after_cash_patch():
+    """Dashboard summary outstanding must be zero after debt order is patched to cash."""
+    with TestClient(app) as client:
+        _login_admin(client)
+        pid = _create_test_product(client, "Dash Debt Cash")
+        phone = f"090{int(uuid4().hex[:7], 16) % 10_000_000:07d}"
+        created = client.post(
+            "/api/orders",
+            json={
+                "customer_name": "Dash Debt Cash",
+                "phone": phone,
+                "vat_rate": 0, "customer_segment": "retail",
+                "payment_mode": "debt",
+                "lines": [{"product_id": pid, "quantity": 1}],
+            },
+        )
+        assert created.status_code == 200
+        oid = created.json()["id"]
+        assert float(created.json()["outstanding_amount"]) > 0
+
+        patched = client.patch(
+            f"/api/orders/{oid}",
+            json={
+                "customer_name": "Dash Debt Cash",
+                "phone": phone,
+                "vat_rate": 0, "customer_segment": "retail",
+                "payment_mode": "cash",
+                "lines": [{"product_id": pid, "quantity": 1}],
+            },
+        )
+        assert patched.status_code == 200
+        assert float(patched.json()["outstanding_amount"]) == 0
+
+        summary = client.get("/api/dashboard/summary", params={"range": "today"})
+        assert summary.status_code == 200
+        assert float(summary.json()["outstanding"]) == 0
 
 
 def test_gas_ledger():
@@ -303,7 +718,7 @@ def test_gas_ledger_skips_incomplete_rows_and_flags_orders():
             json={
                 "customer_name": "Khach Thieu",
                 "phone": "0909000001",
-                "vat_rate": 0,
+                "vat_rate": 0, "customer_segment": "retail",
                 "lines": [{"product_id": pid, "quantity": 1}],
             },
         )
@@ -321,7 +736,7 @@ def test_gas_ledger_skips_incomplete_rows_and_flags_orders():
                 "phone": "0909123456",
                 "address": "12 Duong Test",
                 "delivery_date": "2026-04-20",
-                "vat_rate": 0,
+                "vat_rate": 0, "customer_segment": "retail",
                 "lines": [
                     {
                         "product_id": pid,
@@ -349,7 +764,7 @@ def test_gas_ledger_skips_incomplete_rows_and_flags_orders():
                 "phone": "0909888777",
                 "address": "88 Duong Test",
                 "delivery_date": "2026-04-21",
-                "vat_rate": 0,
+                "vat_rate": 0, "customer_segment": "retail",
                 "lines": [
                     {
                         "product_id": pid,
@@ -515,7 +930,7 @@ def test_admin_can_update_and_delete_order():
             json={
                 "customer_name": "Edit Me",
                 "phone": "0909000003",
-                "vat_rate": 10,
+                "vat_rate": 10, "customer_segment": "retail",
                 "lines": [{"product_id": pid, "quantity": 1}],
             },
         )
@@ -526,7 +941,7 @@ def test_admin_can_update_and_delete_order():
             json={
                 "customer_name": "Edited Name",
                 "phone": "0909000003",
-                "vat_rate": 8,
+                "vat_rate": 8, "customer_segment": "retail",
                 "lines": [{"product_id": pid, "quantity": 1}],
             },
         )
@@ -545,14 +960,15 @@ def test_soft_deleted_order_excluded_from_dashboard_and_gas_ledger():
         customer_marker = f"Khach Xoa Dashboard {uuid4().hex[:8]}"
         dash_count_before = len(client.get("/api/dashboard").json()["orders"])
 
+        in_window_day = (business_date_now() - timedelta(days=1)).isoformat()
         created = client.post(
             "/api/orders",
             json={
                 "customer_name": customer_marker,
                 "phone": f"090{int(uuid4().hex[:7], 16) % 10_000_000:07d}",
                 "address": "99 Duong Test",
-                "delivery_date": "2026-05-01",
-                "vat_rate": 0,
+                "delivery_date": in_window_day,
+                "vat_rate": 0, "customer_segment": "retail",
                 "lines": [
                     {
                         "product_id": pid,
@@ -604,7 +1020,7 @@ def test_staff_cannot_create_orders_sees_assigned():
             json={
                 "customer_name": "Khach le",
                 "phone": "0909000004",
-                "vat_rate": 10,
+                "vat_rate": 10, "customer_segment": "retail",
                 "lines": [{"product_id": pid, "quantity": 1}],
             },
         )
@@ -617,7 +1033,7 @@ def test_staff_cannot_create_orders_sees_assigned():
                 json={
                     "customer_name": "Khach gan NV",
                     "phone": "0909000005",
-                    "vat_rate": 10,
+                    "vat_rate": 10, "customer_segment": "retail",
                     "assigned_to_user_id": staff_id,
                     "lines": [{"product_id": pid, "quantity": 1}],
                 },
@@ -646,7 +1062,7 @@ def test_staff_cannot_create_orders_sees_assigned():
         assert (
             staff_client.patch(
                 f"/api/orders/{oid}",
-                json={"customer_name": "x", "phone": "0909000005", "vat_rate": 10, "lines": [{"product_id": pid, "quantity": 1}]},
+                json={"customer_name": "x", "phone": "0909000005", "vat_rate": 10, "customer_segment": "retail", "lines": [{"product_id": pid, "quantity": 1}]},
             ).status_code
             == 403
         )
@@ -733,12 +1149,14 @@ def test_backend_governance_endpoints_smoke():
 
 
 def test_staff_cannot_read_debt_accounts_but_can_patch_map_location():
-    """Staff must not list debt accounts; map self-service remains allowed."""
+    """Staff must not list debt accounts/orders; map self-service remains allowed."""
     with TestClient(app) as client:
         assert client.post("/api/auth/login", json={"username": "staff", "password": "staff123"}).status_code == 200
         listed = client.get("/api/debt-accounts", params={"status": "all"})
         assert listed.status_code == 403
-        pay = client.post("/api/debt-payments", json={"debt_account_id": 1, "amount": 1, "payment_method": "cash"})
+        listed_orders = client.get("/api/debt-orders", params={"status": "all"})
+        assert listed_orders.status_code == 403
+        pay = client.post("/api/debt-payments", json={"sales_order_id": 1, "amount": 1, "payment_method": "cash"})
         assert pay.status_code == 403
 
         patch = client.patch("/api/auth/me/map-location", json={"lat": 10.762622, "lng": 106.660172})
@@ -793,7 +1211,7 @@ def test_daily_cylinder_audit_math_and_debt_shell_return():
                 "customer_name": "Audit Shell Customer",
                 "phone": "0912333444",
                 "address": addr,
-                "vat_rate": 0,
+                "vat_rate": 0, "customer_segment": "retail",
                 "payment_mode": "cash",
                 "delivery_date": audit_day,
                 "delivery_status": "completed",
@@ -803,20 +1221,29 @@ def test_daily_cylinder_audit_math_and_debt_shell_return():
         )
         assert o.status_code == 200
 
+        inbound = client.post(
+            f"/api/products/{pid}/stock-receipts",
+            json={"receipt_date": audit_day, "quantity": 1, "note": "ncc"},
+        )
+        assert inbound.status_code == 200
+
         put = client.put(
             f"/api/operations/daily-cylinder-audit/{audit_day}",
             json={
                 "morning_full": 10,
                 "morning_shell": 5,
-                "import_full": 1,
+                "import_full": 99,
                 "supplier_shell_units": 1,
                 "evening_full": 9,
                 "evening_shell": 7,
             },
         )
         assert put.status_code == 200
+        assert put.json()["record"]["import_full"] == 1
         c = put.json()["computed"]
         assert c["delivered_full"] == 2
+        assert c["warehouse_import_full"] == 1
+        assert c["sold_units_total"] == 2
         assert c["borrowed_shell_total"] == 1
         assert c["returned_shells_debt"] == 0
         assert c["expected_evening_full"] == 9
@@ -831,20 +1258,17 @@ def test_daily_cylinder_audit_math_and_debt_shell_return():
                 "customer_name": "Shell Return Debt",
                 "phone": "0912555666",
                 "address": addr,
-                "vat_rate": 0,
+                "vat_rate": 0, "customer_segment": "retail",
                 "payment_mode": "debt",
                 "lines": [{"product_id": pid2, "quantity": 1}],
             },
         )
         assert dord.status_code == 200
-        accounts = client.get("/api/debt-accounts", params={"status": "all"})
-        assert accounts.status_code == 200
-        acc = next((a for a in accounts.json() if a.get("phone") == "0912555666"), None)
-        assert acc is not None
+        debt_oid = dord.json()["id"]
         pay = client.post(
             "/api/debt-payments",
             json={
-                "debt_account_id": acc["id"],
+                "sales_order_id": debt_oid,
                 "amount": 50000,
                 "payment_method": "cash",
                 "paid_at": paid_at,
@@ -872,7 +1296,7 @@ def test_shell_debt_ledger_list_and_csv():
                 "customer_name": "Shell Debt Customer",
                 "phone": "0900111222",
                 "address": "99 Shell Street",
-                "vat_rate": 0,
+                "vat_rate": 0, "customer_segment": "retail",
                 "payment_mode": "cash",
                 "borrowed_shell_units": 2,
                 "lines": [{"product_id": pid, "quantity": 1}],
@@ -889,3 +1313,239 @@ def test_shell_debt_ledger_list_and_csv():
         assert csv_r.status_code == 200
         assert "Số vỏ mượn" in csv_r.text
         assert "Shell Debt Customer" in csv_r.text
+
+
+def test_customer_segment_required_on_create_and_persisted():
+    """POST requires a valid segment; invalid values are rejected; valid values persist."""
+    with TestClient(app) as client:
+        token = client.post("/api/auth/mobile/login", json={"username": "admin", "password": "admin123"})
+        assert token.status_code == 200
+        headers = {"Authorization": f"Bearer {token.json()['access_token']}"}
+        pid = client.post(
+            "/api/products",
+            json={
+                "name": "Segment Create",
+                "sku": f"SKU-{uuid4().hex[:10]}",
+                "cost_price": 100000,
+                "sell_price": 120000,
+                "stock_quantity": 999,
+                "low_stock_threshold": 5,
+            },
+            headers=headers,
+        ).json()["id"]
+        missing = client.post(
+            "/api/orders",
+            json={
+                "customer_name": "No Segment",
+                "phone": "0909333001",
+                "vat_rate": 0,
+                "lines": [{"product_id": pid, "quantity": 1}],
+            },
+            headers=headers,
+        )
+        assert missing.status_code == 422
+
+        invalid = client.post(
+            "/api/orders",
+            json={
+                "customer_name": "Bad Segment",
+                "phone": "0909333002",
+                "vat_rate": 0,
+                "customer_segment": "vip",
+                "lines": [{"product_id": pid, "quantity": 1}],
+            },
+            headers=headers,
+        )
+        assert invalid.status_code == 422
+
+        created = client.post(
+            "/api/orders",
+            json={
+                "customer_name": "Wholesale Dealer",
+                "phone": "0909333003",
+                "vat_rate": 0,
+                "customer_segment": "wholesale",
+                "lines": [{"product_id": pid, "quantity": 1}],
+            },
+            headers=headers,
+        )
+        assert created.status_code == 200
+        assert created.json()["customer_segment"] == "wholesale"
+
+
+def test_customer_segment_patch_omit_keeps_legacy_null():
+    """PATCH without customer_segment leaves a legacy null value unchanged."""
+    with TestClient(app) as client:
+        token = client.post("/api/auth/mobile/login", json={"username": "admin", "password": "admin123"})
+        assert token.status_code == 200
+        headers = {"Authorization": f"Bearer {token.json()['access_token']}"}
+        pid = client.post(
+            "/api/products",
+            json={
+                "name": "Segment Legacy",
+                "sku": f"SKU-{uuid4().hex[:10]}",
+                "cost_price": 100000,
+                "sell_price": 120000,
+                "stock_quantity": 999,
+                "low_stock_threshold": 5,
+            },
+            headers=headers,
+        ).json()["id"]
+        created = client.post(
+            "/api/orders",
+            json={
+                "customer_name": "Legacy Segment",
+                "phone": "0909333004",
+                "vat_rate": 0,
+                "customer_segment": "retail",
+                "lines": [{"product_id": pid, "quantity": 1}],
+            },
+            headers=headers,
+        )
+        assert created.status_code == 200
+        oid = created.json()["id"]
+        with SessionLocal() as db:
+            row = db.get(SalesOrder, oid)
+            assert row is not None
+            row.customer_segment = None
+            db.commit()
+
+        patched = client.patch(
+            f"/api/orders/{oid}",
+            json={
+                "customer_name": "Legacy Segment",
+                "phone": "0909333004",
+                "vat_rate": 0,
+                "note": "keep segment",
+                "lines": [{"product_id": pid, "quantity": 1}],
+            },
+            headers=headers,
+        )
+        assert patched.status_code == 200
+        assert patched.json()["customer_segment"] is None
+
+
+def test_dashboard_summary_customer_segment_buckets():
+    """Dashboard summary counts tagged orders into the matching segment bucket."""
+    with TestClient(app) as client:
+        token = client.post("/api/auth/mobile/login", json={"username": "admin", "password": "admin123"})
+        assert token.status_code == 200
+        headers = {"Authorization": f"Bearer {token.json()['access_token']}"}
+        pid = client.post(
+            "/api/products",
+            json={
+                "name": "Segment Dash",
+                "sku": f"SKU-{uuid4().hex[:10]}",
+                "cost_price": 100000,
+                "sell_price": 120000,
+                "stock_quantity": 999,
+                "low_stock_threshold": 5,
+            },
+            headers=headers,
+        ).json()["id"]
+        wholesale = client.post(
+            "/api/orders",
+            json={
+                "customer_name": "DL Si",
+                "phone": "0909333005",
+                "vat_rate": 0,
+                "customer_segment": "wholesale",
+                "lines": [{"product_id": pid, "quantity": 2}],
+            },
+            headers=headers,
+        )
+        restaurant = client.post(
+            "/api/orders",
+            json={
+                "customer_name": "Quan An",
+                "phone": "0909333006",
+                "vat_rate": 0,
+                "customer_segment": "restaurant",
+                "lines": [{"product_id": pid, "quantity": 1}],
+            },
+            headers=headers,
+        )
+        assert wholesale.status_code == 200
+        assert restaurant.status_code == 200
+        summary = client.get("/api/dashboard/summary", params={"range": "today"}, headers=headers)
+        assert summary.status_code == 200
+        by_seg = {row["segment"]: row for row in summary.json()["customer_segments"]}
+        assert by_seg["wholesale"]["order_count"] >= 1
+        assert by_seg["restaurant"]["order_count"] >= 1
+        assert float(by_seg["wholesale"]["revenue"]) >= float(wholesale.json()["total"])
+        bundle = client.get("/api/dashboard", headers=headers)
+        assert bundle.status_code == 200
+        segs = {o.get("customer_segment") for o in bundle.json()["orders"]}
+        assert "wholesale" in segs
+        assert "restaurant" in segs
+
+
+def test_product_segment_prices_used_on_order():
+    """Wholesale and restaurant list prices apply on create; retail uses sell_price."""
+    with TestClient(app) as client:
+        _login_admin(client)
+        created = client.post(
+            "/api/products",
+            json={
+                "name": "Tier Price Gas",
+                "sku": f"SKU-{uuid4().hex[:10]}",
+                "cost_price": 100000,
+                "sell_price": 120000,
+                "wholesale_price": 110000,
+                "restaurant_price": 115000,
+                "stock_quantity": 50,
+                "low_stock_threshold": 5,
+            },
+        )
+        assert created.status_code == 200
+        body = created.json()
+        assert float(body["wholesale_price"]) == 110000
+        pid = body["id"]
+        wholesale = client.post(
+            "/api/orders",
+            json={
+                "customer_name": "Si Price",
+                "phone": "0909444101",
+                "vat_rate": 0,
+                "customer_segment": "wholesale",
+                "lines": [{"product_id": pid, "quantity": 1}],
+            },
+        )
+        assert wholesale.status_code == 200
+        assert float(wholesale.json()["order_items"][0]["unit_price"]) == 110000
+        retail = client.post(
+            "/api/orders",
+            json={
+                "customer_name": "Le Price",
+                "phone": "0909444102",
+                "vat_rate": 0,
+                "customer_segment": "retail",
+                "lines": [{"product_id": pid, "quantity": 1}],
+            },
+        )
+        assert retail.status_code == 200
+        assert float(retail.json()["order_items"][0]["unit_price"]) == 120000
+
+
+def test_stock_receipt_syncs_daily_import_full():
+    """Inbound warehouse receipt is the source of daily audit import_full."""
+    with TestClient(app) as client:
+        _login_admin(client)
+        day = (date(2121, 6, 1) + timedelta(days=int(uuid4().int % 2000))).isoformat()
+        pid = _create_test_product(client, "Inbound Sync SKU")
+        listed = client.get("/api/stock-receipts")
+        assert listed.status_code == 200
+        r = client.post(
+            f"/api/products/{pid}/stock-receipts",
+            json={"receipt_date": day, "quantity": 7, "note": "xe ncc"},
+        )
+        assert r.status_code == 200
+        assert r.json().get("product_name")
+        audit = client.get("/api/operations/daily-cylinder-audit", params={"audit_date": day})
+        assert audit.status_code == 200
+        assert audit.json()["computed"]["warehouse_import_full"] == 7
+        assert audit.json()["record"]["import_full"] == 7
+        day_list = client.get("/api/stock-receipts", params={"receipt_date": day})
+        assert day_list.status_code == 200
+        assert any(row["quantity"] == 7 and row["receipt_kind"] == "inbound" for row in day_list.json())
+

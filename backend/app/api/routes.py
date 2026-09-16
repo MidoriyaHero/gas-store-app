@@ -62,14 +62,19 @@ from app.schemas import (
     DailyCylinderAuditPayload,
     DailyCylinderAuditRecord,
     DailyCylinderAuditUpdate,
+    DailySegmentMixRow,
     DebtAccountDetailResponse,
     DebtAccountResponse,
     DebtAgingBucket,
     DebtLedgerEntryResponse,
+    DebtOrderDetailResponse,
+    DebtOrderRow,
     DebtPaymentIn,
     DebtPaymentUpdateIn,
     DebtWriteOffIn,
+    CustomerSegmentMetric,
     DashboardPayload,
+    DashboardPeriodTotals,
     DashboardSummaryResponse,
     DailyMetricRow,
     DeliveryDaySummaryResponse,
@@ -108,12 +113,19 @@ from app.schemas import (
 from app.services.auth import hash_password, normalize_role
 from app.services import sales
 from app.services.order_change_log import order_snapshot, record_order_change
-from app.timezone import to_business_date
-from app.services.stock_receipts import apply_inbound_receipt, record_opening_receipt
+from app.timezone import BUSINESS_TZ, business_date_now, to_business_date
+from app.services.stock_receipts import apply_inbound_receipt, inbound_units_on_date, record_opening_receipt, sync_audit_import_full
 from app.services.delivery_export import render_delivery_slip_html
 from app.services.gas_ledger_rules import order_line_eligible_for_gas_ledger
 from app.services.invoice_filename import content_disposition_filename, invoice_filename_stem
 from app.services.order_note_media import delete_voice_blob_if_any, public_audio_url
+from app.services.debt_orders import (
+    delivery_month_date_bounds,
+    ledger_net_for_order,
+    recompute_account_balance_from_orders,
+    recompute_all_order_outstanding,
+    recompute_single_order_outstanding,
+)
 from app.services.phone import normalize_phone
 from app.services.geocode import nominatim_reverse, nominatim_row_to_geocode_hit, nominatim_search
 from app.services.map_paste_resolve import (
@@ -129,6 +141,21 @@ router = APIRouter(dependencies=[Depends(get_current_user)])
 def _product_to_response(p: Product) -> ProductResponse:
     """Map ORM product to response model."""
     return ProductResponse.model_validate(p)
+
+
+def _stock_receipt_to_response(r: StockReceipt) -> StockReceiptResponse:
+    """Serialize a receipt including catalog name when the product is loaded."""
+    return StockReceiptResponse(
+        id=r.id,
+        product_id=r.product_id,
+        receipt_date=r.receipt_date,
+        quantity=r.quantity,
+        receipt_kind=r.receipt_kind,
+        note=r.note,
+        created_by_user_id=r.created_by_user_id,
+        created_at=r.created_at,
+        product_name=r.product.name if r.product is not None else None,
+    )
 
 
 def _strip_opt_text(value: str | None) -> str | None:
@@ -267,6 +294,38 @@ def _debt_account_to_response(row: DebtAccount) -> DebtAccountResponse:
     return DebtAccountResponse.model_validate(row)
 
 
+def _debt_account_to_response_with_balance(row: DebtAccount, balance: Decimal) -> DebtAccountResponse:
+    """Map a debt account using a computed historical balance."""
+    return DebtAccountResponse(
+        id=row.id,
+        customer_key=row.customer_key,
+        customer_name=row.customer_name,
+        phone=row.phone,
+        current_balance=balance,
+        status="closed" if balance <= 0 else "active",
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+def _month_bounds(month: str | None) -> tuple[datetime, datetime] | None:
+    """Parse ``YYYY-MM`` into UTC month bounds."""
+    if not month:
+        return None
+    try:
+        year_s, month_s = month.split("-", 1)
+        year = int(year_s)
+        month_num = int(month_s)
+        start = datetime(year, month_num, 1, tzinfo=UTC)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="month must use YYYY-MM") from exc
+    if month_num == 12:
+        end = datetime(year + 1, 1, 1, tzinfo=UTC)
+    else:
+        end = datetime(year, month_num + 1, 1, tzinfo=UTC)
+    return start, end
+
+
 def _debt_ledger_to_response(db: Session, row: DebtLedgerEntry) -> DebtLedgerEntryResponse:
     """Map debt ledger ORM row; attach ``returned_shell_units`` for payment-linked rows."""
     shells = 0
@@ -282,6 +341,7 @@ def _debt_ledger_to_response(db: Session, row: DebtLedgerEntry) -> DebtLedgerEnt
     return DebtLedgerEntryResponse(
         id=row.id,
         debt_account_id=row.debt_account_id,
+        sales_order_id=row.sales_order_id,
         entry_type=row.entry_type,
         amount_signed=row.amount_signed,
         note=row.note,
@@ -328,10 +388,12 @@ def _append_debt_entry(
     note: str | None = None,
     reference_type: str | None = None,
     reference_id: str | None = None,
+    sales_order_id: int | None = None,
 ) -> DebtLedgerEntry:
     """Insert one debt ledger row."""
     row = DebtLedgerEntry(
         debt_account_id=account_id,
+        sales_order_id=sales_order_id,
         entry_type=entry_type,
         amount_signed=amount_signed,
         note=_strip_opt_text(note),
@@ -344,26 +406,10 @@ def _append_debt_entry(
     return row
 
 
-def _allocate_credit_to_orders(db: Session, *, phone: str, credit_amount: Decimal) -> None:
-    """Reduce outstanding amount from oldest debt orders for one customer key."""
-    remaining = Decimal(str(credit_amount))
-    if remaining <= 0:
-        return
-    rows = db.scalars(
-        select(SalesOrder)
-        .where(sales.active_order_clause(SalesOrder.phone == phone, SalesOrder.outstanding_amount > 0))
-        .order_by(SalesOrder.created_at.asc())
-    ).all()
-    for order in rows:
-        if remaining <= 0:
-            break
-        outstanding = Decimal(str(order.outstanding_amount))
-        if outstanding <= 0:
-            continue
-        used = min(outstanding, remaining)
-        order.outstanding_amount = outstanding - used
-        order.paid_amount = Decimal(str(order.total)) - Decimal(str(order.outstanding_amount))
-        remaining -= used
+def _ledger_net_debt_for_order(db: Session, order_id: int, *, account_id: int | None = None) -> Decimal:
+    """Net ledger balance for one sales order (invoice + adjustment + payment)."""
+    _ = account_id
+    return ledger_net_for_order(db, order_id)
 
 
 def _ledger_invoice_total_for_order(db: Session, order_id: int, *, account_id: int | None = None) -> Decimal:
@@ -379,47 +425,100 @@ def _ledger_invoice_total_for_order(db: Session, order_id: int, *, account_id: i
     return sum((Decimal(str(r.amount_signed)) for r in rows if Decimal(str(r.amount_signed)) > 0), Decimal("0"))
 
 
-def _recompute_order_outstanding_from_ledger(db: Session, *, account: DebtAccount) -> None:
-    """Rebuild order outstanding values using debt ledger invoices and payment credits."""
-    entries = db.scalars(
-        select(DebtLedgerEntry)
-        .where(DebtLedgerEntry.debt_account_id == account.id)
-        .order_by(DebtLedgerEntry.created_at.asc(), DebtLedgerEntry.id.asc())
-    ).all()
-    invoice_by_order: dict[int, Decimal] = {}
-    total_credit = Decimal("0")
-    for e in entries:
-        amount = Decimal(str(e.amount_signed))
-        if (
-            e.entry_type == "invoice"
-            and e.reference_type == "sales_order"
-            and e.reference_id
-            and str(e.reference_id).isdigit()
-            and amount > 0
-        ):
-            oid = int(str(e.reference_id))
-            linked = db.get(SalesOrder, oid)
-            if linked is None or linked.deleted_at is not None:
-                continue
-            invoice_by_order[oid] = invoice_by_order.get(oid, Decimal("0")) + amount
-        elif e.entry_type in ("payment", "write_off") and amount < 0:
-            total_credit += -amount
-    orders = db.scalars(
-        select(SalesOrder)
-        .where(sales.active_order_clause(SalesOrder.phone == account.customer_key))
-        .order_by(SalesOrder.created_at.asc(), SalesOrder.id.asc())
-    ).all()
-    for order in orders:
-        base_outstanding = max(Decimal("0"), invoice_by_order.get(order.id, Decimal("0")))
-        if base_outstanding <= 0:
-            order.outstanding_amount = Decimal("0")
-            order.paid_amount = Decimal(str(order.total))
-            continue
-        used = min(base_outstanding, total_credit)
-        left = base_outstanding - used
-        total_credit -= used
-        order.outstanding_amount = left
-        order.paid_amount = Decimal(str(order.total)) - left
+def _sync_account_after_order(db: Session, account: DebtAccount | None, order_id: int) -> None:
+    """Recompute one order outstanding and refresh optional account cache."""
+    recompute_single_order_outstanding(db, order_id)
+    if account is not None:
+        recompute_account_balance_from_orders(db, account)
+
+
+def _order_to_debt_row(order: SalesOrder) -> DebtOrderRow:
+    """Map a sales order ORM row to debt list response."""
+    return DebtOrderRow(
+        id=order.id,
+        order_code=order.order_code,
+        customer_name=order.customer_name,
+        phone=order.phone,
+        delivery_date=order.delivery_date,
+        total=Decimal(str(order.total)),
+        paid_amount=Decimal(str(order.paid_amount or 0)),
+        outstanding_amount=Decimal(str(order.outstanding_amount or 0)),
+        payment_mode=order.payment_mode,
+        created_at=order.created_at,
+    )
+
+
+def _debt_orders_base_stmt():
+    """Active orders that ever carried monetary debt."""
+    return select(SalesOrder).where(
+        sales.active_order_clause(
+            or_(
+                SalesOrder.outstanding_amount > 0,
+                SalesOrder.payment_mode.in_(("debt", "partial")),
+                SalesOrder.id.in_(
+                    select(DebtLedgerEntry.sales_order_id).where(DebtLedgerEntry.sales_order_id.is_not(None))
+                ),
+            )
+        )
+    )
+
+
+def _append_order_debt_delta(
+    db: Session,
+    *,
+    order: SalesOrder,
+    account: DebtAccount,
+    delta: Decimal,
+    actor_user_id: int | None,
+) -> None:
+    """Write one invoice or adjustment row to move order-linked ledger net by ``delta``."""
+    if delta > 0:
+        _append_debt_entry(
+            db,
+            account_id=account.id,
+            entry_type="invoice",
+            amount_signed=delta,
+            created_by_user_id=actor_user_id,
+            note=f"Đơn {order.order_code}",
+            reference_type="sales_order",
+            reference_id=str(order.id),
+            sales_order_id=order.id,
+        )
+    elif delta < 0:
+        _append_debt_entry(
+            db,
+            account_id=account.id,
+            entry_type="adjustment",
+            amount_signed=delta,
+            created_by_user_id=actor_user_id,
+            note=f"Giảm công nợ đơn {order.order_code}",
+            reference_type="sales_order",
+            reference_id=str(order.id),
+            sales_order_id=order.id,
+        )
+
+
+def reconcile_order_debt_from_header(
+    db: Session, order: SalesOrder, *, actor_user_id: int | None = None
+) -> None:
+    """Log header-vs-ledger drift for one order without mutating the ledger."""
+    if not order.phone:
+        return
+    target = max(Decimal("0"), Decimal(str(order.total)) - Decimal(str(order.paid_amount or 0)))
+    net = _ledger_net_debt_for_order(db, order.id)
+    delta = target - net
+    return
+
+
+def reconcile_all_orders_debt_from_headers(db: Session) -> None:
+    """Rebuild per-order outstanding and account caches from ledger rows."""
+    recompute_all_order_outstanding(db)
+    db.commit()
+
+
+def recompute_all_debt_order_outstanding(db: Session) -> None:
+    """Align every order.outstanding_amount with per-order ledger balances."""
+    reconcile_all_orders_debt_from_headers(db)
 
 
 def _sync_order_debt_ledger(
@@ -433,7 +532,7 @@ def _sync_order_debt_ledger(
     before_phone = before.phone
     after_phone = order.phone
     new_target = Decimal(str(order.outstanding_amount or 0))
-    before_inv = _ledger_invoice_total_for_order(db, before.id) if before_phone else Decimal("0")
+    before_inv = _ledger_net_debt_for_order(db, before.id) if before_phone else Decimal("0")
 
     if before_phone and before_phone != after_phone and before_inv > 0:
         old_account = db.scalar(select(DebtAccount).where(DebtAccount.customer_key == before_phone))
@@ -447,46 +546,23 @@ def _sync_order_debt_ledger(
                 note=f"Chuyển công nợ đơn {order.order_code}",
                 reference_type="sales_order",
                 reference_id=str(order.id),
+                sales_order_id=order.id,
             )
-            _recompute_debt_balance(db, old_account)
-            _recompute_order_outstanding_from_ledger(db, account=old_account)
+            _sync_account_after_order(db, old_account, order.id)
 
     if not after_phone:
         return
 
-    ledger_inv = _ledger_invoice_total_for_order(db, order.id)
-    delta = new_target - ledger_inv
+    ledger_net = _ledger_net_debt_for_order(db, order.id)
+    delta = new_target - ledger_net
+    account = db.scalar(select(DebtAccount).where(DebtAccount.customer_key == after_phone))
     if delta == 0:
-        account = db.scalar(select(DebtAccount).where(DebtAccount.customer_key == after_phone))
-        if account is not None:
-            _recompute_order_outstanding_from_ledger(db, account=account)
+        _sync_account_after_order(db, account, order.id)
         return
 
-    account = _get_or_create_debt_account(db, order.customer_name, after_phone)
-    if delta > 0:
-        _append_debt_entry(
-            db,
-            account_id=account.id,
-            entry_type="invoice",
-            amount_signed=delta,
-            created_by_user_id=actor_user_id,
-            note=f"Đơn {order.order_code}",
-            reference_type="sales_order",
-            reference_id=str(order.id),
-        )
-    else:
-        _append_debt_entry(
-            db,
-            account_id=account.id,
-            entry_type="adjustment",
-            amount_signed=delta,
-            created_by_user_id=actor_user_id,
-            note=f"Giảm công nợ đơn {order.order_code}",
-            reference_type="sales_order",
-            reference_id=str(order.id),
-        )
-    _recompute_debt_balance(db, account)
-    _recompute_order_outstanding_from_ledger(db, account=account)
+    account = account or _get_or_create_debt_account(db, order.customer_name, after_phone)
+    _append_order_debt_delta(db, order=order, account=account, delta=delta, actor_user_id=actor_user_id)
+    _sync_account_after_order(db, account, order.id)
 
 
 def _ensure_note_access(note: OrderNote, actor: User) -> None:
@@ -811,6 +887,8 @@ def products_export_csv(db: Session = Depends(get_db)):
             "description",
             "cost_price",
             "sell_price",
+            "wholesale_price",
+            "restaurant_price",
             "stock_quantity",
             "low_stock_threshold",
             "created_at",
@@ -825,6 +903,8 @@ def products_export_csv(db: Session = Depends(get_db)):
                 (p.description or "").replace("\n", " ").strip(),
                 str(p.cost_price),
                 str(p.sell_price),
+                str(p.wholesale_price),
+                str(p.restaurant_price),
                 p.stock_quantity,
                 p.low_stock_threshold,
                 p.created_at.isoformat() if p.created_at else "",
@@ -844,12 +924,17 @@ def create_product(payload: ProductCreate, db: Session = Depends(get_db)) -> Pro
         exists = db.scalar(select(Product.id).where(Product.sku == payload.sku))
         if exists:
             raise HTTPException(status_code=400, detail="SKU already exists")
+    retail = payload.sell_price
+    wholesale = payload.wholesale_price if payload.wholesale_price is not None else retail
+    restaurant = payload.restaurant_price if payload.restaurant_price is not None else retail
     p = Product(
         name=payload.name.strip(),
         sku=payload.sku.strip() if payload.sku else None,
         description=payload.description.strip() if payload.description else None,
         cost_price=payload.cost_price,
-        sell_price=payload.sell_price,
+        sell_price=retail,
+        wholesale_price=wholesale,
+        restaurant_price=restaurant,
         stock_quantity=payload.stock_quantity,
         low_stock_threshold=payload.low_stock_threshold,
         is_active=True,
@@ -905,10 +990,11 @@ def list_stock_receipts(product_id: int, db: Session = Depends(get_db)) -> list[
         raise HTTPException(status_code=404, detail="Product not found")
     rows = db.scalars(
         select(StockReceipt)
+        .options(joinedload(StockReceipt.product))
         .where(StockReceipt.product_id == product_id)
         .order_by(StockReceipt.receipt_date.desc(), StockReceipt.id.desc())
     ).all()
-    return [StockReceiptResponse.model_validate(r) for r in rows]
+    return [_stock_receipt_to_response(r) for r in rows]
 
 
 @router.post(
@@ -934,11 +1020,36 @@ def create_stock_receipt(
         )
         db.commit()
         db.refresh(row)
-        return StockReceiptResponse.model_validate(row)
+        _ = row.product
+        return _stock_receipt_to_response(row)
     except ValueError as e:
         detail = str(e)
         code = 404 if detail == "Product not found" else 400
         raise HTTPException(status_code=code, detail=detail) from e
+
+
+@router.get(
+    "/stock-receipts",
+    response_model=list[StockReceiptResponse],
+    dependencies=[Depends(require_admin_user)],
+)
+def list_all_stock_receipts(
+    receipt_date: str | None = Query(default=None, description="YYYY-MM-DD"),
+    product_id: int | None = Query(default=None),
+    db: Session = Depends(get_db),
+) -> list[StockReceiptResponse]:
+    """Warehouse ledger of stock receipts, newest first. Optional date and product filters."""
+    stmt = select(StockReceipt).options(joinedload(StockReceipt.product))
+    if receipt_date:
+        try:
+            d = date.fromisoformat(receipt_date)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail="Ngày không hợp lệ (YYYY-MM-DD)") from e
+        stmt = stmt.where(StockReceipt.receipt_date == d)
+    if product_id is not None:
+        stmt = stmt.where(StockReceipt.product_id == product_id)
+    rows = db.scalars(stmt.order_by(StockReceipt.receipt_date.desc(), StockReceipt.id.desc())).all()
+    return [_stock_receipt_to_response(r) for r in rows]
 
 
 @router.delete("/products/{product_id}", dependencies=[Depends(require_admin_user)])
@@ -1065,6 +1176,8 @@ def create_order_route(
 ) -> SalesOrderResponse:
     """Create a VAT sales order (admin only); optional delivery staff assignment."""
     try:
+        if payload.customer_segment is None:
+            raise HTTPException(status_code=422, detail="Cần chọn tệp khách hàng: đại lý sỉ, quán ăn hoặc khách lẻ")
         created = sales.create_sales_order(db, payload, created_by_user_id=actor.id)
         outstanding = Decimal(str(created.outstanding_amount))
         if outstanding > 0:
@@ -1078,8 +1191,9 @@ def create_order_route(
                 note=f"Đơn {created.order_code}",
                 reference_type="sales_order",
                 reference_id=str(created.id),
+                sales_order_id=created.id,
             )
-            _recompute_debt_balance(db, account)
+            _sync_account_after_order(db, account, created.id)
             _write_audit(
                 db,
                 actor_user_id=actor.id,
@@ -1154,27 +1268,102 @@ def delete_order_route(order_id: int, db: Session = Depends(get_db)) -> dict[str
         if order is None:
             raise ValueError("Order not found")
         phone = order.phone
-        outstanding = Decimal(str(order.outstanding_amount or 0))
+        ledger_net = ledger_net_for_order(db, order_id)
         sales.delete_sales_order(db, order_id)
-        if phone and outstanding > 0:
+        if phone and ledger_net > 0:
             account = db.scalar(select(DebtAccount).where(DebtAccount.customer_key == phone))
             if account is not None:
                 _append_debt_entry(
                     db,
                     account_id=account.id,
                     entry_type="adjustment",
-                    amount_signed=-outstanding,
+                    amount_signed=-ledger_net,
                     created_by_user_id=None,
                     note=f"Đảo công nợ do xóa đơn #{order_id}",
-                    reference_type="sales_order_delete",
+                    reference_type="sales_order",
                     reference_id=str(order_id),
+                    sales_order_id=order_id,
                 )
-                _recompute_debt_balance(db, account)
-                _recompute_order_outstanding_from_ledger(db, account=account)
+                _sync_account_after_order(db, account, order_id)
                 db.commit()
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
     return {"status": "ok"}
+
+
+@router.get(
+    "/debt-orders",
+    response_model=list[DebtOrderRow],
+    dependencies=[Depends(require_admin_user)],
+)
+def list_debt_orders(
+    status: str = Query(default="all"),
+    month: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}$"),
+    search: str | None = Query(default=None),
+    limit: int = Query(default=200, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+) -> list[DebtOrderRow]:
+    """List orders with debt history; filter by delivery month and open/paid status."""
+    stmt = _debt_orders_base_stmt().order_by(
+        SalesOrder.delivery_date.desc().nullslast(),
+        SalesOrder.created_at.desc(),
+        SalesOrder.id.desc(),
+    )
+    if month:
+        start_d, end_d = delivery_month_date_bounds(month)
+        stmt = stmt.where(SalesOrder.delivery_date >= start_d, SalesOrder.delivery_date <= end_d)
+    if status == "open":
+        stmt = stmt.where(SalesOrder.outstanding_amount > 0)
+    elif status == "paid":
+        stmt = stmt.where(SalesOrder.outstanding_amount <= 0)
+    if search:
+        q = f"%{search.strip()}%"
+        stmt = stmt.where(
+            (SalesOrder.customer_name.ilike(q))
+            | (SalesOrder.phone.ilike(q))
+            | (SalesOrder.order_code.ilike(q))
+        )
+    rows = db.scalars(stmt.offset(offset).limit(limit)).all()
+    return [_order_to_debt_row(o) for o in rows]
+
+
+@router.get(
+    "/debt-orders/{order_id}",
+    response_model=DebtOrderDetailResponse,
+    dependencies=[Depends(require_admin_user)],
+)
+def debt_order_detail(
+    order_id: int,
+    month: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}$"),
+    ledger_limit: int = Query(default=100, ge=1, le=500),
+    db: Session = Depends(get_db),
+) -> DebtOrderDetailResponse:
+    """Return one order debt profile with ledger rows scoped to that order."""
+    order = db.get(SalesOrder, order_id)
+    if order is None or order.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="Order not found")
+    stmt = (
+        select(DebtLedgerEntry)
+        .where(
+            or_(
+                DebtLedgerEntry.sales_order_id == order_id,
+                (
+                    DebtLedgerEntry.sales_order_id.is_(None)
+                    & (DebtLedgerEntry.reference_type == "sales_order")
+                    & (DebtLedgerEntry.reference_id == str(order_id))
+                ),
+            )
+        )
+        .order_by(DebtLedgerEntry.created_at.desc(), DebtLedgerEntry.id.desc())
+    )
+    if month:
+        bounds = _month_bounds(month)
+        if bounds is not None:
+            month_start, month_end = bounds
+            stmt = stmt.where(DebtLedgerEntry.created_at >= month_start, DebtLedgerEntry.created_at < month_end)
+    ledger = db.scalars(stmt.limit(ledger_limit)).all()
+    return DebtOrderDetailResponse(order=_order_to_debt_row(order), ledger=[_debt_ledger_to_response(db, r) for r in ledger])
 
 
 @router.get(
@@ -1185,12 +1374,51 @@ def delete_order_route(order_id: int, db: Session = Depends(get_db)) -> dict[str
 def list_debt_accounts(
     status: str = Query(default="active"),
     search: str | None = Query(default=None),
+    month: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}$"),
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ) -> list[DebtAccountResponse]:
     """List customer debt accounts with status/search filters."""
-    stmt = select(DebtAccount).order_by(DebtAccount.current_balance.desc(), DebtAccount.updated_at.desc())
+    bounds = _month_bounds(month)
+    if bounds is not None:
+        month_start, month_end = bounds
+        balance_sq = (
+            select(
+                DebtLedgerEntry.debt_account_id.label("account_id"),
+                func.coalesce(func.sum(DebtLedgerEntry.amount_signed), 0).label("balance"),
+            )
+            .where(DebtLedgerEntry.created_at < month_end)
+            .group_by(DebtLedgerEntry.debt_account_id)
+            .subquery()
+        )
+        latest_sq = (
+            select(
+                DebtLedgerEntry.debt_account_id.label("account_id"),
+                func.max(DebtLedgerEntry.created_at).label("latest_at"),
+            )
+            .where(DebtLedgerEntry.created_at < month_end)
+            .group_by(DebtLedgerEntry.debt_account_id)
+            .subquery()
+        )
+        stmt = (
+            select(DebtAccount, func.coalesce(balance_sq.c.balance, 0).label("month_balance"))
+            .outerjoin(balance_sq, balance_sq.c.account_id == DebtAccount.id)
+            .outerjoin(latest_sq, latest_sq.c.account_id == DebtAccount.id)
+            .order_by(latest_sq.c.latest_at.desc().nulls_last(), DebtAccount.id.desc())
+        )
+        balance_value = func.coalesce(balance_sq.c.balance, 0)
+        if status == "active":
+            stmt = stmt.where(balance_value > 0)
+        elif status == "closed":
+            stmt = stmt.where(balance_value <= 0)
+        if search:
+            q = f"%{search.strip()}%"
+            stmt = stmt.where((DebtAccount.customer_name.ilike(q)) | (DebtAccount.phone.ilike(q)))
+        rows = db.execute(stmt.offset(offset).limit(limit)).all()
+        return [_debt_account_to_response_with_balance(row, Decimal(str(balance))) for row, balance in rows]
+
+    stmt = select(DebtAccount).order_by(DebtAccount.updated_at.desc(), DebtAccount.id.desc())
     if status != "all":
         stmt = stmt.where(DebtAccount.status == status)
     if search:
@@ -1207,6 +1435,7 @@ def list_debt_accounts(
 )
 def debt_account_detail(
     account_id: int,
+    month: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}$"),
     ledger_limit: int = Query(default=100, ge=1, le=500),
     db: Session = Depends(get_db),
 ) -> DebtAccountDetailResponse:
@@ -1214,14 +1443,26 @@ def debt_account_detail(
     account = db.get(DebtAccount, account_id)
     if account is None:
         raise HTTPException(status_code=404, detail="Debt account not found")
-    ledger = db.scalars(
+    bounds = _month_bounds(month)
+    account_response = _debt_account_to_response(account)
+    stmt = (
         select(DebtLedgerEntry)
         .where(DebtLedgerEntry.debt_account_id == account_id)
-        .order_by(DebtLedgerEntry.created_at.desc())
-        .limit(ledger_limit)
-    ).all()
+        .order_by(DebtLedgerEntry.created_at.desc(), DebtLedgerEntry.id.desc())
+    )
+    if bounds is not None:
+        month_start, month_end = bounds
+        balance = db.scalar(
+            select(func.coalesce(func.sum(DebtLedgerEntry.amount_signed), 0)).where(
+                DebtLedgerEntry.debt_account_id == account_id,
+                DebtLedgerEntry.created_at < month_end,
+            )
+        )
+        account_response = _debt_account_to_response_with_balance(account, Decimal(str(balance or 0)))
+        stmt = stmt.where(DebtLedgerEntry.created_at >= month_start, DebtLedgerEntry.created_at < month_end)
+    ledger = db.scalars(stmt.limit(ledger_limit)).all()
     return DebtAccountDetailResponse(
-        account=_debt_account_to_response(account),
+        account=account_response,
         ledger=[_debt_ledger_to_response(db, r) for r in ledger],
     )
 
@@ -1233,6 +1474,7 @@ def debt_account_detail(
 )
 def debt_account_ledger(
     account_id: int,
+    month: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}$"),
     limit: int = Query(default=100, ge=1, le=500),
     db: Session = Depends(get_db),
 ) -> list[DebtLedgerEntryResponse]:
@@ -1240,12 +1482,16 @@ def debt_account_ledger(
     exists = db.get(DebtAccount, account_id)
     if exists is None:
         raise HTTPException(status_code=404, detail="Debt account not found")
-    rows = db.scalars(
+    bounds = _month_bounds(month)
+    stmt = (
         select(DebtLedgerEntry)
         .where(DebtLedgerEntry.debt_account_id == account_id)
-        .order_by(DebtLedgerEntry.created_at.desc())
-        .limit(limit)
-    ).all()
+        .order_by(DebtLedgerEntry.created_at.desc(), DebtLedgerEntry.id.desc())
+    )
+    if bounds is not None:
+        month_start, month_end = bounds
+        stmt = stmt.where(DebtLedgerEntry.created_at >= month_start, DebtLedgerEntry.created_at < month_end)
+    rows = db.scalars(stmt.limit(limit)).all()
     return [_debt_ledger_to_response(db, r) for r in rows]
 
 
@@ -1255,17 +1501,22 @@ def create_debt_payment(
     db: Session = Depends(get_db),
     actor: User = Depends(get_current_user),
 ) -> DebtLedgerEntryResponse:
-    """Record debt collection and reduce oldest outstanding orders."""
-    account = db.get(DebtAccount, payload.debt_account_id)
-    if account is None:
-        raise HTTPException(status_code=404, detail="Debt account not found")
+    """Record debt collection against one sales order."""
+    order = db.get(SalesOrder, payload.sales_order_id)
+    if order is None or order.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if not order.phone:
+        raise HTTPException(status_code=400, detail="Order has no phone for debt account")
     amount = Decimal(str(payload.amount))
     if amount <= 0:
         raise HTTPException(status_code=400, detail="Amount must be > 0")
-    if amount > Decimal(str(account.current_balance)):
-        raise HTTPException(status_code=400, detail="Amount exceeds current debt balance")
+    outstanding = Decimal(str(order.outstanding_amount or 0))
+    if amount > outstanding:
+        raise HTTPException(status_code=400, detail="Amount exceeds order outstanding balance")
+    account = _get_or_create_debt_account(db, order.customer_name, order.phone)
     row = DebtPayment(
         debt_account_id=account.id,
+        sales_order_id=order.id,
         amount=amount,
         payment_method=payload.payment_method.strip(),
         paid_at=payload.paid_at or datetime.now(UTC),
@@ -1285,16 +1536,15 @@ def create_debt_payment(
         note=payload.note,
         reference_type="debt_payment",
         reference_id=str(row.id),
+        sales_order_id=order.id,
     )
-    _allocate_credit_to_orders(db, phone=account.customer_key, credit_amount=amount)
-    _recompute_debt_balance(db, account)
-    _recompute_order_outstanding_from_ledger(db, account=account)
+    _sync_account_after_order(db, account, order.id)
     _write_audit(
         db,
         actor_user_id=actor.id,
         action="CREATE_DEBT_PAYMENT",
-        target_type="debt_account",
-        target_id=str(account.id),
+        target_type="sales_order",
+        target_id=str(order.id),
         detail=str(amount),
     )
     db.commit()
@@ -1342,8 +1592,11 @@ def update_debt_payment(
         ledger.note = _strip_opt_text(data["note"])
     if "returned_shell_units" in data and data["returned_shell_units"] is not None:
         payment.returned_shell_units = int(data["returned_shell_units"])
-    _recompute_debt_balance(db, account)
-    _recompute_order_outstanding_from_ledger(db, account=account)
+    order_id = payment.sales_order_id or ledger.sales_order_id
+    if order_id is not None:
+        _sync_account_after_order(db, account, int(order_id))
+    else:
+        recompute_account_balance_from_orders(db, account)
     _write_audit(
         db,
         actor_user_id=actor.id,
@@ -1375,11 +1628,14 @@ def delete_debt_payment(
             DebtLedgerEntry.reference_id == str(payment_id),
         )
     )
+    order_id = payment.sales_order_id or (ledger.sales_order_id if ledger is not None else None)
     if ledger is not None:
         db.delete(ledger)
     db.delete(payment)
-    _recompute_debt_balance(db, account)
-    _recompute_order_outstanding_from_ledger(db, account=account)
+    if order_id is not None:
+        _sync_account_after_order(db, account, int(order_id))
+    else:
+        recompute_account_balance_from_orders(db, account)
     _write_audit(
         db,
         actor_user_id=actor.id,
@@ -1397,18 +1653,22 @@ def create_debt_write_off(
     db: Session = Depends(get_db),
     actor: User = Depends(get_current_user),
 ) -> DebtLedgerEntryResponse:
-    """Record write-off with approval and adjust account balance."""
-    account = db.get(DebtAccount, payload.debt_account_id)
-    if account is None:
-        raise HTTPException(status_code=404, detail="Debt account not found")
+    """Record write-off with approval against one sales order."""
+    order = db.get(SalesOrder, payload.sales_order_id)
+    if order is None or order.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if not order.phone:
+        raise HTTPException(status_code=400, detail="Order has no phone for debt account")
     approver = db.get(User, payload.approved_by_user_id)
     if approver is None:
         raise HTTPException(status_code=404, detail="Approver not found")
     amount = Decimal(str(payload.amount))
     if amount <= 0:
         raise HTTPException(status_code=400, detail="Amount must be > 0")
-    if amount > Decimal(str(account.current_balance)):
-        raise HTTPException(status_code=400, detail="Amount exceeds current debt balance")
+    outstanding = Decimal(str(order.outstanding_amount or 0))
+    if amount > outstanding:
+        raise HTTPException(status_code=400, detail="Amount exceeds order outstanding balance")
+    account = _get_or_create_debt_account(db, order.customer_name, order.phone)
     wo = DebtWriteOff(
         debt_account_id=account.id,
         amount=amount,
@@ -1427,10 +1687,9 @@ def create_debt_write_off(
         note=payload.reason,
         reference_type="debt_write_off",
         reference_id=str(wo.id),
+        sales_order_id=order.id,
     )
-    _allocate_credit_to_orders(db, phone=account.customer_key, credit_amount=amount)
-    _recompute_debt_balance(db, account)
-    _recompute_order_outstanding_from_ledger(db, account=account)
+    _sync_account_after_order(db, account, order.id)
     _write_audit(
         db,
         actor_user_id=actor.id,
@@ -1455,12 +1714,10 @@ def debt_aging(as_of: datetime | None = Query(default=None), db: Session = Depen
         "31+ ngày": Decimal("0"),
     }
     rows = db.scalars(select(SalesOrder).where(sales.active_order_clause(SalesOrder.outstanding_amount > 0))).all()
+    today = business_date_now()
     for row in rows:
-        if row.created_at is None:
-            days = 0
-        else:
-            created = row.created_at.replace(tzinfo=None) if row.created_at.tzinfo else row.created_at
-            days = max(0, (now - created).days)
+        metric = row.delivery_date or to_business_date(row.created_at) or today
+        days = max(0, (today - metric).days)
         amount = Decimal(str(row.outstanding_amount))
         if days <= 7:
             buckets["0-7 ngày"] += amount
@@ -2078,9 +2335,55 @@ def create_audit_log(
     return AuditLogEntryResponse.model_validate(row)
 
 
+def _order_metric_date(order: SalesOrder) -> date:
+    """Business day for dashboard KPI/chart: delivery date, else created-at in UTC+7."""
+    if order.delivery_date is not None:
+        return order.delivery_date
+    metric = to_business_date(order.created_at)
+    return metric if metric is not None else order.created_at.date()
+
+
+def _business_day_utc_bounds(start_d: date, end_d: date) -> tuple[datetime, datetime]:
+    """Map inclusive VN calendar dates to UTC instants for ``created_at`` fallback queries."""
+    start_utc = datetime.combine(start_d, datetime.min.time(), tzinfo=BUSINESS_TZ).astimezone(UTC)
+    end_utc = datetime.combine(end_d, datetime.max.time(), tzinfo=BUSINESS_TZ).astimezone(UTC)
+    return start_utc, end_utc
+
+
+def _dashboard_orders_in_metric_window(db: Session, start_d: date, end_d: date) -> list[SalesOrder]:
+    """Load active orders whose metric business date falls in ``[start_d, end_d]``."""
+    created_start, created_end = _business_day_utc_bounds(start_d, end_d)
+    candidates = (
+        db.scalars(
+            select(SalesOrder)
+            .options(joinedload(SalesOrder.lines))
+            .where(
+                sales.active_order_clause(
+                    or_(
+                        and_(
+                            SalesOrder.delivery_date.is_not(None),
+                            SalesOrder.delivery_date >= start_d,
+                            SalesOrder.delivery_date <= end_d,
+                        ),
+                        and_(
+                            SalesOrder.delivery_date.is_(None),
+                            SalesOrder.created_at >= created_start,
+                            SalesOrder.created_at <= created_end,
+                        ),
+                    )
+                )
+            )
+            .order_by(SalesOrder.created_at.asc())
+        )
+        .unique()
+        .all()
+    )
+    return [o for o in candidates if start_d <= _order_metric_date(o) <= end_d]
+
+
 def _dashboard_date_range(range_key: str) -> tuple[date, date]:
-    """Resolve inclusive local-date window for dashboard summary ranges."""
-    today = datetime.now(tz=UTC).date()
+    """Resolve inclusive business-date window (UTC+7) for dashboard summary ranges."""
+    today = business_date_now()
     if range_key == "today":
         return today, today
     if range_key == "7d":
@@ -2094,6 +2397,20 @@ def _dashboard_date_range(range_key: str) -> tuple[date, date]:
     raise ValueError(f"Unsupported range: {range_key}")
 
 
+def _dashboard_previous_range(range_key: str) -> tuple[date, date]:
+    """Previous comparison window: today vs yesterday, 7d vs prior 7d, etc."""
+    start_d, end_d = _dashboard_date_range(range_key)
+    day_count = (end_d - start_d).days + 1
+    if range_key == "today":
+        yesterday = start_d - timedelta(days=1)
+        return yesterday, yesterday
+    if range_key == "mtd":
+        prev_month_start = (start_d.replace(day=1) - timedelta(days=1)).replace(day=1)
+        return prev_month_start, prev_month_start + timedelta(days=day_count - 1)
+    prev_end = start_d - timedelta(days=1)
+    return prev_end - timedelta(days=day_count - 1), prev_end
+
+
 def _order_profit(db: Session, order: SalesOrder) -> Decimal:
     """Estimate gross profit from line sell price minus current product cost."""
     total = Decimal("0")
@@ -2105,49 +2422,62 @@ def _order_profit(db: Session, order: SalesOrder) -> Decimal:
     return total
 
 
-@router.get("/dashboard/summary", response_model=DashboardSummaryResponse, dependencies=[Depends(require_admin_user)])
-def dashboard_summary(
-    range: Literal["today", "7d", "30d", "90d", "mtd"] = Query(default="7d"),
-    db: Session = Depends(get_db),
-) -> DashboardSummaryResponse:
-    """Daily revenue, outstanding debt, and estimated profit for dashboard charts."""
-    try:
-        start_d, end_d = _dashboard_date_range(range)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
-    start_dt = datetime.combine(start_d, datetime.min.time()).replace(tzinfo=UTC)
-    end_dt = datetime.combine(end_d, datetime.max.time()).replace(tzinfo=UTC)
-    orders = db.scalars(
-        select(SalesOrder)
-        .options(joinedload(SalesOrder.lines))
-        .where(sales.active_order_clause(SalesOrder.created_at >= start_dt, SalesOrder.created_at <= end_dt))
-        .order_by(SalesOrder.created_at.asc())
-    ).unique().all()
+_CUSTOMER_SEGMENT_BUCKETS = ("wholesale", "restaurant", "retail", "unspecified")
+
+
+def _customer_segment_bucket(value: str | None) -> str:
+    """Map stored segment to a dashboard bucket; unknown/legacy rows are unspecified."""
+    if value in ("wholesale", "restaurant", "retail"):
+        return value
+    return "unspecified"
+
+
+def _dashboard_aggregate(
+    db: Session, start_d: date, end_d: date
+) -> tuple[DashboardPeriodTotals, list[DailyMetricRow], list[CustomerSegmentMetric]]:
+    """Sum KPIs, daily series, and customer-segment mix for an inclusive business-date window."""
+    orders = _dashboard_orders_in_metric_window(db, start_d, end_d)
 
     by_date: dict[str, dict[str, Decimal | int]] = {}
     cur = start_d
     while cur <= end_d:
-        by_date[cur.isoformat()] = {"revenue": Decimal("0"), "outstanding": Decimal("0"), "profit": Decimal("0"), "order_count": 0}
+        by_date[cur.isoformat()] = {
+            "revenue": Decimal("0"),
+            "outstanding": Decimal("0"),
+            "profit": Decimal("0"),
+            "order_count": 0,
+            "unit_quantity": 0,
+        }
         cur += timedelta(days=1)
 
+    segment_acc: dict[str, dict[str, Decimal | int]] = {
+        key: {"order_count": 0, "revenue": Decimal("0")} for key in _CUSTOMER_SEGMENT_BUCKETS
+    }
     total_revenue = Decimal("0")
     total_outstanding = Decimal("0")
     total_profit = Decimal("0")
+    total_unit_quantity = 0
     for order in orders:
-        key = order.created_at.date().isoformat()
+        key = _order_metric_date(order).isoformat()
         bucket = by_date.get(key)
         if bucket is None:
             continue
         revenue = Decimal(str(order.total))
         outstanding = Decimal(str(order.outstanding_amount or 0))
         profit = _order_profit(db, order)
+        unit_qty = sum(int(li.quantity) for li in order.lines)
         bucket["revenue"] = Decimal(str(bucket["revenue"])) + revenue
         bucket["outstanding"] = Decimal(str(bucket["outstanding"])) + outstanding
         bucket["profit"] = Decimal(str(bucket["profit"])) + profit
         bucket["order_count"] = int(bucket["order_count"]) + 1
+        bucket["unit_quantity"] = int(bucket["unit_quantity"]) + unit_qty
         total_revenue += revenue
         total_outstanding += outstanding
         total_profit += profit
+        total_unit_quantity += unit_qty
+        seg = segment_acc[_customer_segment_bucket(getattr(order, "customer_segment", None))]
+        seg["order_count"] = int(seg["order_count"]) + 1
+        seg["revenue"] = Decimal(str(seg["revenue"])) + revenue
 
     series = [
         DailyMetricRow(
@@ -2156,28 +2486,72 @@ def dashboard_summary(
             outstanding=Decimal(str(v["outstanding"])),
             profit=Decimal(str(v["profit"])),
             order_count=int(v["order_count"]),
+            unit_quantity=int(v["unit_quantity"]),
         )
         for d, v in by_date.items()
     ]
-    return DashboardSummaryResponse(
-        range=range,
+    totals = DashboardPeriodTotals(
         revenue=total_revenue,
         outstanding=total_outstanding,
         profit=total_profit,
         order_count=len(orders),
+        unit_quantity=total_unit_quantity,
+    )
+    segments = [
+        CustomerSegmentMetric(
+            segment=key,  # type: ignore[arg-type]
+            order_count=int(segment_acc[key]["order_count"]),
+            revenue=Decimal(str(segment_acc[key]["revenue"])),
+        )
+        for key in _CUSTOMER_SEGMENT_BUCKETS
+    ]
+    return totals, series, segments
+
+
+@router.get("/dashboard/summary", response_model=DashboardSummaryResponse, dependencies=[Depends(require_admin_user)])
+def dashboard_summary(
+    range: Literal["today", "7d", "30d", "90d", "mtd"] = Query(default="7d"),
+    db: Session = Depends(get_db),
+) -> DashboardSummaryResponse:
+    """Daily revenue, outstanding debt, and estimated profit for dashboard charts."""
+    try:
+        start_d, end_d = _dashboard_date_range(range)
+        prev_start, prev_end = _dashboard_previous_range(range)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    current_totals, series, customer_segments = _dashboard_aggregate(db, start_d, end_d)
+    previous_totals, _, _ = _dashboard_aggregate(db, prev_start, prev_end)
+
+    return DashboardSummaryResponse(
+        range=range,
+        revenue=current_totals.revenue,
+        outstanding=current_totals.outstanding,
+        profit=current_totals.profit,
+        order_count=current_totals.order_count,
+        unit_quantity=current_totals.unit_quantity,
         series=series,
+        previous=previous_totals,
+        customer_segments=customer_segments,
     )
 
 
 @router.get("/dashboard", response_model=DashboardPayload, dependencies=[Depends(require_admin_user)])
 def dashboard_bundle(db: Session = Depends(get_db)) -> DashboardPayload:
-    """Orders (30d) with totals + full product list for Tổng quan."""
-    since = datetime.now(tz=UTC) - timedelta(days=29)
-    since = since.replace(hour=0, minute=0, second=0, microsecond=0)
-    order_rows = db.scalars(
-        select(SalesOrder).where(sales.active_order_clause(SalesOrder.created_at >= since)).order_by(SalesOrder.created_at)
-    ).all()
-    orders_json = [{"total": str(o.total), "created_at": o.created_at.isoformat()} for o in order_rows]
+    """Orders (30d by business metric date) with totals + full product list for Tổng quan."""
+    end_d = business_date_now()
+    start_d = end_d - timedelta(days=29)
+    order_rows = _dashboard_orders_in_metric_window(db, start_d, end_d)
+    orders_json = [
+        {
+            "total": str(o.total),
+            "created_at": o.created_at.isoformat(),
+            "delivery_date": o.delivery_date.isoformat() if o.delivery_date else None,
+            "line_quantity": sum(int(li.quantity) for li in o.lines),
+            "customer_segment": o.customer_segment,
+        }
+        for o in order_rows
+    ]
     products = db.scalars(select(Product).order_by(Product.name)).all()
     return DashboardPayload(
         orders=orders_json,
@@ -2275,14 +2649,47 @@ def _aggregate_returned_shells_debt(db: Session, business_date: date) -> int:
     return int(db.scalar(q) or 0)
 
 
+def _delivery_day_sold_mix(db: Session, business_date: date) -> tuple[int, list[DailySegmentMixRow]]:
+    """Units and revenue by customer segment for all active orders on ``delivery_date``."""
+    stmt = (
+        select(SalesOrder)
+        .options(joinedload(SalesOrder.lines))
+        .where(sales.active_order_clause(SalesOrder.delivery_date == business_date))
+    )
+    orders = db.execute(stmt).unique().scalars().all()
+    acc: dict[str, dict[str, Decimal | int]] = {
+        key: {"order_count": 0, "unit_quantity": 0, "revenue": Decimal("0")} for key in _CUSTOMER_SEGMENT_BUCKETS
+    }
+    sold = 0
+    for order in orders:
+        key = _customer_segment_bucket(getattr(order, "customer_segment", None))
+        qty = sum(int(li.quantity) for li in order.lines)
+        sold += qty
+        bucket = acc[key]
+        bucket["order_count"] = int(bucket["order_count"]) + 1
+        bucket["unit_quantity"] = int(bucket["unit_quantity"]) + qty
+        bucket["revenue"] = Decimal(str(bucket["revenue"])) + Decimal(str(order.total))
+    mix = [
+        DailySegmentMixRow(
+            segment=key,  # type: ignore[arg-type]
+            order_count=int(acc[key]["order_count"]),
+            unit_quantity=int(acc[key]["unit_quantity"]),
+            revenue=Decimal(str(acc[key]["revenue"])),
+        )
+        for key in _CUSTOMER_SEGMENT_BUCKETS
+    ]
+    return sold, mix
+
+
 def _build_daily_cylinder_computed(db: Session, business_date: date, row: DailyCylinderAudit | None) -> DailyCylinderAuditComputed:
     """Apply end-of-day reconciliation: water from supplier (``import_full``) and shells to supplier (``supplier_shell_units``) are independent."""
     delivered = _aggregate_delivered_full(db, business_date)
     borrowed = _aggregate_borrowed_shells(db, business_date)
     returned = _aggregate_returned_shells_debt(db, business_date)
+    sold_units, segment_mix = _delivery_day_sold_mix(db, business_date)
     mf = int(row.morning_full) if row else 0
     ms = int(row.morning_shell) if row else 0
-    imp = int(row.import_full) if row else 0
+    imp = inbound_units_on_date(db, business_date)
     sup_shell = int(row.supplier_shell_units) if row else 0
     eve_f = int(row.evening_full) if row else 0
     eve_s = int(row.evening_shell) if row else 0
@@ -2298,6 +2705,10 @@ def _build_daily_cylinder_computed(db: Session, business_date: date, row: DailyC
         expected_evening_shell=exp_s,
         variance_full=var_f,
         variance_shell=var_s,
+        warehouse_import_full=imp,
+        sold_units_total=sold_units,
+        remaining_full=mf + imp - sold_units,
+        segment_mix=segment_mix,
     )
 
 
@@ -2316,6 +2727,15 @@ def get_daily_cylinder_audit(
     except ValueError as e:
         raise HTTPException(status_code=400, detail="Ngày không hợp lệ (YYYY-MM-DD)") from e
     row = db.scalar(select(DailyCylinderAudit).where(DailyCylinderAudit.business_date == d))
+    qty = inbound_units_on_date(db, d)
+    if row is not None and row.import_full != qty:
+        row.import_full = qty
+        db.commit()
+        db.refresh(row)
+    elif row is None and qty > 0:
+        row = sync_audit_import_full(db, d)
+        db.commit()
+        db.refresh(row)
     computed = _build_daily_cylinder_computed(db, d, row)
     rec = DailyCylinderAuditRecord.model_validate(row) if row is not None else None
     return DailyCylinderAuditPayload(record=rec, computed=computed)
@@ -2347,8 +2767,6 @@ def put_daily_cylinder_audit(
         row.morning_full = int(data["morning_full"])
     if "morning_shell" in data and data["morning_shell"] is not None:
         row.morning_shell = int(data["morning_shell"])
-    if "import_full" in data and data["import_full"] is not None:
-        row.import_full = int(data["import_full"])
     if "supplier_shell_units" in data and data["supplier_shell_units"] is not None:
         row.supplier_shell_units = int(data["supplier_shell_units"])
     if "evening_full" in data and data["evening_full"] is not None:
@@ -2357,6 +2775,7 @@ def put_daily_cylinder_audit(
         row.evening_shell = int(data["evening_shell"])
     if "note" in data:
         row.note = _strip_opt_text(data.get("note"))
+    row.import_full = inbound_units_on_date(db, d)
     row.updated_at = datetime.now(UTC)
     _write_audit(
         db,

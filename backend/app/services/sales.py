@@ -7,11 +7,21 @@ from decimal import ROUND_HALF_UP, Decimal
 from sqlalchemy import and_, select
 from sqlalchemy.orm import Session, joinedload
 
-from app.models import Product, SalesOrder, SalesOrderItem, User, UserRole
+from app.models import CustomerSegment, Product, SalesOrder, SalesOrderItem, User, UserRole
 from app.schemas import SalesOrderCreate, SalesOrderItemOut, SalesOrderLineIn, SalesOrderResponse
 from app.services.gas_ledger_rules import gas_ledger_gap_messages, order_fully_ready_for_gas_ledger
 from app.services.phone import normalize_phone
+from app.services.pricing import unit_price_for_segment
 from app.timezone import utc_now
+
+_CUSTOMER_SEGMENT_VALUES = frozenset(item.value for item in CustomerSegment)
+
+
+def _require_customer_segment(value: str | None) -> str:
+    """Create path requires a known segment; missing/invalid values are rejected."""
+    if value not in _CUSTOMER_SEGMENT_VALUES:
+        raise ValueError("Cần chọn tệp khách hàng: đại lý sỉ, quán ăn hoặc khách lẻ")
+    return value
 
 
 def active_order_clause(*conditions):
@@ -52,8 +62,9 @@ def create_sales_order(
 
     ``delivery_status`` defaults to ``in_transit``; ``completed`` is accepted when provided.
     ``borrowed_shell_units`` defaults to 0.
+    ``customer_segment`` is required on create.
 
-    Raises ValueError when a product is missing or stock is insufficient.
+    Raises ValueError when a product is missing, stock is insufficient, or segment is missing.
     """
     lines_in = payload.lines
     product_ids = [ln.product_id for ln in lines_in]
@@ -71,11 +82,12 @@ def create_sales_order(
         if p.stock_quantity < need:
             raise ValueError(f"Insufficient stock for {p.name} (need {need}, have {p.stock_quantity})")
 
+    customer_segment = _require_customer_segment(payload.customer_segment)
     cart_subtotal = Decimal("0")
     built_lines: list[tuple[Product, int, Decimal, Decimal, SalesOrderLineIn]] = []
     for ln in lines_in:
         p = by_id[ln.product_id]
-        unit = Decimal(str(p.sell_price))
+        unit = unit_price_for_segment(p, customer_segment)
         line_tot = unit * ln.quantity
         cart_subtotal += line_tot
         built_lines.append((p, ln.quantity, unit, line_tot, ln))
@@ -124,6 +136,7 @@ def create_sales_order(
         assigned_to_user_id=assigned_id,
         delivery_status=delivery_stat,
         borrowed_shell_units=int(payload.borrowed_shell_units or 0),
+        customer_segment=customer_segment,
     )
     db.add(header)
     db.flush()
@@ -163,7 +176,7 @@ def create_sales_order(
 
 
 def _build_order_payload(
-    db: Session, payload: SalesOrderCreate
+    db: Session, payload: SalesOrderCreate, *, customer_segment: str | None
 ) -> tuple[dict[int, Product], list[tuple[Product, int, Decimal, Decimal, SalesOrderLineIn]], Decimal, Decimal, Decimal]:
     """Validate order payload and compute pricing tuple used by create/update."""
     lines_in = payload.lines
@@ -185,7 +198,7 @@ def _build_order_payload(
     built_lines: list[tuple[Product, int, Decimal, Decimal, SalesOrderLineIn]] = []
     for ln in lines_in:
         p = by_id[ln.product_id]
-        unit = Decimal(str(p.sell_price))
+        unit = unit_price_for_segment(p, customer_segment)
         line_tot = unit * ln.quantity
         cart_subtotal += line_tot
         built_lines.append((p, ln.quantity, unit, line_tot, ln))
@@ -212,7 +225,10 @@ def update_sales_order(
         if product is not None:
             product.stock_quantity += li.quantity
 
-    _, built_lines, cart_subtotal, vat_amount, grand_total = _build_order_payload(db, payload)
+    segment_for_price = payload.customer_segment if payload.customer_segment is not None else order.customer_segment
+    _, built_lines, cart_subtotal, vat_amount, grand_total = _build_order_payload(
+        db, payload, customer_segment=segment_for_price
+    )
 
     for li in list(order.lines):
         db.delete(li)
@@ -246,6 +262,8 @@ def update_sales_order(
     if payload.delivery_status is not None:
         order.delivery_status = payload.delivery_status
     order.borrowed_shell_units = int(payload.borrowed_shell_units or 0)
+    if payload.customer_segment is not None:
+        order.customer_segment = _require_customer_segment(payload.customer_segment)
 
     for p, qty, unit, line_tot, ln_in in built_lines:
         db.add(
@@ -336,6 +354,7 @@ def order_to_response(order: SalesOrder) -> SalesOrderResponse:
         assigned_to_username=assigned_username,
         delivery_status=getattr(order, "delivery_status", None) or "in_transit",
         borrowed_shell_units=int(getattr(order, "borrowed_shell_units", 0) or 0),
+        customer_segment=getattr(order, "customer_segment", None),
         order_items=items_out,
         gas_ledger_ready=order_fully_ready_for_gas_ledger(order),
         gas_ledger_gaps=gas_ledger_gap_messages(order),
