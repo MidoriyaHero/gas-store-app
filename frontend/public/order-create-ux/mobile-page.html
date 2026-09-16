@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>A. Điện thoại 4 bước</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="./theme.css" />
+  </head>
+  <body class="phone-page">
+    <div class="phone">
+      <div class="phone-status"><span>9:41</span><span>LTE</span></div>
+      <header class="phone-head">
+        <p style="margin:0 0 4px;font-size:12px"><a href="./index.html">Tất cả mock</a> · A. 4 bước</p>
+        <h1 data-step-title>Khách nhận hàng</h1>
+        <nav class="steps" style="margin-top:8px">
+          <button type="button" class="is-on" data-step="customer">Khách</button>
+          <button type="button" data-step="place">Điểm</button>
+          <button type="button" data-step="goods">Chai</button>
+          <button type="button" data-step="pay">Thu</button>
+        </nav>
+      </header>
+      <div class="slip-strip">
+        <div>
+          <b data-slip-name class="is-empty">Chưa ghi tên</b>
+          <div><b data-slip-gap class="is-empty">Thiếu tên</b></div>
+        </div>
+        <strong data-slip-total>0đ</strong>
+      </div>
+      <div class="phone-scroll">
+        <div class="stack" data-panel="customer">
+          <div class="block stack">
+            <div class="field">
+              <label>Tên khách</label>
+              <input class="input" data-field="name" placeholder="Chị Lan" />
+            </div>
+            <div class="field">
+              <label>Số điện thoại</label>
+              <input class="input" data-field="phone" placeholder="0909 123 456" inputmode="tel" />
+            </div>
+            <div class="field">
+              <span class="field-label">Tệp khách hàng</span>
+              <div class="chips">
+                <button type="button" class="chip" data-segment="wholesale">Đại lý sỉ</button>
+                <button type="button" class="chip" data-segment="restaurant">Quán ăn</button>
+                <button type="button" class="chip" data-segment="retail">Khách lẻ</button>
+              </div>
+            </div>
+            <div class="field">
+              <label>Ngày giao</label>
+              <input class="input" type="date" value="2026-09-16" data-field="date" />
+            </div>
+            <div class="field">
+              <label>Nhân viên giao</label>
+              <select class="select" data-field="staff">
+                <option value="">Chưa gán</option>
+                <option>Minh</option>
+                <option>Hùng</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="stack" data-panel="place" hidden>
+          <div class="block stack">
+            <div class="field">
+              <label>Địa chỉ giao</label>
+              <input class="input" data-field="address" placeholder="Số nhà, hẻm…" />
+            </div>
+            <button type="button" class="btn btn-ghost" data-paste>Dán từ Google Maps</button>
+            <button type="button" class="btn" data-pin>Ghim điểm này</button>
+            <div class="map-stage" data-pin style="height:180px">
+              <span class="map-pin is-off"></span>
+            </div>
+          </div>
+        </div>
+
+        <div class="stack" data-panel="goods" hidden>
+          <div class="block stack">
+            <p class="field-label" style="margin:0">Mẫu Gas Hoàng Ân</p>
+            <select class="select" data-product>
+              <option value="12">Gas 12kg — 420.000đ</option>
+              <option value="45">Gas 45kg — 1.450.000đ</option>
+            </select>
+            <button type="button" class="btn" data-add>Thêm chai</button>
+          </div>
+          <div class="stack" data-cart></div>
+        </div>
+
+        <div class="stack" data-panel="pay" hidden>
+          <div class="block stack">
+            <div class="chips">
+              <button type="button" class="chip is-on" data-pay="cash">Đủ</button>
+              <button type="button" class="chip" data-pay="partial">Một phần</button>
+              <button type="button" class="chip" data-pay="debt">Ghi nợ</button>
+            </div>
+            <div class="field">
+              <label>Ghi chú giao</label>
+              <textarea class="textarea" data-field="note"></textarea>
+            </div>
+          </div>
+        </div>
+      </div>
+      <footer class="phone-foot">
+        <button type="button" class="btn btn-ghost" data-prev>Quay lại</button>
+        <button type="button" class="btn" data-next>Tiếp theo</button>
+        <button type="button" class="btn" data-create hidden>Tạo đơn</button>
+      </footer>
+    </div>
+    <div class="toast" data-toast hidden></div>
+    <script src="./order-mock.js"></script>
+  </body>
+</html>

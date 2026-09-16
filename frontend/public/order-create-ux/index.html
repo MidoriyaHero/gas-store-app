@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Chọn cách lập phiếu giao</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="./theme.css" />
+  </head>
+  <body>
+    <div class="mock-strip">
+      <strong>Mock UX · tạo đơn Gas Huy Hoàng</strong>
+      <span>Không gọi API · chọn một approach rồi nói em implement</span>
+    </div>
+
+    <main class="gallery">
+      <header class="gallery-hero">
+        <div>
+          <h1>Lập phiếu giao, đừng điền form dài.</h1>
+          <p>
+            Web hiện nhét khách, bản đồ, chai và tiền vào một modal cuộn. Ba mock dưới đây giữ nguyên dữ liệu đơn,
+            chỉ đổi cách người bán nhìn thấy phiếu. Bấm vào approach để đi thử.
+          </p>
+        </div>
+        <aside class="slip" aria-hidden="true">
+          <div class="slip-perf"></div>
+          <div class="slip-body">
+            <p class="slip-shop">Gas Huy Hoàng</p>
+            <p class="slip-kicker">Phiếu giao</p>
+            <span class="slip-stamp">Thiếu sổ gas</span>
+            <ul class="slip-lines">
+              <li><span>Khách</span><b>Chị Lan</b></li>
+              <li><span>Điểm</span><b class="is-empty">Chưa ghim</b></li>
+              <li><span>Chai</span><b>12kg × 2</b></li>
+            </ul>
+            <div class="slip-total"><span>Thu</span><strong>840.000đ</strong></div>
+          </div>
+        </aside>
+      </header>
+
+      <p class="section-title">Web admin</p>
+      <div class="gallery-grid">
+        <a class="pick" href="./web-page.html">
+          <h2>A. Trang phiếu</h2>
+          <p>Rời danh sách. Phiếu sống bên trái, form một việc một lúc. Bản đồ chiếm cả bước Điểm giao.</p>
+          <p class="when">Dùng khi admin tạo đơn trên màn hình lớn và hay thiếu sổ gas vì cuộn sót field.</p>
+        </a>
+        <a class="pick" href="./web-sheet.html">
+          <h2>B. Sheet từng bước</h2>
+          <p>Danh sách đơn vẫn thấy mờ phía sau. Overlay 4 bước, footer dính tổng và Tạo đơn.</p>
+          <p class="when">Dùng khi muốn lập phiếu nhanh rồi quay lại bảng, không mất ngữ cảnh đơn đang chạy.</p>
+        </a>
+        <a class="pick" href="./web-split.html">
+          <h2>C. Modal hai cột</h2>
+          <p>Một màn, không chia bước. Trái khách + bản đồ, phải giỏ + thu tiền. Chi tiết sổ gas gấp được.</p>
+          <p class="when">Dùng khi người bán đã thuộc flow và muốn thấy hết trên một tấm — rủi ro vẫn sót field dưới fold.</p>
+        </a>
+      </div>
+
+      <p class="section-title">Điện thoại admin</p>
+      <div class="mobile-row">
+        <a class="pick" href="./mobile-page.html">
+          <h2>A. 4 bước full màn</h2>
+          <p>Phiếu thu thành dải trên đầu: tên, tổng, thiếu gì. Map và chai không chung một cuộn.</p>
+        </a>
+        <a class="pick" href="./mobile-sheet.html">
+          <h2>B. 2 bước (gần app hiện tại)</h2>
+          <p>Khách &amp; giao, rồi Hàng &amp; thu. Footer dính. Ít bước hơn, form mỗi bước vẫn gọn hơn web cũ.</p>
+        </a>
+        <a class="pick" href="./mobile-scroll.html">
+          <h2>C. Một màn cuộn</h2>
+          <p>Để so sánh. Không khuyến nghị — đây là đúng cái đang làm web bị tẹ.</p>
+        </a>
+      </div>
+    </main>
+  </body>
+</html>

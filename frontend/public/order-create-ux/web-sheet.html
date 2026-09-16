@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>B. Sheet từng bước — tạo đơn</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="./theme.css" />
+  </head>
+  <body>
+    <div class="mock-strip">
+      <span><a href="./index.html">Tất cả mock</a> · <strong>B. Sheet từng bước</strong></span>
+      <span>Danh sách vẫn thấy phía sau</span>
+    </div>
+
+    <div class="app">
+      <aside class="rail">
+        <div class="rail-brand">
+          <img src="../brand/logo.png" alt="" width="36" height="36" />
+          <p>Gas Huy Hoàng<span>Quản lý bán hàng</span></p>
+        </div>
+        <nav>
+          <a class="nav" href="./index.html">Tổng quan</a>
+          <a class="nav is-on" href="./web-sheet.html">Đơn hàng</a>
+          <a class="nav" href="./index.html">Kho</a>
+        </nav>
+      </aside>
+      <div class="workspace">
+        <header class="workspace-head">
+          <h1>Đơn hàng</h1>
+          <button class="btn" type="button">Tạo đơn hàng</button>
+        </header>
+        <div class="workspace-body">
+          <div class="table-card">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th>Mã</th>
+                  <th>Khách</th>
+                  <th>Giao</th>
+                  <th>Tổng</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>DH-2409-171</td>
+                  <td>Anh Tuấn</td>
+                  <td>Đang giao</td>
+                  <td>420.000đ</td>
+                </tr>
+                <tr>
+                  <td>DH-2409-170</td>
+                  <td>Quán Cơm 3</td>
+                  <td><span class="gap">Thiếu sổ gas</span></td>
+                  <td>1.450.000đ</td>
+                </tr>
+                <tr>
+                  <td>DH-2409-168</td>
+                  <td>Chị Hoa</td>
+                  <td>Hoàn thành</td>
+                  <td>840.000đ</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="veil">
+      <div class="sheet" role="dialog" aria-labelledby="sheet-title">
+        <div class="sheet-head">
+          <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap">
+            <h2 id="sheet-title" data-step-title style="margin:0;font-size:18px">Khách nhận hàng</h2>
+            <nav class="steps">
+              <button type="button" class="is-on" data-step="customer">Khách</button>
+              <button type="button" data-step="place">Điểm giao</button>
+              <button type="button" data-step="goods">Chai</button>
+              <button type="button" data-step="pay">Thu tiền</button>
+            </nav>
+          </div>
+        </div>
+        <div class="sheet-body">
+          <div class="row row-2" style="align-items:start">
+            <div>
+              <div class="stack" data-panel="customer">
+                <div class="field">
+                  <label>Tên khách</label>
+                  <input class="input" data-field="name" placeholder="Chị Lan" />
+                </div>
+                <div class="field">
+                  <label>Số điện thoại</label>
+                  <input class="input" data-field="phone" placeholder="0909 123 456" />
+                </div>
+                <div class="field">
+                  <span class="field-label">Tệp khách hàng</span>
+                  <div class="chips">
+                    <button type="button" class="chip" data-segment="wholesale">Đại lý sỉ</button>
+                    <button type="button" class="chip" data-segment="restaurant">Quán ăn</button>
+                    <button type="button" class="chip" data-segment="retail">Khách lẻ</button>
+                  </div>
+                </div>
+                <div class="row row-2">
+                  <div class="field">
+                    <label>Ngày giao</label>
+                    <input class="input" type="date" value="2026-09-16" data-field="date" />
+                  </div>
+                  <div class="field">
+                    <label>Nhân viên giao</label>
+                    <select class="select" data-field="staff">
+                      <option value="">Chưa gán</option>
+                      <option>Minh</option>
+                      <option>Hùng</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <div class="stack" data-panel="place" hidden>
+                <div class="field">
+                  <label>Địa chỉ giao</label>
+                  <input class="input" data-field="address" placeholder="Số nhà, hẻm, phường…" />
+                </div>
+                <div class="map-toolbar">
+                  <button type="button" class="btn btn-ghost" data-geo-hit="12 hẻm 45, P. Tân Phú, Q. Tân Phú">Tìm trên bản đồ</button>
+                  <button type="button" class="btn btn-ghost" data-paste>Áp dụng Maps</button>
+                  <button type="button" class="btn" data-pin>Ghim điểm này</button>
+                </div>
+                <div class="map-stage" data-pin>
+                  <span class="map-pin is-off"></span>
+                </div>
+              </div>
+
+              <div class="stack" data-panel="goods" hidden>
+                <div class="field">
+                  <span class="field-label">Mẫu chai</span>
+                  <select class="select"><option>Gas Hoàng Ân</option></select>
+                </div>
+                <div class="row" style="grid-template-columns:1fr 90px auto">
+                  <select class="select" data-product>
+                    <option value="12">Gas 12kg — 420.000đ</option>
+                    <option value="45">Gas 45kg — 1.450.000đ</option>
+                  </select>
+                  <input class="input" type="number" min="1" value="1" />
+                  <button type="button" class="btn" data-add>Thêm</button>
+                </div>
+                <div class="stack" data-cart></div>
+              </div>
+
+              <div class="stack" data-panel="pay" hidden>
+                <div class="chips">
+                  <button type="button" class="chip is-on" data-pay="cash">Thanh toán đủ</button>
+                  <button type="button" class="chip" data-pay="partial">Thu một phần</button>
+                  <button type="button" class="chip" data-pay="debt">Ghi nợ</button>
+                </div>
+                <div class="field">
+                  <label>Ghi chú giao</label>
+                  <textarea class="textarea" data-field="note"></textarea>
+                </div>
+                <div class="field">
+                  <label>Thuế GTGT (%)</label>
+                  <input class="input" type="number" value="0" data-field="vat" />
+                </div>
+              </div>
+            </div>
+
+            <aside class="slip">
+              <div class="slip-perf"></div>
+              <div class="slip-body">
+                <p class="slip-shop">Gas Huy Hoàng</p>
+                <p class="slip-kicker">Phiếu giao</p>
+                <span class="slip-stamp" data-slip-stamp>Thiếu sổ gas</span>
+                <ul class="slip-lines">
+                  <li><span>Khách</span><b data-slip-name class="is-empty">Chưa ghi tên</b></li>
+                  <li><span>Điểm</span><b data-slip-place class="is-empty">Chưa ghim điểm giao</b></li>
+                  <li><span>Chai</span><b data-slip-goods class="is-empty">Chưa thêm chai</b></li>
+                </ul>
+                <div class="slip-total"><span>Tổng</span><strong data-slip-total>0đ</strong></div>
+              </div>
+            </aside>
+          </div>
+        </div>
+        <div class="sheet-foot">
+          <div class="foot-total">
+            <span>Tổng trên phiếu</span>
+            <strong data-foot-total>0đ</strong>
+          </div>
+          <div class="foot-actions">
+            <a class="btn btn-ghost" href="./index.html">Hủy</a>
+            <button type="button" class="btn btn-ghost" data-prev>Quay lại</button>
+            <button type="button" class="btn" data-next>Tiếp theo</button>
+            <button type="button" class="btn" data-create hidden>Tạo đơn</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="toast" data-toast hidden></div>
+    <script src="./order-mock.js"></script>
+  </body>
+</html>
