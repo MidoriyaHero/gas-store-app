@@ -6,6 +6,7 @@ export type PeriodKey = "today" | "7d" | "30d" | "mtd";
 
 export interface TimeOrderRow {
   created_at: string;
+  delivery_date?: string | null;
   total?: number | string;
   outstanding_amount?: number | string;
 }
@@ -21,6 +22,15 @@ export interface DailyMetricRow {
   outstanding: number | string;
   profit: number | string;
   order_count: number;
+  unit_quantity: number;
+}
+
+export interface DashboardPeriodTotals {
+  revenue: number | string;
+  outstanding: number | string;
+  profit: number | string;
+  order_count: number;
+  unit_quantity: number;
 }
 
 export interface DashboardSummaryResponse {
@@ -29,7 +39,16 @@ export interface DashboardSummaryResponse {
   outstanding: number | string;
   profit: number | string;
   order_count: number;
+  unit_quantity: number;
   series: DailyMetricRow[];
+  previous?: DashboardPeriodTotals | null;
+  customer_segments?: CustomerSegmentMetric[];
+}
+
+export interface CustomerSegmentMetric {
+  segment: "wholesale" | "restaurant" | "retail" | "unspecified";
+  order_count: number;
+  revenue: number | string;
 }
 
 export interface DailySeriesRow {
@@ -37,6 +56,7 @@ export interface DailySeriesRow {
   label: string;
   revenue: number;
   orderCount: number;
+  unitQuantity: number;
   outstanding: number;
   profit: number;
 }
@@ -58,6 +78,12 @@ export function financeRangeToSummaryKey(days: string): "today" | "7d" | "30d" |
 /** ``YYYY-MM-DD`` key in local timezone for grouping. */
 export function localDateKey(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/** Business metric date key: delivery date when set, else local created-at day. */
+export function orderMetricDateKey(order: Pick<TimeOrderRow, "created_at" | "delivery_date">): string {
+  if (order.delivery_date) return order.delivery_date.slice(0, 10);
+  return localDateKey(new Date(order.created_at));
 }
 
 /** Create day-level range from today by selected period. */
@@ -92,6 +118,7 @@ export function seriesFromSummary(rows: DailyMetricRow[]): DailySeriesRow[] {
       label: `${d.getDate()}/${d.getMonth() + 1}`,
       revenue: Number(row.revenue || 0),
       orderCount: row.order_count,
+      unitQuantity: row.unit_quantity ?? 0,
       outstanding: Number(row.outstanding || 0),
       profit: Number(row.profit || 0),
     };
@@ -105,12 +132,13 @@ export function summarizeSeries(range: RangeWindow, orders: TimeOrderRow[]): Dai
     label: `${d.getDate()}/${d.getMonth() + 1}`,
     revenue: 0,
     orderCount: 0,
+    unitQuantity: 0,
     outstanding: 0,
     profit: 0,
   }));
   const byDate = new Map(rows.map((row) => [row.dateKey, row]));
   for (const order of orders) {
-    const key = localDateKey(new Date(order.created_at));
+    const key = orderMetricDateKey(order);
     const row = byDate.get(key);
     if (!row) continue;
     row.revenue += Number(order.total || 0);

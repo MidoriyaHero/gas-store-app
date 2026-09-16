@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="vi" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stamina & Skills - Calisthenics & Muay Thai Tracker</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome Premium Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Lexend:wght@300;400;500;600;700;800&display=swap');
+        body {
+            font-family: 'Lexend', sans-serif;
+        }
+        /* Custom Scrollbar for sleek UI */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0f172a;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #334155;
+            border-radius: 9999px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #475569;
+        }
+        /* Hide scrollbar for element with class */
+        .scrollbar-none::-webkit-scrollbar {
+            display: none;
+        }
+        .scrollbar-none {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+        /* Smooth scale animation */
+        @keyframes pulse-ring {
+            0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7); }
+            70% { transform: scale(1); box-shadow: 0 0 0 12px rgba(59, 130, 246, 0); }
+            100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
+        }
+        .kegel-pulse {
+            animation: pulse-ring 4s infinite ease-in-out;
+        }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col pb-24 md:pb-12 selection:bg-emerald-500/30 selection:text-emerald-300">
+
+    <!-- Top Glow Effect -->
+    <div class="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-7xl h-96 bg-gradient-to-b from-emerald-500/10 via-blue-500/5 to-transparent rounded-full blur-3xl pointer-events-none -z-10"></div>
+
+    <!-- App Header -->
+    <header class="border-b border-slate-800/80 bg-slate-950/80 backdrop-blur-md sticky top-0 z-50 px-4 py-3.5 transition-all">
+        <div class="max-w-6xl mx-auto flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <div class="w-11 h-11 rounded-2xl bg-gradient-to-tr from-red-600 via-orange-500 to-amber-400 flex items-center justify-center text-white font-bold text-xl shadow-lg shadow-orange-500/20">
+                    <i class="fa-solid fa-fire-flame-curved"></i>
+                </div>
+                <div>
+                    <h1 class="text-lg font-black tracking-tight bg-gradient-to-r from-red-500 via-orange-400 to-emerald-400 bg-clip-text text-transparent">STAMINA & SKILLS</h1>
+                    <p class="text-[11px] text-slate-400 font-medium tracking-wider uppercase">Calisthenics x Muay Thai</p>
+                </div>
+            </div>
+            
+            <!-- Quick Stat: Creatine & Water Tracker -->
+            <button onclick="trackWater()" class="relative flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-800 text-xs font-semibold hover:bg-slate-800/80 hover:border-slate-700 transition duration-200 group active:scale-95">
+                <i class="fa-solid fa-droplet text-blue-400 animate-pulse group-hover:scale-110 transition"></i>
+                <span><span id="waterCount" class="text-blue-400 font-bold">0.0</span>/3.0L H₂O</span>
+                <span class="absolute -top-1 -right-1 flex h-2.5 w-2.5" id="waterAlert" style="display:none;">
+                    <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                    <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-blue-500"></span>
+                </span>
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <main class="max-w-6xl w-full mx-auto px-4 mt-6 flex-1 flex flex-col gap-6">
+        
+        <!-- Hero Section / Dynamic Headline -->
+        <div class="text-center md:text-left py-4">
+            <h2 class="text-2xl md:text-3xl font-extrabold text-white tracking-tight">Kế hoạch luyện tập tối ưu</h2>
+            <p class="text-slate-400 text-sm mt-1">Phát triển toàn diện sức mạnh, thể chất chiến đấu và năng lực của bạn.</p>
+        </div>
+
+        <!-- Desktop Layout Grid (1 Column on Mobile, 2 on Desktop) -->
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+            
+            <!-- LEFT COLUMN: Day Selector & Exercises (Width: 7/12) -->
+            <section class="lg:col-span-7 space-y-6">
+                
+                <!-- Horizontal Weekday Selector -->
+                <div class="bg-slate-900/60 p-2 rounded-2xl border border-slate-800/80">
+                    <div class="flex gap-2 overflow-x-auto pb-1 scrollbar-none snap-x">
+                        <button onclick="selectDay(2)" id="btn-day-2" class="snap-center shrink-0 w-16 py-3.5 rounded-xl border flex flex-col items-center gap-1.5 transition-all duration-200">
+                            <span class="text-[10px] uppercase font-bold text-slate-400 tracking-wider">T2</span>
+                            <span class="text-xs font-bold text-slate-100">Push</span>
+                        </button>
+                        <button onclick="selectDay(3)" id="btn-day-3" class="snap-center shrink-0 w-16 py-3.5 rounded-xl border flex flex-col items-center gap-1.5 transition-all duration-200">
+                            <span class="text-[10px] uppercase font-bold text-slate-400 tracking-wider">T3</span>
+                            <span class="text-xs font-bold text-slate-100">Pull</span>
+                        </button>
+                        <button onclick="selectDay(4)" id="btn-day-4" class="snap-center shrink-0 w-16 py-3.5 rounded-xl border flex flex-col items-center gap-1.5 transition-all duration-200">
+                            <span class="text-[10px] uppercase font-bold text-slate-400 tracking-wider">T4</span>
+                            <span class="text-xs font-bold text-slate-100">Core</span>
+                        </button>
+                        <button onclick="selectDay(5)" id="btn-day-5" class="snap-center shrink-0 w-16 py-3.5 rounded-xl border flex flex-col items-center gap-1.5 transition-all duration-200">
+                            <span class="text-[10px] uppercase font-bold text-slate-400 tracking-wider">T5</span>
+                            <span class="text-xs font-bold text-slate-100">OFF</span>
+                        </button>
+                        <button onclick="selectDay(6)" id="btn-day-6" class="snap-center shrink-0 w-16 py-3.5 rounded-xl border flex flex-col items-center gap-1.5 transition-all duration-200">
+                            <span class="text-[10px] uppercase font-bold text-slate-400 tracking-wider">T6</span>
+                            <span class="text-xs font-bold text-slate-100">Legs</span>
+                        </button>
+                        <button onclick="selectDay(7)" id="btn-day-7" class="snap-center shrink-0 w-16 py-3.5 rounded-xl border flex flex-col items-center gap-1.5 transition-all duration-200">
+                            <span class="text-[10px] uppercase font-bold text-slate-400 tracking-wider">T7</span>
+                            <span class="text-xs font-bold text-slate-100">Skill</span>
+                        </button>
+                        <button onclick="selectDay(8)" id="btn-day-8" class="snap-center shrink-0 w-16 py-3.5 rounded-xl border flex flex-col items-center gap-1.5 transition-all duration-200">
+                            <span class="text-[10px] uppercase font-bold text-slate-400 tracking-wider">CN</span>
+                            <span class="text-xs font-bold text-slate-100">Hồi</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Exercises Card -->
+                <div class="bg-slate-900 border border-slate-800 rounded-3xl p-5 md:p-6 shadow-xl relative overflow-hidden">
+                    <!-- Day Meta Header -->
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6 border-b border-slate-800 pb-5">
+                        <div>
+                            <h2 id="dayTitle" class="text-xl md:text-2xl font-extrabold text-white">Thứ Hai</h2>
+                            <p id="dayFocus" class="text-sm text-emerald-400 font-medium mt-1">Sức Mạnh Đẩy (Push) & Planche</p>
+                        </div>
+                        <div>
+                            <span id="dayTypeBadge" class="text-[10px] font-bold uppercase tracking-wider bg-slate-800 border border-slate-700 px-3 py-1.5 rounded-full text-slate-300 block text-center sm:inline">
+                                Kỹ năng / Cơ bản
+                            </span>
+                        </div>
+                    </div>
+
+                    <!-- Exercises Container -->
+                    <div id="exercisesList" class="space-y-4">
+                        <!-- Dynamically populated through JS -->
+                    </div>
+                </div>
+            </section>
+
+            <!-- RIGHT COLUMN: Progress & Tools (Width: 5/12) -->
+            <section class="lg:col-span-5 space-y-6">
+                
+                <!-- Daily Progress Dashboard -->
+                <div class="bg-gradient-to-br from-slate-900 to-slate-950 border border-slate-800/80 rounded-3xl p-5 shadow-xl">
+                    <div class="flex justify-between items-center mb-3">
+                        <span class="text-sm font-semibold text-slate-400 flex items-center gap-2">
+                            <i class="fa-solid fa-circle-check text-emerald-400"></i>
+                            Tiến độ hôm nay
+                        </span>
+                        <span id="progressPercent" class="text-xs font-bold text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20">0%</span>
+                    </div>
+                    <div class="w-full bg-slate-800/80 h-3.5 rounded-full overflow-hidden p-0.5 border border-slate-700/50">
+                        <div id="progressBar" class="bg-gradient-to-r from-emerald-500 via-teal-400 to-emerald-400 h-full w-0 rounded-full transition-all duration-500 ease-out shadow-lg shadow-emerald-500/30"></div>
+                    </div>
+                </div>
+
+                <!-- Tools Grid (Rest Timer & Kegel) -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-4">
+                    
+                    <!-- Rest Timer Widget -->
+                    <div class="bg-slate-900 border border-slate-800/80 rounded-2xl p-5 shadow-lg flex flex-col justify-between gap-4">
+                        <div class="flex justify-between items-center">
+                            <span class="text-xs font-bold uppercase text-slate-400 tracking-wider flex items-center gap-1.5">
+                                <i class="fa-regular fa-clock text-blue-400"></i> Đồng hồ đếm nghỉ
+                            </span>
+                            <span id="presetIndicator" class="text-[10px] bg-slate-800 px-2 py-0.5 rounded text-slate-400 border border-slate-700/50">Bản chuẩn (90s)</span>
+                        </div>
+                        
+                        <div class="text-center my-1">
+                            <div id="timerDisplay" class="text-4xl md:text-5xl font-black text-blue-400 tracking-wider">01:30</div>
+                        </div>
+
+                        <div class="flex gap-2">
+                            <button onclick="toggleTimer()" id="btnTimer" class="flex-1 bg-blue-600 hover:bg-blue-500 active:scale-95 text-white font-bold py-2 px-3 rounded-xl text-xs transition duration-150">
+                                Bắt đầu
+                            </button>
+                            <button onclick="resetTimer()" class="bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-300 font-bold p-2.5 rounded-xl text-xs transition duration-150">
+                                <i class="fa-solid fa-rotate-right"></i>
+                            </button>
+                        </div>
+                        
+                        <div class="flex justify-between items-center gap-1.5 pt-2 border-t border-slate-800/60">
+                            <button onclick="setTimerPreset(60, '60s')" class="flex-1 text-[10px] font-semibold bg-slate-800/60 hover:bg-slate-800 py-1.5 rounded-lg text-slate-300 hover:text-white transition">60s</button>
+                            <button onclick="setTimerPreset(90, '90s')" class="flex-1 text-[10px] font-semibold bg-slate-800/60 hover:bg-slate-800 py-1.5 rounded-lg text-slate-300 hover:text-white transition">90s</button>
+                            <button onclick="setTimerPreset(180, '3 Phút MT')" class="flex-1 text-[10px] font-semibold bg-slate-800/60 hover:bg-slate-800 py-1.5 rounded-lg text-slate-300 hover:text-white transition">3p MT</button>
+                        </div>
+                    </div>
+
+                    <!-- Kegel Assistant Widget -->
+                    <div class="bg-slate-900 border border-slate-800/80 rounded-2xl p-5 shadow-lg flex flex-col justify-between items-center text-center gap-4">
+                        <span class="text-xs font-bold uppercase text-slate-400 tracking-wider flex items-center gap-1.5">
+                            <i class="fa-solid fa-wave-square text-emerald-400"></i> Trợ lý nhịp Kegel
+                        </span>
+                        
+                        <div class="relative w-20 h-20 my-2 flex items-center justify-center">
+                            <!-- Inner Circle -->
+                            <div id="kegelCircle" class="w-16 h-16 rounded-full bg-emerald-500 flex flex-col items-center justify-center text-white font-bold transition-all duration-1000 shadow-lg shadow-emerald-500/20">
+                                <span id="kegelText" class="text-[10px] uppercase font-black tracking-wide">Sẵn sàng</span>
+                            </div>
+                        </div>
+                        
+                        <button onclick="toggleKegel()" id="btnKegel" class="w-full bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-bold py-2 rounded-xl text-xs transition duration-150">
+                            Bắt đầu nhịp
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Supplements Widget -->
+                <div class="bg-slate-900 border border-slate-800/80 rounded-3xl p-5 shadow-lg">
+                    <h3 class="text-sm font-bold text-white mb-4 flex items-center gap-2">
+                        <i class="fa-solid fa-pills text-purple-400"></i> Thực Phẩm Bổ Sung Hôm Nay
+                    </h3>
+                    <div class="space-y-3">
+                        <label class="flex items-start justify-between p-3.5 rounded-2xl bg-slate-950 border border-slate-800/60 hover:border-slate-700/60 cursor-pointer transition group">
+                            <div class="flex items-start gap-3">
+                                <input type="checkbox" id="supp-whey" class="mt-0.5 w-4.5 h-4.5 rounded border-slate-700 bg-slate-900 text-purple-500 focus:ring-purple-500 focus:ring-offset-slate-950 transition cursor-pointer" onchange="updateProgress()">
+                                <div class="text-left">
+                                    <span class="text-xs font-bold block group-hover:text-purple-300 transition">Whey Protein + Creatine</span>
+                                    <span class="text-[10px] text-slate-400 mt-0.5 block">Uống sau tập để phục hồi & bứt phá năng lượng cơ.</span>
+                                </div>
+                            </div>
+                            <i class="fa-solid fa-mug-hot text-purple-400/80 text-sm ml-2 mt-1"></i>
+                        </label>
+                        <label class="flex items-start justify-between p-3.5 rounded-2xl bg-slate-950 border border-slate-800/60 hover:border-slate-700/60 cursor-pointer transition group">
+                            <div class="flex items-start gap-3">
+                                <input type="checkbox" id="supp-zma" class="mt-0.5 w-4.5 h-4.5 rounded border-slate-700 bg-slate-900 text-purple-500 focus:ring-purple-500 focus:ring-offset-slate-950 transition cursor-pointer" onchange="updateProgress()">
+                                <div class="text-left">
+                                    <span class="text-xs font-bold block group-hover:text-purple-300 transition">Kẽm + Magie (ZMA)</span>
+                                    <span class="text-[10px] text-slate-400 mt-0.5 block">Trước ngủ 30-60p, tối ưu Testosterone & thư giãn cơ.</span>
+                                </div>
+                            </div>
+                            <i class="fa-solid fa-moon text-indigo-400/80 text-sm ml-2 mt-1"></i>
+                        </label>
+                    </div>
+                </div>
+
+            </section>
+        </div>
+    </main>
+
+    <!-- Fixed Bottom Toast/Info Panel -->
+    <footer class="fixed bottom-0 left-0 right-0 border-t border-slate-800/80 bg-slate-950/90 backdrop-blur-lg py-3 px-4 z-40">
+        <div class="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-1.5 text-[11px] text-slate-400 text-center">
+            <span class="flex items-center gap-1.5"><i class="fa-solid fa-circle-info text-amber-400"></i> Mẹo: Không uống ZMA chung với Whey (Canxi cản hấp thụ Kẽm).</span>
+            <span class="text-emerald-400 font-bold flex items-center gap-1"><i class="fa-solid fa-circle-exclamation animate-bounce"></i> Lưu ý: Hãy giữ cơ thể ngậm đủ nước!</span>
+        </div>
+    </footer>
+
+    <!-- App Logic Script -->
+    <script>
+        const workoutData = {
+            2: {
+                title: "Thứ Hai",
+                focus: "Đẩy (Push) & Planche + Core",
+                badge: "Kỹ Năng / Đẩy / Lõi",
+                exercises: [
+                    { name: "Nhảy dây khởi động", target: "Làm nóng toàn thân, nhịp tim & cổ chân", sets: "1 hiệp", reps: "5 phút" },
+                    { name: "Khởi động cổ tay, khớp vai", target: "Tránh chấn thương gân vai", sets: "5 phút", reps: "Xoay đều" },
+                    { name: "Planche Lean Hold", target: "Skill đầu buổi khi cơ còn tươi", sets: "4 hiệp", reps: "15 - 20s" },
+                    { name: "Pike Push-ups (Dốc vai)", target: "Bổ trợ cơ vai chắc khỏe", sets: "4 hiệp", reps: "8 - 10 cái" },
+                    { name: "Hít đất cơ bản", target: "Cơ ngực & tay sau", sets: "4 hiệp", reps: "15 - 20 cái" },
+                    { name: "Dips (Xà kép hoặc ghế)", target: "Cực tốt cho cơ tay sau", sets: "3 hiệp", reps: "12 cái" },
+                    { name: "CORE: Hollow Body Hold", target: "Siết cơ bụng sâu, giữ lõi ổn định", sets: "4 hiệp", reps: "30 - 40s" },
+                    { name: "CORE: Hanging Knee Raises", target: "Bụng dưới + kiểm soát treo xà", sets: "3 hiệp", reps: "12 - 15 cái" },
+                    { name: "Tập Kegel", target: "Phục hồi sàn chậu", sets: "3 hiệp", reps: "15 lần" }
+                ]
+            },
+            3: {
+                title: "Thứ Ba",
+                focus: "Kéo (Pull) & Front Lever + Core",
+                badge: "Kỹ Năng / Kéo / Lõi",
+                exercises: [
+                    { name: "Nhảy dây khởi động", target: "Làm nóng toàn thân, nhịp tim & cổ chân", sets: "1 hiệp", reps: "5 phút" },
+                    { name: "Khởi động bả vai & khuỷu", target: "Làm nóng khớp trước kéo nặng", sets: "5 phút", reps: "Nhẹ nhàng" },
+                    { name: "Tuck Front Lever Hold", target: "Skill khóa bả vai thẳng tay", sets: "4 hiệp", reps: "Tối đa sức" },
+                    { name: "Pull-ups (Kéo xà đơn)", target: "Phát triển độ rộng lưng xô", sets: "4 hiệp", reps: "6 - 10 cái" },
+                    { name: "Scapula Pulls (Nhấp vai xà)", target: "Kích hoạt bả vai chủ động", sets: "4 hiệp", reps: "12 cái" },
+                    { name: "Horizontal Rows (Kéo xà thấp)", target: "Tạo độ dày lưng trên", sets: "4 hiệp", reps: "12 cái" },
+                    { name: "CORE: Hanging Leg Raises", target: "Bụng dưới nâng cao có kiểm soát", sets: "4 hiệp", reps: "10 - 12 cái" },
+                    { name: "CORE: Plank tĩnh", target: "Ổn định lõi & lưng dưới", sets: "3 hiệp", reps: "45 - 60s" },
+                    { name: "Tập Kegel", target: "Phục hồi sàn chậu", sets: "3 hiệp", reps: "15 lần" }
+                ]
+            },
+            4: {
+                title: "Thứ Tư",
+                focus: "Muay Thai + Core Chuyên Sâu",
+                badge: "Võ / Cardio / Lõi",
+                exercises: [
+                    { name: "Nhảy dây khởi động", target: "Làm nóng toàn thân, nhịp tim & cổ chân", sets: "1 hiệp", reps: "5 phút" },
+                    { name: "Đánh gió (Shadow) → chống đẩy", target: "Quấn tay, tập combo đấm + chống đẩy", sets: "3 hiệp", reps: "3 phút/hiệp" },
+                    { name: "Đánh bao (Heavy Bag)", target: "Lực đấm, đá, gối", sets: "4 hiệp", reps: "3 phút/hiệp" },
+                    { name: "Đánh pad", target: "Chính xác & phản xạ", sets: "3 hiệp", reps: "3 phút/hiệp" },
+                    { name: "Đánh bao → chống đẩy combo", target: "Sức bền võ + đẩy", sets: "3 hiệp", reps: "3 phút/hiệp" },
+                    { name: "CORE: Circuit Russian Twist", target: "Cơ liên sườn, xoay thân", sets: "4 hiệp", reps: "20 cái/bên" },
+                    { name: "CORE: Lying Leg Raises", target: "Bụng dưới", sets: "4 hiệp", reps: "15 cái" },
+                    { name: "CORE: Plank nghiêng (Side Plank)", target: "Chống xoay, lõi bên", sets: "3 hiệp", reps: "40s/bên" },
+                    { name: "Chạy bộ / nhảy dây thả lỏng", target: "Hạ nhiệt tuần hoàn máu", sets: "1 hiệp", reps: "10 phút" }
+                ]
+            },
+            5: {
+                title: "Thứ Năm",
+                focus: "OFF — Nghỉ Hoàn Toàn",
+                badge: "Phục Hồi Gân Khớp",
+                exercises: [
+                    { name: "Nhảy dây khởi động", target: "Làm nóng nhẹ, tuần hoàn máu", sets: "1 hiệp", reps: "5 phút" },
+                    { name: "Nghỉ hoàn toàn hoặc đi bộ nhẹ", target: "Cho gân khuỷu/vai/cổ tay hồi phục", sets: "—", reps: "Cả ngày" },
+                    { name: "Giãn cơ nhẹ (tuỳ chọn)", target: "Thả lỏng cơ mỏi, tăng linh hoạt", sets: "10 phút", reps: "Nhẹ nhàng" },
+                    { name: "Tập Kegel nhẹ nhàng", target: "Tuần hoàn máu vùng chậu", sets: "3 hiệp", reps: "15 lần" }
+                ]
+            },
+            6: {
+                title: "Thứ Sáu",
+                focus: "Chân (Legs) & Cardio + Core",
+                badge: "Chân / Hormone / Lõi",
+                exercises: [
+                    { name: "Nhảy dây khởi động", target: "Làm nóng toàn thân, nhịp tim & cổ chân", sets: "1 hiệp", reps: "5 phút" },
+                    { name: "Khởi động khớp gối, hông", target: "Làm nóng trước squat", sets: "5 phút", reps: "Xoay đều" },
+                    { name: "Deep Squat", target: "Kích thích Testosterone tự nhiên", sets: "4 hiệp", reps: "20 - 25 cái" },
+                    { name: "Bulgarian Split Squat", target: "Cân bằng cơ đùi trái/phải", sets: "3 hiệp", reps: "10 cái/chân" },
+                    { name: "Glute Bridge (Cầu mông)", target: "Mông & sàn chậu chắc khỏe", sets: "4 hiệp", reps: "15 cái" },
+                    { name: "Lunge (Chùng chân)", target: "Sức bền chân, ổn định", sets: "3 hiệp", reps: "12 cái/chân" },
+                    { name: "CORE: Dead Bug", target: "Kiểm soát lõi, bảo vệ lưng dưới", sets: "4 hiệp", reps: "10 cái/bên" },
+                    { name: "CORE: Bicycle Crunch", target: "Bụng trên + liên sườn", sets: "3 hiệp", reps: "20 cái/bên" },
+                    { name: "Tập Kegel sâu", target: "Tăng kiểm soát sàn chậu", sets: "4 hiệp", reps: "15 lần" }
+                ]
+            },
+            7: {
+                title: "Thứ Bảy",
+                focus: "Skill Nhẹ & Muay Thai Kỹ Thuật + Core",
+                badge: "Kỹ Thuật / Lõi",
+                exercises: [
+                    { name: "Nhảy dây khởi động", target: "Làm nóng toàn thân, nhịp tim & cổ chân", sets: "1 hiệp", reps: "5 phút" },
+                    { name: "Khởi động toàn thân", target: "Làm nóng nhẹ nhàng trước buổi kỹ thuật", sets: "5 phút", reps: "Nhẹ nhàng" },
+                    { name: "Tuck Front Lever Negatives", target: "Skill nhẹ, hạ siêu chậm", sets: "3 hiệp", reps: "5 cái" },
+                    { name: "Chin-ups (Ngửa tay bám xà)", target: "Lưng xô & bắp tay trước", sets: "3 hiệp", reps: "6 - 8 cái" },
+                    { name: "Muay Thai Shadowboxing", target: "Kỹ thuật đòn, footwork dẻo dai", sets: "3 hiệp", reps: "3 phút/hiệp" },
+                    { name: "CORE: Hollow Body Hold", target: "Siết bụng sâu, sửa võng lưng", sets: "4 hiệp", reps: "30 - 40s" },
+                    { name: "CORE: Hanging Leg Raises", target: "Bụng dưới nâng cao", sets: "4 hiệp", reps: "12 cái" },
+                    { name: "CORE: Plank tĩnh", target: "Ổn định lõi toàn diện", sets: "3 hiệp", reps: "60s" }
+                ]
+            },
+            8: {
+                title: "Chủ Nhật",
+                focus: "Hồi Phục — Cardio Nhẹ & Giãn Cơ",
+                badge: "Thư Giãn / Tuần Hoàn",
+                exercises: [
+                    { name: "Nhảy dây khởi động", target: "Làm nóng nhẹ, tuần hoàn máu", sets: "1 hiệp", reps: "5 phút" },
+                    { name: "Đi bộ / đạp xe nhẹ", target: "Lưu thông máu, hồi phục chủ động", sets: "1 hiệp", reps: "15 - 20 phút" },
+                    { name: "Giãn cơ toàn thân (Yoga/Stretch)", target: "Xả cơ mỏi, tăng linh hoạt", sets: "10 phút", reps: "Thả lỏng" },
+                    { name: "Massage cổ tay & gân cơ", target: "Ngăn viêm gân sau tuần tập", sets: "5 phút", reps: "Nhẹ nhàng" },
+                    { name: "Tập Kegel sâu (chu kỳ dài)", target: "Co thắt 10s, thả lỏng 10s", sets: "5 hiệp", reps: "Lặp liên tục" }
+                ]
+            }
+        };
+
+        let currentDay = 2; 
+        let timerInterval = null;
+        let timerSeconds = 90;
+        let isTimerRunning = false;
+        let waterIntake = 0.0;
+
+        // Kegel state
+        let kegelInterval = null;
+        let isKegelRunning = false;
+
+        window.onload = function() {
+            const date = new Date();
+            let dayNum = date.getDay() + 1; // 1 = Sunday, 2 = Monday...
+            if (dayNum === 1) dayNum = 8; // Match Sunday to day 8
+            
+            selectDay(workoutData[dayNum] ? dayNum : 2);
+            restoreWaterTracker();
+        };
+
+        function selectDay(day) {
+            currentDay = day;
+            
+            for (let d = 2; d <= 8; d++) {
+                const btn = document.getElementById(`btn-day-${d}`);
+                if (d === day) {
+                    btn.className = "snap-center shrink-0 w-16 py-3.5 rounded-xl border border-emerald-500 bg-emerald-500/10 flex flex-col items-center gap-1.5 transition-all duration-200 text-emerald-400 shadow-md shadow-emerald-500/10 scale-105 z-10 font-black";
+                } else {
+                    btn.className = "snap-center shrink-0 w-16 py-3.5 rounded-xl border border-slate-800/80 bg-slate-950 flex flex-col items-center gap-1.5 transition-all duration-200 text-slate-400 hover:border-slate-700 hover:bg-slate-900/50 hover:text-slate-200";
+                }
+            }
+
+            const data = workoutData[day];
+            document.getElementById('dayTitle').innerText = data.title;
+            document.getElementById('dayFocus').innerText = data.focus;
+            document.getElementById('dayTypeBadge').innerText = data.badge;
+
+            // Draw Exercises
+            const container = document.getElementById('exercisesList');
+            container.innerHTML = '';
+            
+            data.exercises.forEach((ex, idx) => {
+                const exId = `ex-${day}-${idx}`;
+                const checked = localStorage.getItem(exId) === 'true' ? 'checked' : '';
+                
+                const card = document.createElement('div');
+                card.className = "flex items-start gap-4 p-4 rounded-2xl bg-slate-950/60 border border-slate-800/80 hover:border-slate-700/80 transition duration-150 group";
+                card.innerHTML = `
+                    <div class="mt-0.5 flex items-center justify-center">
+                        <input type="checkbox" id="${exId}" ${checked} onchange="toggleExercise('${exId}')" class="w-5.5 h-5.5 rounded border-slate-700 bg-slate-900 text-emerald-500 focus:ring-emerald-500 focus:ring-offset-slate-950 transition cursor-pointer">
+                    </div>
+                    <div class="flex-1 text-left">
+                        <label for="${exId}" class="text-sm font-bold block select-none cursor-pointer text-slate-100 group-hover:text-emerald-300 transition duration-150">${ex.name}</label>
+                        <span class="text-xs text-slate-400 block mt-1">Mục tiêu: <span class="text-slate-300">${ex.target}</span></span>
+                        <div class="flex items-center gap-2 mt-2.5">
+                            <span class="text-[10px] font-bold bg-slate-900 px-2.5 py-1 rounded-lg text-blue-400 border border-slate-800"><i class="fa-solid fa-layer-group text-[9px] mr-1"></i>${ex.sets}</span>
+                            <span class="text-[10px] font-bold bg-slate-900 px-2.5 py-1 rounded-lg text-orange-400 border border-slate-800"><i class="fa-solid fa-repeat text-[9px] mr-1"></i>${ex.reps}</span>
+                        </div>
+                    </div>
+                `;
+                container.appendChild(card);
+            });
+
+            updateProgress();
+        }
+
+        function toggleExercise(id) {
+            const checkbox = document.getElementById(id);
+            localStorage.setItem(id, checkbox.checked);
+            updateProgress();
+        }
+
+        function updateProgress() {
+            const data = workoutData[currentDay];
+            let totalItems = data.exercises.length + 2; // Exercises + 2 Supplements
+            let completedItems = 0;
+
+            data.exercises.forEach((_, idx) => {
+                const exId = `ex-${currentDay}-${idx}`;
+                if (localStorage.getItem(exId) === 'true') {
+                    completedItems++;
+                }
+            });
+
+            if (document.getElementById('supp-whey').checked) completedItems++;
+            if (document.getElementById('supp-zma').checked) completedItems++;
+
+            const percent = Math.round((completedItems / totalItems) * 100);
+            
+            document.getElementById('progressBar').style.width = `${percent}%`;
+            document.getElementById('progressPercent').innerText = `${percent}%`;
+        }
+
+        function trackWater() {
+            waterIntake += 0.5;
+            if (waterIntake > 4.5) waterIntake = 0.0; // reset
+            document.getElementById('waterCount').innerText = waterIntake.toFixed(1);
+            localStorage.setItem('water_intake', waterIntake);
+
+            // Display alert dot logic
+            const alertDot = document.getElementById('waterAlert');
+            if (waterIntake < 3.0) {
+                alertDot.style.display = 'flex';
+            } else {
+                alertDot.style.display = 'none';
+            }
+        }
+
+        function restoreWaterTracker() {
+            const saved = localStorage.getItem('water_intake');
+            if (saved) {
+                waterIntake = parseFloat(saved);
+                document.getElementById('waterCount').innerText = waterIntake.toFixed(1);
+            }
+            if (waterIntake < 3.0) {
+                document.getElementById('waterAlert').style.display = 'flex';
+            }
+        }
+
+        function setTimerPreset(sec, label) {
+            resetTimer();
+            timerSeconds = sec;
+            document.getElementById('presetIndicator').innerText = `Hẹn giờ: ${label}`;
+            updateTimerDisplay();
+        }
+
+        function updateTimerDisplay() {
+            const mins = Math.floor(timerSeconds / 60);
+            const secs = timerSeconds % 60;
+            document.getElementById('timerDisplay').innerText = 
+                `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+        }
+
+        function toggleTimer() {
+            const btn = document.getElementById('btnTimer');
+            if (isTimerRunning) {
+                clearInterval(timerInterval);
+                btn.innerText = 'Tiếp tục';
+                btn.className = "flex-1 bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 px-3 rounded-xl text-xs transition duration-150";
+                isTimerRunning = false;
+            } else {
+                isTimerRunning = true;
+                btn.innerText = 'Tạm dừng';
+                btn.className = "flex-1 bg-amber-600 hover:bg-amber-500 text-white font-bold py-2 px-3 rounded-xl text-xs transition duration-150";
+                
+                timerInterval = setInterval(() => {
+                    if (timerSeconds > 0) {
+                        timerSeconds--;
+                        updateTimerDisplay();
+                    } else {
+                        clearInterval(timerInterval);
+                        isTimerRunning = false;
+                        btn.innerText = 'Xong!';
+                        btn.className = "flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2 px-3 rounded-xl text-xs transition duration-150";
+                        
+                        // Action visual feedback
+                        document.getElementById('timerDisplay').className = "text-4xl md:text-5xl font-black text-red-500 tracking-wider animate-bounce";
+                        setTimeout(() => {
+                            document.getElementById('timerDisplay').className = "text-4xl md:text-5xl font-black text-blue-400 tracking-wider";
+                            setTimerPreset(90, 'Bản chuẩn (90s)');
+                        }, 5000);
+                    }
+                }, 1000);
+            }
+        }
+
+        function resetTimer() {
+            clearInterval(timerInterval);
+            isTimerRunning = false;
+            timerSeconds = 90;
+            updateTimerDisplay();
+            document.getElementById('btnTimer').innerText = 'Bắt đầu';
+            document.getElementById('btnTimer').className = "flex-1 bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 px-3 rounded-xl text-xs transition duration-150";
+        }
+
+        let isContract = true;
+        function toggleKegel() {
+            const circle = document.getElementById('kegelCircle');
+            const text = document.getElementById('kegelText');
+            const btn = document.getElementById('btnKegel');
+
+            if (isKegelRunning) {
+                clearInterval(kegelInterval);
+                circle.classList.remove('kegel-pulse');
+                circle.style.transform = 'scale(1)';
+                circle.style.backgroundColor = '#10b981';
+                circle.style.boxShadow = 'none';
+                text.innerText = 'Sẵn sàng';
+                btn.innerText = 'Bắt đầu nhịp';
+                btn.className = "w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2 rounded-xl text-xs transition duration-150";
+                isKegelRunning = false;
+            } else {
+                isKegelRunning = true;
+                btn.innerText = 'Dừng nhịp';
+                btn.className = "w-full bg-red-600 hover:bg-red-500 text-white font-bold py-2 rounded-xl text-xs transition duration-150";
+                
+                circle.classList.add('kegel-pulse');
+                isContract = true;
+                text.innerText = 'CO THẮT';
+                circle.style.backgroundColor = '#3b82f6';
+                
+                kegelInterval = setInterval(() => {
+                    isContract = !isContract;
+                    if (isContract) {
+                        text.innerText = 'CO THẮT';
+                        circle.style.backgroundColor = '#3b82f6';
+                    } else {
+                        text.innerText = 'THẢ LỎNG';
+                        circle.style.backgroundColor = '#10b981';
+                    }
+                }, 5000); // 5s loop (5s hold / 5s rest)
+            }
+        }
+    </script>
+</body>
+</html>

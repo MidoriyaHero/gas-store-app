@@ -10,6 +10,7 @@ import {
   Package,
   ShoppingCart,
   SmilePlus,
+  Tags,
   Users,
   WalletCards,
   Map,
@@ -55,9 +56,10 @@ export const adminNavGroups: ReadonlyArray<NavGroup> = [
   },
   {
     id: "warehouse_safety",
-    title: "Kho hàng",
+    title: "Kho & sản phẩm",
     items: [
       { title: "Sổ gas", url: "/so-gas", icon: BookOpen },
+      { title: "Sản phẩm", url: "/san-pham", icon: Tags },
       { title: "Kho hàng", url: "/kho", icon: Package },
       { title: "Mẫu thông tin chai", url: "/mau-chai", icon: LayoutTemplate },
     ],

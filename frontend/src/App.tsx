@@ -7,6 +7,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import Dashboard from "./pages/Dashboard";
 import Orders from "./pages/Orders";
 import Inventory from "./pages/Inventory";
+import Products from "./pages/Products";
 import TaxReport from "./pages/TaxReport";
 import GasLedger from "./pages/GasLedger";
 import DeliverySlip from "./pages/DeliverySlip";
@@ -21,6 +22,8 @@ import CustomerExperience from "./pages/CustomerExperience";
 import StaffDeliveryMap from "./pages/StaffDeliveryMap";
 import CustomerProfilesMock from "./pages/CustomerProfilesMock";
 import NotFound from "./pages/NotFound.tsx";
+import PlanRedirect from "./pages/PlanRedirect";
+import TnPlanRedirect from "./pages/TnPlanRedirect";
 import { AuthProvider, useAuth } from "@/lib/auth";
 
 const queryClient = new QueryClient();
@@ -110,6 +113,14 @@ const App = () => (
               }
             />
             <Route
+              path="/san-pham"
+              element={
+                <GuardedRoute allowedRoles={["admin"]}>
+                  <Products />
+                </GuardedRoute>
+              }
+            />
+            <Route
               path="/kho"
               element={
                 <GuardedRoute allowedRoles={["admin"]}>
@@ -182,6 +193,8 @@ const App = () => (
               }
             />
             <Route path="/ban-do-mock" element={<Navigate to="/ban-do" replace />} />
+            <Route path="/plan" element={<PlanRedirect />} />
+            <Route path="/tn-plan" element={<TnPlanRedirect />} />
             <Route path="/home" element={<HomeRedirect />} />
             <Route path="*" element={<NotFound />} />
           </Routes>

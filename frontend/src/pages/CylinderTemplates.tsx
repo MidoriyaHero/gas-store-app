@@ -26,7 +26,7 @@ interface TemplateRow {
 
 const emptyForm = {
   name: "",
-  owner_name: "",
+  owner_name: "Gas Hoàng Ân",
   import_source: "",
   inspection_expiry: "",
   import_date: "",

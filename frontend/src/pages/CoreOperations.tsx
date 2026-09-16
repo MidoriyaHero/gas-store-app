@@ -10,6 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatVND } from "@/lib/format";
 import { apiGet, apiPut } from "@/lib/api";
+import { CUSTOMER_SEGMENT_LABEL, type CustomerSegmentBucket } from "@/lib/customer-segment";
 import type { AsyncViewState } from "@/lib/ui-foundation";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -56,6 +57,15 @@ interface DailyAuditComputed {
   expected_evening_shell: number;
   variance_full: number | null;
   variance_shell: number | null;
+  warehouse_import_full?: number;
+  sold_units_total?: number;
+  remaining_full?: number;
+  segment_mix?: Array<{
+    segment: CustomerSegmentBucket;
+    order_count: number;
+    unit_quantity: number;
+    revenue: string | number;
+  }>;
 }
 
 interface DailyAuditRecord {
@@ -147,10 +157,11 @@ export default function CoreOperations() {
       );
       setAuditPayload(data);
       const r = data.record;
+      const imported = data.computed.warehouse_import_full ?? r?.import_full ?? 0;
       if (r) {
         setMorningFull(r.morning_full);
         setMorningShell(r.morning_shell);
-        setImportFull(r.import_full);
+        setImportFull(imported);
         setSupplierShellUnits(r.supplier_shell_units ?? 0);
         setEveningFull(r.evening_full);
         setEveningShell(r.evening_shell);
@@ -158,7 +169,7 @@ export default function CoreOperations() {
       } else {
         setMorningFull(0);
         setMorningShell(0);
-        setImportFull(0);
+        setImportFull(imported);
         setSupplierShellUnits(0);
         setEveningFull(0);
         setEveningShell(0);
@@ -178,10 +189,11 @@ export default function CoreOperations() {
   const applyAuditResponse = (data: DailyAuditPayload) => {
     setAuditPayload(data);
     const r = data.record;
+    const imported = data.computed.warehouse_import_full ?? r?.import_full ?? 0;
     if (r) {
       setMorningFull(r.morning_full);
       setMorningShell(r.morning_shell);
-      setImportFull(r.import_full);
+      setImportFull(imported);
       setSupplierShellUnits(r.supplier_shell_units ?? 0);
       setEveningFull(r.evening_full);
       setEveningShell(r.evening_shell);
@@ -208,7 +220,6 @@ export default function CoreOperations() {
     setSavingEvening(true);
     try {
       const data = await apiPut<DailyAuditPayload>(`/api/operations/daily-cylinder-audit/${encodeURIComponent(auditDay)}`, {
-        import_full: importFull,
         supplier_shell_units: supplierShellUnits,
         evening_full: eveningFull,
         evening_shell: eveningShell,
@@ -287,9 +298,8 @@ export default function CoreOperations() {
               <Card className="p-4 shadow-card">
             <h2 className="mb-2 text-sm font-semibold">Kiểm kê nước / vỏ theo ngày</h2>
             <p className="mb-4 text-xs text-muted-foreground">
-              Đầu ngày: số bình đầy và vỏ trong kho. Cuối ngày: đếm thực tế + giao dịch với công ty gas (bình nước nhận và vỏ
-              giao/trả — hai số nhập riêng, không bắt buộc 1–1). Đối soát với đơn đã giao (completed) và vỏ trả khi thu nợ
-              (ngày theo thời điểm thanh toán, cùng lịch UTC với ngày giao trên đơn).
+              Đầu ngày: số bình đầy và vỏ trong kho. Cuối ngày: đếm thực tế + vỏ giao/trả công ty. Số bình nhập từ công ty lấy từ
+              phiếu Kho — không nhập tay. Đối soát với đơn đã giao (completed) và vỏ trả khi thu nợ.
             </p>
             <div className="mb-4 grid gap-1.5">
               <Label htmlFor="audit-day">Ngày kiểm kê</Label>
@@ -338,6 +348,33 @@ export default function CoreOperations() {
                     Lệch vỏ: {varianceLabel(c.variance_shell)} ({c.variance_shell ?? "—"})
                   </Badge>
                 </div>
+                <div className="grid gap-2 border-t pt-2 sm:grid-cols-3">
+                  <p>
+                    <span className="text-muted-foreground">Nhập kho (phiếu):</span>{" "}
+                    <span className="font-mono font-medium">{c.warehouse_import_full ?? importFull}</span>
+                  </p>
+                  <p>
+                    <span className="text-muted-foreground">Đã bán (mọi đơn giao ngày):</span>{" "}
+                    <span className="font-mono font-medium">{c.sold_units_total ?? 0}</span>
+                  </p>
+                  <p>
+                    <span className="text-muted-foreground">Còn lại (kho chung):</span>{" "}
+                    <span className="font-mono font-medium">{c.remaining_full ?? "—"}</span>
+                  </p>
+                </div>
+                {c.segment_mix && c.segment_mix.length > 0 && (
+                  <div className="grid gap-2 border-t pt-2 sm:grid-cols-3">
+                    {c.segment_mix
+                      .filter((row) => row.segment !== "unspecified" || row.unit_quantity > 0)
+                      .map((row) => (
+                        <p key={row.segment}>
+                          <span className="text-muted-foreground">{CUSTOMER_SEGMENT_LABEL[row.segment]}:</span>{" "}
+                          <span className="font-mono font-medium">{row.unit_quantity}</span>
+                          <span className="text-muted-foreground"> bình · {formatVND(row.revenue)}</span>
+                        </p>
+                      ))}
+                  </div>
+                )}
               </div>
             )}
 
@@ -372,14 +409,15 @@ export default function CoreOperations() {
               <div className="space-y-3 rounded-md border p-3">
                 <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Cuối ngày</h3>
                 <div className="grid gap-1.5">
-                  <Label>Bình nước (đầy) nhận từ công ty gas trong ngày</Label>
-                  <Input
-                    type="number"
-                    min={0}
-                    className="min-h-11"
-                    value={importFull}
-                    onChange={(e) => setImportFull(Number(e.target.value) || 0)}
-                  />
+                  <Label>Bình nước (đầy) nhận từ công ty — từ Kho</Label>
+                  <Input type="number" min={0} className="min-h-11 bg-muted" value={importFull} readOnly />
+                  <p className="text-xs text-muted-foreground">
+                    Không sửa tay.{" "}
+                    <Link to="/kho" className="font-medium text-primary hover:underline">
+                      Nhập phiếu ở Kho hàng
+                    </Link>
+                    .
+                  </p>
                 </div>
                 <div className="grid gap-1.5">
                   <Label>Vỏ giao / trả cho công ty gas trong ngày</Label>
