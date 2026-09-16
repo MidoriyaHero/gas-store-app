@@ -14,10 +14,12 @@ import { db } from "@/db/client";
 import { products } from "@/db/schema";
 import {
   lineDefaultsFromTemplate,
-  localDefaultTemplate,
+  resolveDefaultTemplateId,
   type CylinderTemplateRow,
 } from "@/lib/cylinder-template";
-import { newClientId } from "@/lib/ids";
+import { lookupCustomerFromPhone } from "@/lib/customer-from-phone";
+import { CUSTOMER_SEGMENT_OPTIONS, isCustomerSegment } from "@/lib/customer-segment";
+import { unitPriceForSegment } from "@/lib/product-price";
 import { isOnline } from "@/lib/network";
 import { roundCoord6, type GeocodeHit } from "@/lib/geocode";
 import { resolveGoogleMapsPasteClient } from "@/lib/maps-paste";
@@ -33,6 +35,7 @@ import { enqueueMutation } from "@/sync/outbox";
 import { triggerAutoSync } from "@/sync/auto-sync";
 import { formatVnd } from "@/utils/format";
 import { openGoogleMapsSearch } from "@/utils/maps";
+import { OrderSlipStrip } from "@/features/admin/OrderSlipStrip";
 import { colors, radius, spacing, typography } from "@/theme/tokens";
 
 function todayIso(): string {
@@ -49,6 +52,7 @@ export function AdminCreateOrderPanel() {
     address?: string;
     lat?: string;
     lng?: string;
+    customerSegment?: string;
   }>();
   const prefillApplied = useRef(false);
   const [step, setStep] = useState<1 | 2>(1);
@@ -76,6 +80,7 @@ export function AdminCreateOrderPanel() {
     paidAmount: 0,
     vatRate: 0,
     borrowedShellUnits: 0,
+    customerSegment: "",
   });
 
   const selectedTemplate = useMemo(
@@ -99,7 +104,12 @@ export function AdminCreateOrderPanel() {
     try {
       if (await isOnline()) {
         const tpl = await fetchCylinderTemplates();
-        setTemplates(tpl.filter((t) => t.is_active));
+        const active = tpl.filter((t) => t.is_active);
+        setTemplates(active);
+        const defaultId = resolveDefaultTemplateId(active);
+        if (defaultId) {
+          setSelectedTemplateId((cur) => cur || defaultId);
+        }
       }
     } catch {
       setTemplates([]);
@@ -111,12 +121,23 @@ export function AdminCreateOrderPanel() {
   }, [load]);
 
   useEffect(() => {
+    setCart((prev) =>
+      prev.map((line) => {
+        const p = productRows.find((x) => x.id === line.product_id);
+        if (!p) return line;
+        return { ...line, unit_price: unitPriceForSegment(p, form.customerSegment) };
+      }),
+    );
+  }, [form.customerSegment, productRows]);
+
+  useEffect(() => {
     if (prefillApplied.current) return;
     const phone = typeof params.phone === "string" ? params.phone : "";
     const customerName = typeof params.customerName === "string" ? params.customerName : "";
     const address = typeof params.address === "string" ? params.address : "";
     const latRaw = typeof params.lat === "string" ? params.lat : "";
     const lngRaw = typeof params.lng === "string" ? params.lng : "";
+    const customerSegment = typeof params.customerSegment === "string" ? params.customerSegment : "";
     if (!phone && !customerName && !address) return;
 
     prefillApplied.current = true;
@@ -125,10 +146,18 @@ export function AdminCreateOrderPanel() {
       ...(phone ? { phone } : {}),
       ...(customerName ? { customerName } : {}),
       ...(address ? { address } : {}),
+      ...(isCustomerSegment(customerSegment) ? { customerSegment } : {}),
       ...(latRaw && lngRaw
         ? { deliveryLatitude: Number(latRaw), deliveryLongitude: Number(lngRaw) }
         : {}),
     }));
+    if (phone && !isCustomerSegment(customerSegment)) {
+      void lookupCustomerFromPhone(phone).then((hint) => {
+        if (hint?.customerSegment) {
+          setForm((f) => (f.customerSegment ? f : { ...f, customerSegment: hint.customerSegment ?? "" }));
+        }
+      });
+    }
   }, [params]);
 
   function patchForm(partial: Partial<CreateOrderForm>) {
@@ -216,13 +245,25 @@ export function AdminCreateOrderPanel() {
     ? `✓ Đã ghim: ${form.deliveryLatitude!.toFixed(6)}, ${form.deliveryLongitude!.toFixed(6)}`
     : "Chưa có tọa độ — dùng Maps để staff chỉ đường chính xác";
 
-  function goStep2() {
+  async function goStep2() {
     if (!form.customerName.trim()) {
       toast.showError("Nhập tên khách hàng");
       return;
     }
     if (!form.phone.trim()) {
       toast.showError("Nhập số điện thoại");
+      return;
+    }
+    let segment = form.customerSegment;
+    if (!isCustomerSegment(segment)) {
+      const hint = await lookupCustomerFromPhone(form.phone);
+      if (hint?.customerSegment) {
+        segment = hint.customerSegment;
+        patchForm({ customerSegment: hint.customerSegment });
+      }
+    }
+    if (!isCustomerSegment(segment)) {
+      toast.showError("Chọn tệp khách hàng");
       return;
     }
     if (productRows.length === 0) {
@@ -240,7 +281,7 @@ export function AdminCreateOrderPanel() {
     }
     const qty = Math.max(1, Number(pickQty) || 1);
     const defaults = lineDefaultsFromTemplate(selectedTemplate);
-    setCart((prev) => [...prev, newCartLine(p, qty, defaults)]);
+    setCart((prev) => [...prev, newCartLine(p, qty, defaults, form.customerSegment)]);
     setPickProductId("");
     setPickQty("1");
   }
@@ -256,6 +297,10 @@ export function AdminCreateOrderPanel() {
   async function submit() {
     if (cart.length === 0) {
       toast.showError("Thêm ít nhất 1 sản phẩm");
+      return;
+    }
+    if (!isCustomerSegment(form.customerSegment)) {
+      toast.showError("Chọn tệp khách hàng");
       return;
     }
     setSaving(true);
@@ -287,13 +332,14 @@ export function AdminCreateOrderPanel() {
 
   return (
     <View style={styles.root}>
+      <OrderSlipStrip form={form} cart={cart} total={totals.total} />
       <ScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.scroll}
         keyboardShouldPersistTaps="handled"
       >
         <AppText variant="caption" muted style={styles.stepLabel}>
-          Bước {step}/2 · {step === 1 ? "Khách & giao" : "Hàng & thanh toán"}
+          {step === 1 ? "Khách & giao" : "Hàng & thu tiền"}
         </AppText>
 
         {step === 1 ? (
@@ -305,7 +351,32 @@ export function AdminCreateOrderPanel() {
               style={styles.callPickBtn}
             />
             <TextField label="Tên khách *" value={form.customerName} onChangeText={(v) => patchForm({ customerName: v })} />
-            <TextField label="Số điện thoại *" value={form.phone} onChangeText={(v) => patchForm({ phone: v })} keyboardType="phone-pad" />
+            <TextField
+              label="Số điện thoại *"
+              value={form.phone}
+              onChangeText={(v) => patchForm({ phone: v })}
+              keyboardType="phone-pad"
+              onBlur={() => {
+                const phone = form.phone.trim();
+                if (!phone || form.customerSegment) return;
+                void lookupCustomerFromPhone(phone).then((hint) => {
+                  if (hint?.customerSegment) patchForm({ customerSegment: hint.customerSegment ?? "" });
+                });
+              }}
+            />
+            <AppText variant="label" style={styles.fieldLabel}>
+              Tệp khách hàng *
+            </AppText>
+            <View style={styles.chips}>
+              {CUSTOMER_SEGMENT_OPTIONS.map((opt) => (
+                <FilterChip
+                  key={opt.value}
+                  label={opt.label}
+                  active={form.customerSegment === opt.value}
+                  onPress={() => patchForm({ customerSegment: opt.value })}
+                />
+              ))}
+            </View>
             <View style={styles.addressBlock}>
               <AppText variant="label" style={styles.fieldLabel}>
                 Địa chỉ giao
@@ -396,7 +467,7 @@ export function AdminCreateOrderPanel() {
                 ))}
               </ScrollView>
               <AppText variant="caption" muted>
-                Chủ mặc định: {lineDefaultsFromTemplate(selectedTemplate ?? localDefaultTemplate()).owner_name}
+                Chủ mặc định: {selectedTemplate ? lineDefaultsFromTemplate(selectedTemplate).owner_name || "—" : "Không dùng mẫu"}
               </AppText>
               <View style={styles.addRow}>
                 <View style={{ flex: 1 }}>
@@ -490,7 +561,7 @@ export function AdminCreateOrderPanel() {
           <Button label="Quay lại" variant="ghost" onPress={() => setStep(1)} style={styles.footerBtn} />
         ) : null}
         {step === 1 ? (
-          <Button label="Tiếp theo" variant="accent" onPress={goStep2} style={styles.footerBtn} />
+          <Button label="Tiếp theo" variant="accent" onPress={() => void goStep2()} style={styles.footerBtn} />
         ) : (
           <Button label="Tạo đơn" variant="accent" loading={saving} onPress={() => void submit()} style={styles.footerBtn} />
         )}

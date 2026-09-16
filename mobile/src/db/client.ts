@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS sales_orders (
   delivery_longitude REAL,
   total TEXT NOT NULL,
   borrowed_shell_units INTEGER DEFAULT 0,
+  customer_segment TEXT,
   payload_json TEXT NOT NULL,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
@@ -81,6 +82,9 @@ export function migrateLocalDb(): void {
   ensureColumn("sales_orders", "delivery_latitude", "delivery_latitude REAL");
   ensureColumn("sales_orders", "delivery_longitude", "delivery_longitude REAL");
   ensureColumn("sales_orders", "created_at", "created_at TEXT");
+  ensureColumn("sales_orders", "customer_segment", "customer_segment TEXT");
+  ensureColumn("products", "wholesale_price", "wholesale_price TEXT");
+  ensureColumn("products", "restaurant_price", "restaurant_price TEXT");
   ensureColumn("order_notes", "voice_duration_sec", "voice_duration_sec INTEGER");
   ensureColumn("order_notes", "audio_url", "audio_url TEXT");
   backfillSalesOrderCreatedAt();
