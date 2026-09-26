@@ -21,6 +21,7 @@ def order_snapshot(order: SalesOrder) -> dict[str, Any]:
         "delivery_date": order.delivery_date.isoformat() if order.delivery_date else None,
         "total": str(order.total),
         "borrowed_shell_units": order.borrowed_shell_units,
+        "customer_segment": order.customer_segment,
         "assigned_to_user_id": order.assigned_to_user_id,
         "line_count": len(order.lines) if order.lines else 0,
     }

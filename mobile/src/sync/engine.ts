@@ -41,6 +41,7 @@ function salesOrderRowFromPull(d: Record<string, unknown>, updatedAt: string) {
     deliveryLongitude: numOrNull(d.delivery_longitude),
     total: String(d.total),
     borrowedShellUnits: Number(d.borrowed_shell_units ?? 0),
+    customerSegment: (d.customer_segment as string | null) ?? null,
     payloadJson: JSON.stringify(d),
     createdAt: String(d.created_at ?? updatedAt),
     updatedAt,
@@ -88,6 +89,8 @@ async function applyPull(entities: string): Promise<void> {
           id: Number(d.id),
           name: String(d.name),
           sellPrice: String(d.sell_price),
+          wholesalePrice: d.wholesale_price != null ? String(d.wholesale_price) : String(d.sell_price),
+          restaurantPrice: d.restaurant_price != null ? String(d.restaurant_price) : String(d.sell_price),
           stockQuantity: Number(d.stock_quantity),
           updatedAt: ch.updated_at,
         })
@@ -96,6 +99,8 @@ async function applyPull(entities: string): Promise<void> {
           set: {
             name: String(d.name),
             sellPrice: String(d.sell_price),
+            wholesalePrice: d.wholesale_price != null ? String(d.wholesale_price) : String(d.sell_price),
+            restaurantPrice: d.restaurant_price != null ? String(d.restaurant_price) : String(d.sell_price),
             stockQuantity: Number(d.stock_quantity),
             updatedAt: ch.updated_at,
           },
@@ -118,6 +123,7 @@ async function applyPull(entities: string): Promise<void> {
           deliveryLongitude: row.deliveryLongitude,
           total: row.total,
           borrowedShellUnits: row.borrowedShellUnits,
+          customerSegment: row.customerSegment,
           payloadJson: row.payloadJson,
           createdAt: row.createdAt,
           updatedAt: row.updatedAt,

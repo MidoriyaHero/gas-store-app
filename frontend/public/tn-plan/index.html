@@ -1,0 +1,1007 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lịch Tập Full Body 6 Ngày</title>
+<style>
+  :root {
+    --bg: #0e0e10;
+    --surface: #18181c;
+    --surface2: #222228;
+    --border: #2e2e38;
+    --accent: #c8f135;
+    --accent2: #7b61ff;
+    --text: #f0f0f0;
+    --muted: #888894;
+    --upper: #c8f135;
+    --lower: #61d4ff;
+    --cardio: #ff9f43;
+    --hybrid: #a29bfe;
+    --yoga: #4ecdc4;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    min-height: 100vh;
+    padding-bottom: 60px;
+  }
+  header {
+    padding: 36px 20px 26px;
+    text-align: center;
+    border-bottom: 1px solid var(--border);
+  }
+  .logo {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.2em;
+    color: var(--accent);
+    text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+  h1 {
+    font-size: clamp(26px, 6vw, 40px);
+    font-weight: 800;
+    line-height: 1.15;
+    letter-spacing: -0.02em;
+  }
+  h1 span { color: var(--accent); }
+  .subtitle { margin-top: 8px; color: var(--muted); font-size: 13px; }
+
+  .week-nav {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    padding: 18px 16px 0;
+    scrollbar-width: none;
+  }
+  .week-nav::-webkit-scrollbar { display: none; }
+  .day-pill {
+    flex-shrink: 0;
+    padding: 8px 14px;
+    border-radius: 100px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    cursor: pointer;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--muted);
+    transition: all 0.2s;
+    white-space: nowrap;
+  }
+  .day-pill.active { background: var(--accent); color: #0e0e10; border-color: var(--accent); }
+  .day-pill.active.c-lower { background: var(--lower); border-color: var(--lower); }
+  .day-pill.active.c-cardio { background: var(--cardio); border-color: var(--cardio); }
+  .day-pill.active.c-hybrid { background: var(--hybrid); border-color: var(--hybrid); }
+  .day-pill.active.c-yoga { background: var(--yoga); border-color: var(--yoga); color: #0e0e10; }
+
+  .content { padding: 18px 16px; max-width: 600px; margin: 0 auto; }
+  .day-panel { display: none; }
+  .day-panel.active { display: block; }
+
+  .day-header { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
+  .day-badge {
+    width: 46px; height: 46px; border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 21px; flex-shrink: 0;
+  }
+  .badge-upper { background: rgba(200,241,53,0.15); }
+  .badge-lower { background: rgba(97,212,255,0.15); }
+  .badge-cardio { background: rgba(255,159,67,0.15); }
+  .badge-hybrid { background: rgba(162,155,254,0.15); }
+  .badge-yoga { background: rgba(78,205,196,0.15); }
+
+  .day-title { font-size: 20px; font-weight: 800; letter-spacing: -0.01em; }
+  .day-meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+  .progress-bar-wrap {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 10px 14px;
+    margin-bottom: 18px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .progress-track {
+    flex: 1; height: 6px; background: var(--surface2);
+    border-radius: 100px; overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%; background: var(--accent); width: 0%;
+    transition: width 0.3s; border-radius: 100px;
+  }
+  .progress-text { font-size: 12px; font-weight: 700; color: var(--accent); min-width: 48px; text-align: right; }
+
+  .section-label {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.13em;
+    text-transform: uppercase; color: var(--muted);
+    margin: 18px 0 10px; padding-left: 2px;
+  }
+  .section-label:first-child { margin-top: 0; }
+  .section-label.stretch { color: var(--yoga); }
+
+  .item {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px 14px;
+    margin-bottom: 8px;
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    cursor: pointer;
+    transition: border-color 0.15s;
+  }
+  .item:hover { border-color: #3a3a44; }
+  .item.done { opacity: 0.55; }
+  .item.done .item-name { text-decoration: line-through; }
+
+  .checkbox {
+    width: 22px; height: 22px;
+    border-radius: 7px;
+    border: 2px solid var(--border);
+    background: var(--surface2);
+    flex-shrink: 0;
+    margin-top: 1px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px;
+    transition: all 0.15s;
+  }
+  .item.done .checkbox { background: var(--accent); border-color: var(--accent); color: #0e0e10; }
+  .item.done .checkbox::after { content: '✓'; }
+
+  .item-body { flex: 1; min-width: 0; }
+  .item-name { font-size: 14.5px; font-weight: 700; }
+  .item-spec { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+  .item-spec strong { color: var(--accent); font-weight: 700; }
+  .item-spec strong.y { color: var(--yoga); }
+  .item-guide { font-size: 12.5px; color: #b8bcc4; margin-top: 6px; line-height: 1.55; padding-top: 6px; border-top: 1px solid var(--border); }
+  .item-guide.hidden { display: none; }
+  .guide-toggle {
+    font-size: 11px; color: var(--accent2); margin-top: 4px; font-weight: 600;
+  }
+
+  .sets-row { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+  .set-box {
+    width: 32px; height: 32px;
+    border-radius: 8px;
+    border: 2px solid var(--border);
+    background: var(--surface2);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 700; color: var(--muted);
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .set-box.on { background: var(--accent); border-color: var(--accent); color: #0e0e10; }
+
+  .note {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent2);
+    border-radius: 10px;
+    padding: 12px 14px;
+    font-size: 12.5px;
+    color: var(--muted);
+    line-height: 1.6;
+    margin-bottom: 14px;
+  }
+  .note strong { color: var(--text); }
+  .note.yoga { border-left-color: var(--yoga); }
+  .note.cardio { border-left-color: var(--cardio); }
+
+  .reset-btn {
+    width: 100%;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 10px;
+    border-radius: 10px;
+    font-size: 12.5px;
+    font-weight: 600;
+    margin-top: 20px;
+    cursor: pointer;
+  }
+  .reset-btn:active { background: var(--surface2); }
+
+  .offline-banner {
+    display: none;
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 9999;
+    background: #3d3500;
+    color: #c8f135;
+    text-align: center;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 8px 12px;
+    border-bottom: 1px solid #5a5200;
+  }
+  .offline-banner.visible { display: block; }
+  body.offline-pad { padding-top: 36px; }
+</style>
+</head>
+<body>
+<div id="offline-banner" class="offline-banner" role="status">Đang dùng bản offline</div>
+
+<header>
+  <div class="logo">Full Body × 6 Days</div>
+  <h1>Lịch Tập<br><span>Cường Độ Vừa</span></h1>
+  <p class="subtitle">Không dây nhảy — thay bằng Jumping Jack + High Knees</p>
+</header>
+
+<nav class="week-nav">
+  <button class="day-pill" onclick="showDay('mon')">T2 💪</button>
+  <button class="day-pill c-lower" onclick="showDay('tue')">T3 🦵</button>
+  <button class="day-pill" onclick="showDay('wed')">T4 💪</button>
+  <button class="day-pill c-lower" onclick="showDay('thu')">T5 🦵</button>
+  <button class="day-pill c-hybrid" onclick="showDay('fri')">T6 ⚡</button>
+  <button class="day-pill c-cardio" onclick="showDay('sat')">T7 🔥</button>
+  <button class="day-pill c-yoga active" onclick="showDay('sun')">CN 🧘</button>
+</nav>
+
+<div class="content">
+
+  <div class="progress-bar-wrap">
+    <div class="progress-track"><div class="progress-fill" id="progress-fill" style="width: 0%;"></div></div>
+    <div class="progress-text" id="progress-text">0%</div>
+  </div>
+
+  <!-- THỨ 2 -->
+  <div class="day-panel" id="day-mon" data-day="mon">
+    <div class="day-header">
+      <div class="day-badge badge-upper">💪</div>
+      <div><div class="day-title">Thân Trên A + Core</div><div class="day-meta">Thứ 2 · 60 phút</div></div>
+    </div>
+
+    <div class="section-label">Warm-up</div>
+    <div class="item" onclick="toggleItem(this)"><div class="checkbox"></div><div class="item-body"><div class="item-name">Xoay khớp vai</div><div class="item-spec">10 vòng mỗi bên</div></div></div>
+    <div class="item" onclick="toggleItem(this)"><div class="checkbox"></div><div class="item-body"><div class="item-name">Xoay cổ tay</div><div class="item-spec">10 vòng</div></div></div>
+    <div class="item" onclick="toggleItem(this)"><div class="checkbox"></div><div class="item-body"><div class="item-name">Chạy tại chỗ nhẹ</div><div class="item-spec">60 giây</div></div></div>
+    <div class="item" onclick="toggleItem(this)"><div class="checkbox"></div><div class="item-body"><div class="item-name">Arm circle</div><div class="item-spec">10 lần</div></div></div>
+
+    <div class="section-label">Main</div>
+
+    <div class="item" data-multiset="4">
+      <div class="checkbox"></div>
+      <div class="item-body">
+        <div class="item-name">Wide Push-up</div>
+        <div class="item-spec">Board 🔵 ngoài · <strong>4 sets × 12 reps</strong> · nghỉ 75s</div>
+        <div class="sets-row">
+          <div class="set-box" onclick="toggleSet(event,this)">1</div>
+          <div class="set-box" onclick="toggleSet(event,this)">2</div>
+          <div class="set-box" onclick="toggleSet(event,this)">3</div>
+          <div class="set-box" onclick="toggleSet(event,this)">4</div>
+        </div>
+        <div class="guide-toggle" onclick="toggleGuide(event,this)">Xem hướng dẫn ▾</div>
+        <div class="item-guide hidden">Cắm tay vào 2 lỗ ngoài cùng đường viền xanh dương. Tay rộng hơn vai khoảng 1.5 lần, khuỷu tay mở 45° khi hạ xuống, ngực gần chạm board.</div>
+      </div>
+    </div>
+
+    <div class="item" data-multiset="4">
+      <div class="checkbox"></div>
+      <div class="item-body">
+        <div class="item-name">Standard Push-up</div>
+        <div class="item-spec">Board 🔵 giữa · <strong>4 sets × 14 reps</strong> · nghỉ 75s</div>
+        <div class="sets-row">
+          <div class="set-box" onclick="toggleSet(event,this)">1</div>
+          <div class="set-box" onclick="toggleSet(event,this)">2</div>
+          <div class="set-box" onclick="toggleSet(event,this)">3</div>
+          <div class="set-box" onclick="toggleSet(event,this)">4</div>
+        </div>
+        <div class="guide-toggle" onclick="toggleGuide(event,this)">Xem hướng dẫn ▾</div>
+        <div class="item-guide hidden">Tay rộng bằng vai, khuỷu tay ép gần thân 30–45°. Hạ người xuống tới khi ngực gần chạm sàn rồi đẩy lên, giữ lưng thẳng như tấm ván.</div>
+      </div>
+    </div>
+
+    <div class="item" data-multiset="3">
+      <div class="checkbox"></div>
+      <div class="item-body">
+        <div class="item-name">Push-up chéo (Back)</div>
+        <div class="item-spec">Board 🟡 · <strong>3 sets × 10 reps</strong> · nghỉ 75s</div>
+        <div class="sets-row">
+          <div class="set-box" onclick="toggleSet(event,this)">1</div>
+          <div class="set-box" onclick="toggleSet(event,this)">2</div>
+          <div class="set-box" onclick="toggleSet(event,this)">3</div>
+        </div>
+        <div class="guide-toggle" onclick="toggleGuide(event,this)">Xem hướng dẫn ▾</div>
+        <div class="item-guide hidden">Một tay cắm lỗ trên, tay kia cắm lỗ dưới đối diện theo đường chéo vàng. Thân hơi xoay nhẹ khi hạ xuống. Đổi tay trên/dưới sau mỗi set.</div>
+      </div>
+    </div>
+
+    <div class="item" data-multiset="3">
+      <div class="checkbox"></div>
+      <div class="item-body">
+        <div class="item-name">Diamond Push-up</div>
+        <div class="item-spec">Board 🟢 · <strong>3 sets × 8 reps</strong> · nghỉ 75s</div>
+        <div class="sets-row">
+          <div class="set-box" onclick="toggleSet(event,this)">1</div>
+          <div class="set-box" onclick="toggleSet(event,this)">2</div>
+          <div class="set-box" onclick="toggleSet(event,this)">3</div>
+        </div>
+        <div class="guide-toggle" onclick="toggleGuide(event,this)">Xem hướng dẫn ▾</div>
+        <div class="item-guide hidden">2 lỗ trên cùng sát nhau nhất. Khuỷu tay ép sát thân, không mở ra ngoài. Tập trung cơ tricep.</div>
+      </div>
+    </div>
+
+    <div class="item" data-multiset="3">
+      <div class="checkbox"></div>
+      <div class="item-body">
+        <div class="item-name">Pike Push-up</div>
+        <div class="item-spec">Oval đen · <strong>3 sets × 8 reps</strong> · nghỉ 90s</div>
+        <div class="sets-row">
+          <div class="set-box" onclick="toggleSet(event,this)">1</div>
+          <div class="set-box" onclick="toggleSet(event,this)">2</div>
+          <div class="set-box" onclick="toggleSet(event,this)">3</div>
+        </div>
+        <div class="guide-toggle" onclick="toggleGuide(event,this)">Xem hướng dẫn ▾</div>
+        <div class="item-guide hidden">Vào tư thế chữ V ngược (giống Downward Dog), đặt trán/đỉnh đầu hướng vào oval đen. Gập khuỷu tay hạ đầu xuống gần oval, đẩy lên lại. Chân gần tay để tăng tải vai.</div>
+      </div>
+    </div>
+
+    <div class="section-label">Core</div>
+
+    <div class="item" data-multiset="3">
+      <div class="checkbox"></div>
+      <div class="item-body">
+        <div class="item-name">Hollow Body Hold</div>
+        <div class="item-spec"><strong>3 sets × 25 giây</strong> · nghỉ 60s</div>
+        <div class="sets-row">
+          <div class="set-box" onclick="toggleSet(event,this)">1</div>
+          <div class="set-box" onclick="toggleSet(event,this)">2</div>
+          <div class="set-box" onclick="toggleSet(event,this)">3</div>
+        </div>
+        <div class="guide-toggle" onclick="toggleGuide(event,this)">Xem hướng dẫn ▾</div>
+        <div class="item-guide hidden">Nằm ngửa, ép lưng dưới sát sàn hoàn toàn, nâng vai và chân lên khoảng 15cm, giữ tư thế.</div>
+      </div>
+    </div>
+
+    <div class="item" data-multiset="3">
+      <div class="checkbox"></div>
+      <div class="item-body">
+        <div class="item-name">Dead Bug</div>
+        <div class="item-spec"><strong>3 sets × 10 reps</strong> mỗi bên · nghỉ 60s</div>
+        <div class="sets-row">
+          <div class="set-box" onclick="toggleSet(event,this)">1</div>
+          <div class="set-box" onclick="toggleSet(event,this)">2</div>
+          <div class="set-box" onclick="toggleSet(event,this)">3</div>
+        </div>
+        <div class="guide-toggle" onclick="toggleGuide(event,this)">Xem hướng dẫn ▾</div>
+        <div class="item-guide hidden">Nằm ngửa, tay duỗi lên trần, chân gập 90°. Hạ tay phải + chân trái xuống gần sàn (không chạm), về lại, đổi bên. Lưng luôn ép sàn.</div>
+      </div>
+    </div>
+
+    <div class="section-label stretch">Giãn cơ</div>
+    <div class="item" onclick="toggleItem(this)"><div class="checkbox"></div><div class="item-body"><div class="item-name">Chest Stretch</div><div class="item-spec"><strong class="y">30s</strong> mỗi bên — tay duỗi sau bám tường, xoay người mở ngực</div></div></div>
+    <div class="item" onclick="toggleItem(this)"><div class="checkbox"></div><div class="item-body"><div class="item-name">Tricep Stretch</div><div class="item-spec"><strong class="y">30s</strong> mỗi bên — tay gập sau đầu, tay kia kéo khuỷu xuống</div></div></div>
+    <div class="item" onclick="toggleItem(this)"><div class="checkbox"></div><div class="item-body"><div class="item-name">Shoulder Cross Stretch</div><div class="item-spec"><strong class="y">30s</strong> mỗi bên — tay ngang ngực, tay kia ép nhẹ</div></div></div>
+    <div class="item" onclick="toggleItem(this)"><div class="checkbox"></div><div class="item-body"><div class="item-name">Cat-Cow</div><div class="item-spec"><strong class="y">8 lần</strong> — hít vào võng lưng, thở ra cong lưng</div></div></div>
+  </div>
+
+  <!-- THỨ 3 -->
+  <div class="day-panel" id="day-tue" data-day="tue">
+    <div class="day-header">
+      <div class="day-badge badge-lower">🦵</div>
+      <div><div class="day-title">Thân Dưới A + Cardio</div><div class="day-meta">Thứ 3 · 60 phút</div></div>
+    </div>
+
+    <div class="note cardio"><strong>Không có dây nhảy</strong> — thay bằng Jumping Jack + High Knees, cường độ tim mạch tương đương.</div>
+
+    <div class="section-label">Cardio</div>
+    <div class="item" data-multiset="4">
+      <div class="checkbox"></div>
+      <div class="item-body">
+        <div class="item-name">Jumping Jack</div>
+        <div class="item-spec"><strong>4 hiệp × 45 giây</strong> · nghỉ 45s</div>
+        <div class="sets-row">
+          <div class="set-box" onclick="toggleSet(event,this)">1</div><div class="set-box" onclick="toggleSet(event,this)">2</div><div class="set-box" onclick="toggleSet(event,this)">3</div><div class="set-box" onclick="toggleSet(event,this)">4</div>
+        </div>
+        <div class="guide-toggle" onclick="toggleGuide(event,this)">Xem hướng dẫn ▾</div>
+        <div class="item-guide hidden">Đứng thẳng, nhảy đồng thời mở 2 chân ra và đưa 2 tay lên cao qua đầu, rồi nhảy về tư thế ban đầu. Nhịp đều, tiếp đất nhẹ bằng đầu ngón chân.</div>
+      </div>
+    </div>
+    <div class="item" data-multiset="4">
+      <div class="checkbox"></div>
+      <div class="item-body">
+        <div class="item-name">High Knees</div>
+        <div class="item-spec"><strong>4 hiệp × 45 giây</strong> · nghỉ 45s</div>
+        <div class="sets-row">
+          <div class="set-box" onclick="toggleSet(event,this)">1</div><div class="set-box" onclick="toggleSet(event,this)">2</div><div class="set-box" onclick="toggleSet(event,this)">3</div><div class="set-box" onclick="toggleSet(event,this)">4</div>
+        </div>
+        <div class="guide-toggle" onclick="toggleGuide(event,this)">Xem hướng dẫn ▾</div>
+        <div class="item-guide hidden">Chạy tại chỗ, nâng cao gối lên ngang hông mỗi bước, tay đánh nhịp như đang chạy thật. Giữ lưng thẳng, không ngả người về sau.</div>
+      </div>
+    </div>
+
+    <div class="section-label">Thân dưới</div>
+
+    <div class="item" data-multiset="4">
+      <div class="checkbox"></div>
+      <div class="item-body">
+        <div class="item-name">Squat</div>
+        <div class="item-spec"><strong>4 sets × 22 reps</strong> · nghỉ 75s</div>
+        <div class="sets-row">
+          <div class="set-box" onclick="toggleSet(event,this)">1</div><div class="set-box" onclick="toggleSet(event,this)">2</div><div class="set-box" onclick="toggleSet(event,this)">3</div><div class="set-box" onclick="toggleSet(event,this)">4</div>
+        </div>
+        <div class="guide-toggle" onclick="toggleGuide(event,this)">Xem hướng dẫn ▾</div>
+        <div class="item-guide hidden">Chân rộng bằng vai, ngón chân hướng ra ngoài 15–30°. Ngồi xuống như ngồi ghế, đầu gối không vượt ngón chân, ngực thẳng, gót chân không nhấc lên.</div>
+      </div>
+    </div>
+
+    <div class="item" data-multiset="3">
+      <div class="checkbox"></div>
+      <div class="item-body">
+        <div class="item-name">Bulgarian Split Squat</div>
+        <div class="item-spec">Chân sau kê ghế · <strong>3 sets × 10 reps</strong> mỗi bên · nghỉ 75s</div>
+        <div class="sets-row">
+          <div class="set-box" onclick="toggleSet(event,this)">1</div><div class="set-box" onclick="toggleSet(event,this)">2</div><div class="set-box" onclick="toggleSet(event,this)">3</div>
+        </div>
+        <div class="guide-toggle" onclick="toggleGuide(event,this)">Xem hướng dẫn ▾</div>
+        <div class="item-guide hidden">Đặt mu bàn chân sau lên ghế/giường, chân trước bước ra trước. Hạ người xuống cho đầu gối trước gập 90°, đẩy lên. Đổi bên.</div>
+      </div>
+    </div>
+
+    <div class="item" data-multiset="3">
+      <div class="checkbox"></div>
+      <div class="item-body">
+        <div class="item-name">Lunge</div>
+        <div class="item-spec"><strong>3 sets × 14 reps</strong> mỗi bên · nghỉ 60s</div>
+        <div class="sets-row">
+          <div class="set-box" onclick="toggleSet(event,this)">1</div><div class="set-box" onclick="toggleSet(event,this)">2</div><div class="set-box" onclick="toggleSet(event,this)">3</div>
+        </div>
+        <div class="guide-toggle" onclick="toggleGuide(event,this)">Xem hướng dẫn ▾</div>
+        <div class="item-guide hidden">Bước một chân dài về trước, hạ đầu gối sau gần sàn, thân thẳng đứng. Đổi chân.</div>
+      </div>
+    </div>
+
+    <div class="item" data-multiset="3">
+      <div class="checkbox"></div>
+      <div class="item-body">
+        <div class="item-name">Glute Bridge</div>
+        <div class="item-spec"><strong>3 sets × 18 reps</strong> · nghỉ 60s</div>
+        <div class="sets-row">
+          <div class="set-box" onclick="toggleSet(event,this)">1</div><div class="set-box" onclick="toggleSet(event,this)">2</div><div class="set-box" onclick="toggleSet(event,this)">3</div>
+        </div>
+        <div class="guide-toggle" onclick="toggleGuide(event,this)">Xem hướng dẫn ▾</div>
+        <div class="item-guide hidden">Nằm ngửa, chân gập 90°, đẩy hông lên cao, siết mông và giữ 1 giây trên đỉnh.</div>
+      </div>
+    </div>
+
+    <div class="section-label stretch">Giãn cơ</div>
+    <div class="item" onclick="toggleItem(this)"><div class="checkbox"></div><div class="item-body"><div class="item-name">Quad Stretch</div><div class="item-spec"><strong class="y">30s</strong> mỗi bên — kéo gót chân về mông</div></div></div>
+    <div class="item" onclick="toggleItem(this)"><div class="checkbox"></div><div class="item-body"><div class="item-name">Hamstring Stretch</div><div class="item-spec"><strong class="y">30s</strong> mỗi bên — chân thẳng lên ghế, gập người tới</div></div></div>
+    <div class="item" onclick="toggleItem(this)"><div class="checkbox"></div><div class="item-body"><div class="item-name">Hip Flexor Stretch</div><div class="item-spec"><strong class="y">30s</strong> mỗi bên — lunge sâu, đẩy hông tới</div></div></div>
+    <div class="item" onclick="toggleItem(this)"><div class="checkbox"></div><div class="item-body"><div class="item-name">Pigeon Pose</div><div class="item-spec"><strong class="y">30s</strong> mỗi bên — gập 1 chân trước, duỗi chân sau</div></div></div>
+  </div>
+
+  <!-- THỨ 4 -->
+  <div class="day-panel" id="day-wed" data-day="wed">
+    <div class="day-header">
+      <div class="day-badge badge-upper">💪</div>
+      <div><div class="day-title">Thân Trên B + Core</div><div class="day-meta">Thứ 4 · 60 phút</div></div>
+    </div>
+
+    <div class="section-label">Main</div>
+
+    <div class="item" data-multiset="3">
+      <div class="checkbox"></div>
+      <div class="item-body">
+        <div class="item-name">Decline Push-up</div>
+        <div class="item-spec">Chân kê cao · <strong>3 sets × 12 reps</strong> · nghỉ 75s</div>
+        <div class="sets-row"><div class="set-box" onclick="toggleSet(event,this)">1</div><div class="set-box" onclick="toggleSet(event,this)">2</div><div class="set-box" onclick="toggleSet(event,this)">3</div></div>
+        <div class="guide-toggle" onclick="toggleGuide(event,this)">Xem hướng dẫn ▾</div>
+        <div class="item-guide hidden">Tay cắm vị trí standard, chân kê lên ghế/giường phía sau. Thân dốc xuống, tăng tải vai trước và ngực trên.</div>
+      </div>
+    </div>
+
+    <div class="item" data-multiset="3">
+      <div class="checkbox"></div>
+      <div class="item-body">
+        <div class="item-name">Push-up hẹp (Shoulder)</div>
+        <div class="item-spec">Board 🔴 · <strong>3 sets × 10 reps</strong> · nghỉ 75s</div>
+        <div class="sets-row"><div class="set-box" onclick="toggleSet(event,this)">1</div><div class="set-box" onclick="toggleSet(event,this)">2</div><div class="set-box" onclick="toggleSet(event,this)">3</div></div>
+        <div class="guide-toggle" onclick="toggleGuide(event,this)">Xem hướng dẫn ▾</div>
+        <div class="item-guide hidden">2 lỗ gần nhau, không sát hẳn như diamond. Khuỷu tay hướng xéo về đầu, tải trọng dồn vào vai trước.</div>
+      </div>
+    </div>
+
+    <div class="item" data-multiset="3">
+      <div class="checkbox"></div>
+      <div class="item-body">
+        <div class="item-name">Wide Push-up</div>
+        <div class="item-spec">Board 🔵 ngoài · <strong>3 sets × 12 reps</strong> · nghỉ 75s</div>
+        <div class="sets-row"><div class="set-box" onclick="toggleSet(event,this)">1</div><div class="set-box" onclick="toggleSet(event,this)">2</div><div class="set-box" onclick="toggleSet(event,this)">3</div></div>
+        <div class="guide-toggle" onclick="toggleGuide(event,this)">Xem hướng dẫn ▾</div>
+        <div class="item-guide hidden">Cắm tay vào 2 lỗ ngoài cùng đường viền xanh dương. Tay rộng hơn vai khoảng 1.5 lần, khuỷu tay mở 45° khi hạ xuống.</div>
+      </div>
+    </div>
+
+    <div class="item" data-multiset="3">
+      <div class="checkbox"></div>
+      <div class="item-body">
+        <div class="item-name">Diamond Push-up</div>
+        <div class="item-spec">Board 🟢 · <strong>3 sets × 9 reps</strong> · nghỉ 75s</div>
+        <div class="sets-row"><div class="set-box" onclick="toggleSet(event,this)">1</div><div class="set-box" onclick="toggleSet(event,this)">2</div><div class="set-box" onclick="toggleSet(event,this)">3</div></div>
+        <div class="guide-toggle" onclick="toggleGuide(event,this)">Xem hướng dẫn ▾</div>
+        <div class="item-guide hidden">2 lỗ trên cùng sát nhau nhất. Khuỷu tay ép sát thân, không mở ra ngoài.</div>
+      </div>
+    </div>
+
+    <div class="item" data-multiset="3">
+      <div class="checkbox"></div>
+      <div class="item-body">
+        <div class="item-name">Plank to Push-up</div>
+        <div class="item-spec"><strong>3 sets × 12 reps</strong> · nghỉ 60s</div>
+        <div class="sets-row"><div class="set-box" onclick="toggleSet(event,this)">1</div><div class="set-box" onclick="toggleSet(event,this)">2</div><div class="set-box" onclick="toggleSet(event,this)">3</div></div>
+        <div class="guide-toggle" onclick="toggleGuide(event,this)">Xem hướng dẫn ▾</div>
+        <div class="item-guide hidden">Từ tư thế plank tay thẳng, hạ xuống chống khuỷu tay (plank thường), rồi đẩy lên lại tay thẳng. Giữ hông ổn định không lắc.</div>
+      </div>
+    </div>
+
+    <div class="section-label">Core</div>
+
+    <div class="item" data-multiset="3">
+      <div class="checkbox"></div>
+      <div class="item-body">
+        <div class="item-name">Leg Raise</div>
+        <div class="item-spec"><strong>3 sets × 14 reps</strong> · nghỉ 60s</div>
+        <div class="sets-row"><div class="set-box" onclick="toggleSet(event,this)">1</div><div class="set-box" onclick="toggleSet(event,this)">2</div><div class="set-box" onclick="toggleSet(event,this)">3</div></div>
+        <div class="guide-toggle" onclick="toggleGuide(event,this)">Xem hướng dẫn ▾</div>
+        <div class="item-guide hidden">Nằm ngửa, tay dọc thân, nâng 2 chân thẳng lên 90° rồi hạ xuống chậm. Không để chân chạm sàn giữa các rep.</div>
+      </div>
+    </div>
+
+    <div class="item" data-multiset="3">
+      <div class="checkbox"></div>
+      <div class="item-body">
+        <div class="item-name">Mountain Climber</div>
+        <div class="item-spec"><strong>3 sets × 35 giây</strong> · nghỉ 60s</div>
+        <div class="sets-row"><div class="set-box" onclick="toggleSet(event,this)">1</div><div class="set-box" onclick="toggleSet(event,this)">2</div><div class="set-box" onclick="toggleSet(event,this)">3</div></div>
+        <div class="guide-toggle" onclick="toggleGuide(event,this)">Xem hướng dẫn ▾</div>
+        <div class="item-guide hidden">Tư thế plank, kéo gối lên ngực xen kẽ nhanh như đang chạy. Hông không nhô lên.</div>
+      </div>
+    </div>
+
+    <div class="section-label stretch">Giãn cơ</div>
+    <div class="item" onclick="toggleItem(this)"><div class="checkbox"></div><div class="item-body"><div class="item-name">Chest Stretch</div><div class="item-spec"><strong class="y">30s</strong> mỗi bên</div></div></div>
+    <div class="item" onclick="toggleItem(this)"><div class="checkbox"></div><div class="item-body"><div class="item-name">Tricep Stretch</div><div class="item-spec"><strong class="y">30s</strong> mỗi bên</div></div></div>
+    <div class="item" onclick="toggleItem(this)"><div class="checkbox"></div><div class="item-body"><div class="item-name">Shoulder Cross Stretch</div><div class="item-spec"><strong class="y">30s</strong> mỗi bên</div></div></div>
+    <div class="item" onclick="toggleItem(this)"><div class="checkbox"></div><div class="item-body"><div class="item-name">Cat-Cow</div><div class="item-spec"><strong class="y">8 lần</strong></div></div></div>
+  </div>
+
+  <!-- THỨ 5 -->
+  <div class="day-panel" id="day-thu" data-day="thu">
+    <div class="day-header">
+      <div class="day-badge badge-lower">🦵</div>
+      <div><div class="day-title">Thân Dưới B + Cardio</div><div class="day-meta">Thứ 5 · 60 phút</div></div>
+    </div>
+
+    <div class="note cardio"><strong>Không có dây nhảy</strong> — thay bằng Jumping Jack + High Knees.</div>
+
+    <div class="section-label">Cardio</div>
+    <div class="item" data-multiset="4">
+      <div class="checkbox"></div>
+      <div class="item-body">
+        <div class="item-name">Jumping Jack</div>
+        <div class="item-spec"><strong>4 hiệp × 45 giây</strong> · nghỉ 45s</div>
+        <div class="sets-row"><div class="set-box" onclick="toggleSet(event,this)">1</div><div class="set-box" onclick="toggleSet(event,this)">2</div><div class="set-box" onclick="toggleSet(event,this)">3</div><div class="set-box" onclick="toggleSet(event,this)">4</div></div>
+      </div>
+    </div>
+    <div class="item" data-multiset="4">
+      <div class="checkbox"></div>
+      <div class="item-body">
+        <div class="item-name">High Knees</div>
+        <div class="item-spec"><strong>4 hiệp × 45 giây</strong> · nghỉ 45s</div>
+        <div class="sets-row"><div class="set-box" onclick="toggleSet(event,this)">1</div><div class="set-box" onclick="toggleSet(event,this)">2</div><div class="set-box" onclick="toggleSet(event,this)">3</div><div class="set-box" onclick="toggleSet(event,this)">4</div></div>
+      </div>
+    </div>
+
+    <div class="section-label">Thân dưới</div>
+
+    <div class="item" data-multiset="3">
+      <div class="checkbox"></div>
+      <div class="item-body">
+        <div class="item-name">Jump Squat</div>
+        <div class="item-spec"><strong>3 sets × 12 reps</strong> · nghỉ 75s</div>
+        <div class="sets-row"><div class="set-box" onclick="toggleSet(event,this)">1</div><div class="set-box" onclick="toggleSet(event,this)">2</div><div class="set-box" onclick="toggleSet(event,this)">3</div></div>
+        <div class="guide-toggle" onclick="toggleGuide(event,this)">Xem hướng dẫn ▾</div>
+        <div class="item-guide hidden">Squat xuống bình thường, sau đó bật nhảy thẳng lên cao, đáp đất nhẹ nhàng bằng cả bàn chân, hạ ngay xuống squat tiếp.</div>
+      </div>
+    </div>
+
+    <div class="item" data-multiset="3">
+      <div class="checkbox"></div>
+      <div class="item-body">
+        <div class="item-name">Squat</div>
+        <div class="item-spec"><strong>3 sets × 20 reps</strong> · nghỉ 60s</div>
+        <div class="sets-row"><div class="set-box" onclick="toggleSet(event,this)">1</div><div class="set-box" onclick="toggleSet(event,this)">2</div><div class="set-box" onclick="toggleSet(event,this)">3</div></div>
+      </div>
+    </div>
+
+    <div class="item" data-multiset="3">
+      <div class="checkbox"></div>
+      <div class="item-body">
+        <div class="item-name">Lunge</div>
+        <div class="item-spec"><strong>3 sets × 12 reps</strong> mỗi bên · nghỉ 60s</div>
+        <div class="sets-row"><div class="set-box" onclick="toggleSet(event,this)">1</div><div class="set-box" onclick="toggleSet(event,this)">2</div><div class="set-box" onclick="toggleSet(event,this)">3</div></div>
+      </div>
+    </div>
+
+    <div class="item" data-multiset="3">
+      <div class="checkbox"></div>
+      <div class="item-body">
+        <div class="item-name">Single-leg Glute Bridge</div>
+        <div class="item-spec"><strong>3 sets × 10 reps</strong> mỗi bên · nghỉ 60s</div>
+        <div class="sets-row"><div class="set-box" onclick="toggleSet(event,this)">1</div><div class="set-box" onclick="toggleSet(event,this)">2</div><div class="set-box" onclick="toggleSet(event,this)">3</div></div>
+        <div class="guide-toggle" onclick="toggleGuide(event,this)">Xem hướng dẫn ▾</div>
+        <div class="item-guide hidden">Giống glute bridge thường nhưng nâng 1 chân thẳng lên, chỉ dùng 1 chân còn lại đẩy hông lên. Đổi bên.</div>
+      </div>
+    </div>
+
+    <div class="section-label stretch">Giãn cơ</div>
+    <div class="item" onclick="toggleItem(this)"><div class="checkbox"></div><div class="item-body"><div class="item-name">Quad Stretch</div><div class="item-spec"><strong class="y">30s</strong> mỗi bên</div></div></div>
+    <div class="item" onclick="toggleItem(this)"><div class="checkbox"></div><div class="item-body"><div class="item-name">Hamstring Stretch</div><div class="item-spec"><strong class="y">30s</strong> mỗi bên</div></div></div>
+    <div class="item" onclick="toggleItem(this)"><div class="checkbox"></div><div class="item-body"><div class="item-name">Hip Flexor Stretch</div><div class="item-spec"><strong class="y">30s</strong> mỗi bên</div></div></div>
+    <div class="item" onclick="toggleItem(this)"><div class="checkbox"></div><div class="item-body"><div class="item-name">Pigeon Pose</div><div class="item-spec"><strong class="y">30s</strong> mỗi bên</div></div></div>
+  </div>
+
+  <!-- THỨ 6 -->
+  <div class="day-panel" id="day-fri" data-day="fri">
+    <div class="day-header">
+      <div class="day-badge badge-hybrid">⚡</div>
+      <div><div class="day-title">Full Body Nhẹ + Core Sâu</div><div class="day-meta">Thứ 6 · 60 phút</div></div>
+    </div>
+
+    <div class="section-label">Main (giảm tải)</div>
+    <div class="item" data-multiset="3">
+      <div class="checkbox"></div>
+      <div class="item-body">
+        <div class="item-name">Standard Push-up</div>
+        <div class="item-spec"><strong>3 sets × 10 reps</strong></div>
+        <div class="sets-row"><div class="set-box" onclick="toggleSet(event,this)">1</div><div class="set-box" onclick="toggleSet(event,this)">2</div><div class="set-box" onclick="toggleSet(event,this)">3</div></div>
+      </div>
+    </div>
+    <div class="item" data-multiset="2">
+      <div class="checkbox"></div>
+      <div class="item-body">
+        <div class="item-name">Diamond Push-up</div>
+        <div class="item-spec"><strong>2 sets × 8 reps</strong></div>
+        <div class="sets-row"><div class="set-box" onclick="toggleSet(event,this)">1</div><div class="set-box" onclick="toggleSet(event,this)">2</div></div>
+      </div>
+    </div>
+    <div class="item" data-multiset="3">
+      <div class="checkbox"></div>
+      <div class="item-body">
+        <div class="item-name">Squat</div>
+        <div class="item-spec"><strong>3 sets × 15 reps</strong></div>
+        <div class="sets-row"><div class="set-box" onclick="toggleSet(event,this)">1</div><div class="set-box" onclick="toggleSet(event,this)">2</div><div class="set-box" onclick="toggleSet(event,this)">3</div></div>
+      </div>
+    </div>
+    <div class="item" data-multiset="2">
+      <div class="checkbox"></div>
+      <div class="item-body">
+        <div class="item-name">Lunge</div>
+        <div class="item-spec"><strong>2 sets × 10 reps</strong> mỗi bên</div>
+        <div class="sets-row"><div class="set-box" onclick="toggleSet(event,this)">1</div><div class="set-box" onclick="toggleSet(event,this)">2</div></div>
+      </div>
+    </div>
+    <div class="item" data-multiset="2">
+      <div class="checkbox"></div>
+      <div class="item-body">
+        <div class="item-name">Jumping Jack</div>
+        <div class="item-spec"><strong>2 hiệp × 1 phút</strong></div>
+        <div class="sets-row"><div class="set-box" onclick="toggleSet(event,this)">1</div><div class="set-box" onclick="toggleSet(event,this)">2</div></div>
+      </div>
+    </div>
+    <div class="item" data-multiset="2">
+      <div class="checkbox"></div>
+      <div class="item-body">
+        <div class="item-name">High Knees</div>
+        <div class="item-spec"><strong>2 hiệp × 1 phút</strong></div>
+        <div class="sets-row"><div class="set-box" onclick="toggleSet(event,this)">1</div><div class="set-box" onclick="toggleSet(event,this)">2</div></div>
+      </div>
+    </div>
+
+    <div class="section-label">Core sâu</div>
+    <div class="item" data-multiset="3">
+      <div class="checkbox"></div>
+      <div class="item-body">
+        <div class="item-name">Plank</div>
+        <div class="item-spec"><strong>3 sets × 40 giây</strong> · nghỉ 45s</div>
+        <div class="sets-row"><div class="set-box" onclick="toggleSet(event,this)">1</div><div class="set-box" onclick="toggleSet(event,this)">2</div><div class="set-box" onclick="toggleSet(event,this)">3</div></div>
+        <div class="guide-toggle" onclick="toggleGuide(event,this)">Xem hướng dẫn ▾</div>
+        <div class="item-guide hidden">Chống khuỷu tay và mũi chân, thân thẳng từ đầu tới gót, không võng hông, không nhô mông.</div>
+      </div>
+    </div>
+    <div class="item" data-multiset="3">
+      <div class="checkbox"></div>
+      <div class="item-body">
+        <div class="item-name">Russian Twist</div>
+        <div class="item-spec"><strong>3 sets × 20 reps</strong> mỗi bên · nghỉ 45s</div>
+        <div class="sets-row"><div class="set-box" onclick="toggleSet(event,this)">1</div><div class="set-box" onclick="toggleSet(event,this)">2</div><div class="set-box" onclick="toggleSet(event,this)">3</div></div>
+        <div class="guide-toggle" onclick="toggleGuide(event,this)">Xem hướng dẫn ▾</div>
+        <div class="item-guide hidden">Ngồi, nghiêng người về sau một chút, 2 chân nhón khỏi sàn (hoặc chạm sàn nếu mới tập), xoay thân qua 2 bên, tay chạm sàn mỗi bên.</div>
+      </div>
+    </div>
+    <div class="item" data-multiset="3">
+      <div class="checkbox"></div>
+      <div class="item-body">
+        <div class="item-name">Hollow Body Hold</div>
+        <div class="item-spec"><strong>3 sets × 25 giây</strong></div>
+        <div class="sets-row"><div class="set-box" onclick="toggleSet(event,this)">1</div><div class="set-box" onclick="toggleSet(event,this)">2</div><div class="set-box" onclick="toggleSet(event,this)">3</div></div>
+      </div>
+    </div>
+    <div class="item" data-multiset="2">
+      <div class="checkbox"></div>
+      <div class="item-body">
+        <div class="item-name">Dead Bug</div>
+        <div class="item-spec"><strong>2 sets × 10 reps</strong> mỗi bên</div>
+        <div class="sets-row"><div class="set-box" onclick="toggleSet(event,this)">1</div><div class="set-box" onclick="toggleSet(event,this)">2</div></div>
+      </div>
+    </div>
+
+    <div class="section-label stretch">Giãn cơ toàn thân</div>
+    <div class="item" onclick="toggleItem(this)"><div class="checkbox"></div><div class="item-body"><div class="item-name">Chest Stretch</div><div class="item-spec"><strong class="y">25s</strong> mỗi bên</div></div></div>
+    <div class="item" onclick="toggleItem(this)"><div class="checkbox"></div><div class="item-body"><div class="item-name">Quad Stretch</div><div class="item-spec"><strong class="y">25s</strong> mỗi bên</div></div></div>
+  </div>
+
+  <!-- THỨ 7 -->
+  <div class="day-panel" id="day-sat" data-day="sat">
+    <div class="day-header">
+      <div class="day-badge badge-cardio">🔥</div>
+      <div><div class="day-title">Cardio + Mobility</div><div class="day-meta">Thứ 7 · 45–60 phút</div></div>
+    </div>
+
+    <div class="note cardio"><strong>Không có dây nhảy</strong> — thay bằng Jumping Jack + High Knees.</div>
+
+    <div class="section-label">Cardio</div>
+    <div class="item" data-multiset="5">
+      <div class="checkbox"></div>
+      <div class="item-body">
+        <div class="item-name">Jumping Jack</div>
+        <div class="item-spec"><strong>5 hiệp × 45 giây</strong> · nghỉ đếm 25</div>
+        <div class="sets-row"><div class="set-box" onclick="toggleSet(event,this)">1</div><div class="set-box" onclick="toggleSet(event,this)">2</div><div class="set-box" onclick="toggleSet(event,this)">3</div><div class="set-box" onclick="toggleSet(event,this)">4</div><div class="set-box" onclick="toggleSet(event,this)">5</div></div>
+      </div>
+    </div>
+    <div class="item" data-multiset="5">
+      <div class="checkbox"></div>
+      <div class="item-body">
+        <div class="item-name">High Knees</div>
+        <div class="item-spec"><strong>5 hiệp × 45 giây</strong> · nghỉ đếm 25</div>
+        <div class="sets-row"><div class="set-box" onclick="toggleSet(event,this)">1</div><div class="set-box" onclick="toggleSet(event,this)">2</div><div class="set-box" onclick="toggleSet(event,this)">3</div><div class="set-box" onclick="toggleSet(event,this)">4</div><div class="set-box" onclick="toggleSet(event,this)">5</div></div>
+      </div>
+    </div>
+
+    <div class="section-label">Mobility Flow</div>
+    <div class="item" onclick="toggleItem(this)"><div class="checkbox"></div><div class="item-body"><div class="item-name">Cat-Cow</div><div class="item-spec">10 lần</div></div></div>
+    <div class="item">
+      <div class="checkbox" onclick="toggleItem(this.parentElement)"></div>
+      <div class="item-body">
+        <div class="item-name">Hip Circles</div>
+        <div class="item-spec">10 vòng mỗi bên</div>
+        <div class="guide-toggle" onclick="toggleGuide(event,this)">Xem hướng dẫn ▾</div>
+        <div class="item-guide hidden">Đứng, một tay vịn tường, nhấc chân lên xoay tròn hông theo vòng tròn lớn, đổi bên.</div>
+      </div>
+    </div>
+    <div class="item">
+      <div class="checkbox" onclick="toggleItem(this.parentElement)"></div>
+      <div class="item-body">
+        <div class="item-name">Shoulder Dislocates</div>
+        <div class="item-spec">Dùng khăn · 10 lần</div>
+        <div class="guide-toggle" onclick="toggleGuide(event,this)">Xem hướng dẫn ▾</div>
+        <div class="item-guide hidden">Cầm 2 đầu khăn dài rộng hơn vai, tay thẳng đưa từ trước mặt vòng qua đầu xuống sau lưng, rồi vòng lại. Giữ tay thẳng suốt động tác.</div>
+      </div>
+    </div>
+
+    <div class="section-label">Đi bộ</div>
+    <div class="item" onclick="toggleItem(this)"><div class="checkbox"></div><div class="item-body"><div class="item-name">Đi bộ nhẹ</div><div class="item-spec">15–20 phút</div></div></div>
+  </div>
+
+  <!-- CHỦ NHẬT -->
+  <div class="day-panel active" id="day-sun" data-day="sun">
+    <div class="day-header">
+      <div class="day-badge badge-yoga">🧘</div>
+      <div><div class="day-title">Yoga Phục Hồi</div><div class="day-meta">Chủ Nhật · 15–20 phút</div></div>
+    </div>
+
+    <div class="note yoga">Ngày phục hồi chủ động — không tập nặng. Giúp cơ phục hồi, tăng linh hoạt sau 6 ngày tập.</div>
+
+    <div class="section-label stretch">Trình tự</div>
+    <div class="item" onclick="toggleItem(this)"><div class="checkbox"></div><div class="item-body"><div class="item-name">Child's Pose</div><div class="item-spec"><strong class="y">60s</strong> — ngồi gối, gập người, tay duỗi, trán chạm sàn</div></div></div>
+    <div class="item" onclick="toggleItem(this)"><div class="checkbox"></div><div class="item-body"><div class="item-name">Downward Dog</div><div class="item-spec"><strong class="y">45s</strong> — chữ V ngược, gót chân hướng sàn</div></div></div>
+    <div class="item" onclick="toggleItem(this)"><div class="checkbox"></div><div class="item-body"><div class="item-name">Cobra Pose</div><div class="item-spec"><strong class="y">45s</strong> — nằm sấp, chống tay nâng ngực</div></div></div>
+    <div class="item" onclick="toggleItem(this)"><div class="checkbox"></div><div class="item-body"><div class="item-name">Cat-Cow</div><div class="item-spec"><strong class="y">10 lần</strong></div></div></div>
+    <div class="item" onclick="toggleItem(this)"><div class="checkbox"></div><div class="item-body"><div class="item-name">Seated Forward Fold</div><div class="item-spec"><strong class="y">45s</strong> — ngồi, chân thẳng, gập người tới</div></div></div>
+    <div class="item" onclick="toggleItem(this)"><div class="checkbox"></div><div class="item-body"><div class="item-name">Butterfly Stretch</div><div class="item-spec"><strong class="y">60s</strong> — 2 lòng bàn chân chạm nhau</div></div></div>
+    <div class="item" onclick="toggleItem(this)"><div class="checkbox"></div><div class="item-body"><div class="item-name">Savasana</div><div class="item-spec"><strong class="y">2–3 phút</strong> — nằm thả lỏng, thở tự nhiên</div></div></div>
+
+    <div class="note" style="margin-top:16px"><strong>Checklist cuối tuần:</strong> Uống đủ nước · Ngủ 7–8 tiếng · Ăn đủ protein mỗi bữa · Chuẩn bị cho T2 💪</div>
+  </div>
+
+  <button class="reset-btn" onclick="resetDay()">↺ Reset tiến độ ngày này</button>
+
+</div>
+
+<script>
+  const STORAGE_KEY = 'tn-plan-v1';
+  let activeDay = null;
+
+  function loadState() {
+    try {
+      return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+    } catch {
+      return {};
+    }
+  }
+
+  function saveState(state) {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  }
+
+  function assignItemIndices() {
+    document.querySelectorAll('.day-panel').forEach(panel => {
+      panel.querySelectorAll('.item').forEach((item, idx) => {
+        item.dataset.itemIdx = String(idx);
+      });
+    });
+  }
+
+  function getPanelDay(panel) {
+    return panel ? panel.dataset.day : null;
+  }
+
+  function captureDayState(day) {
+    const panel = document.getElementById('day-' + day);
+    if (!panel) return { items: [], sets: {} };
+    const items = [];
+    panel.querySelectorAll('.item').forEach(item => {
+      if (item.classList.contains('done')) {
+        items.push(parseInt(item.dataset.itemIdx, 10));
+      }
+    });
+    const sets = {};
+    panel.querySelectorAll('.item[data-multiset]').forEach(item => {
+      const idx = item.dataset.itemIdx;
+      item.querySelectorAll('.set-box').forEach((box, i) => {
+        if (box.classList.contains('on')) {
+          sets[idx + ':' + (i + 1)] = true;
+        }
+      });
+    });
+    return { items, sets };
+  }
+
+  function persistState() {
+    const state = loadState();
+    state.activeDay = activeDay;
+    state.days = state.days || {};
+    if (activeDay) {
+      state.days[activeDay] = captureDayState(activeDay);
+    }
+    saveState(state);
+  }
+
+  function applyDayState(day, dayState) {
+    const panel = document.getElementById('day-' + day);
+    if (!panel || !dayState) return;
+    panel.querySelectorAll('.item').forEach(item => item.classList.remove('done'));
+    panel.querySelectorAll('.set-box').forEach(s => s.classList.remove('on'));
+    (dayState.items || []).forEach(idx => {
+      const item = panel.querySelector('.item[data-item-idx="' + idx + '"]');
+      if (item) item.classList.add('done');
+    });
+    Object.keys(dayState.sets || {}).forEach(key => {
+      const parts = key.split(':');
+      const idx = parts[0];
+      const setNum = parts[1];
+      const item = panel.querySelector('.item[data-item-idx="' + idx + '"]');
+      if (!item) return;
+      const boxes = item.querySelectorAll('.set-box');
+      const box = boxes[parseInt(setNum, 10) - 1];
+      if (box) box.classList.add('on');
+    });
+    panel.querySelectorAll('.item[data-multiset]').forEach(item => {
+      const total = parseInt(item.dataset.multiset, 10);
+      const done = item.querySelectorAll('.set-box.on').length;
+      if (done >= total) item.classList.add('done');
+    });
+  }
+
+  function restoreState() {
+    const state = loadState();
+    Object.keys(state.days || {}).forEach(day => applyDayState(day, state.days[day]));
+    return state.activeDay;
+  }
+
+  function showDay(day) {
+    if (activeDay && activeDay !== day) persistState();
+    document.querySelectorAll('.day-panel').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.day-pill').forEach(p => p.classList.remove('active'));
+    document.getElementById('day-' + day).classList.add('active');
+    const pills = { mon: 0, tue: 1, wed: 2, thu: 3, fri: 4, sat: 5, sun: 6 };
+    document.querySelectorAll('.day-pill')[pills[day]].classList.add('active');
+    activeDay = day;
+    updateProgress();
+    persistState();
+  }
+
+  function toggleItem(el) {
+    el.classList.toggle('done');
+    updateProgress();
+    persistState();
+  }
+
+  function toggleGuide(e, el) {
+    e.stopPropagation();
+    const guide = el.nextElementSibling;
+    guide.classList.toggle('hidden');
+    el.textContent = guide.classList.contains('hidden') ? 'Xem hướng dẫn ▾' : 'Ẩn hướng dẫn ▴';
+  }
+
+  function toggleSet(e, el) {
+    e.stopPropagation();
+    el.classList.toggle('on');
+    const item = el.closest('.item');
+    const total = parseInt(item.dataset.multiset, 10);
+    const done = item.querySelectorAll('.set-box.on').length;
+    if (done >= total) item.classList.add('done');
+    else item.classList.remove('done');
+    updateProgress();
+    persistState();
+  }
+
+  function updateProgress() {
+    const panel = document.querySelector('.day-panel.active');
+    if (!panel) return;
+    const items = panel.querySelectorAll('.item');
+    const total = items.length;
+    const done = panel.querySelectorAll('.item.done').length;
+    const pct = total ? Math.round((done / total) * 100) : 0;
+    document.getElementById('progress-fill').style.width = pct + '%';
+    document.getElementById('progress-text').textContent = pct + '%';
+  }
+
+  function resetDay() {
+    const panel = document.querySelector('.day-panel.active');
+    if (!panel) return;
+    const day = getPanelDay(panel);
+    panel.querySelectorAll('.item').forEach(i => i.classList.remove('done'));
+    panel.querySelectorAll('.set-box').forEach(s => s.classList.remove('on'));
+    const state = loadState();
+    if (state.days && day) delete state.days[day];
+    saveState(state);
+    updateProgress();
+    persistState();
+  }
+
+  function updateOfflineBanner() {
+    const banner = document.getElementById('offline-banner');
+    if (!banner) return;
+    const offline = !navigator.onLine;
+    banner.classList.toggle('visible', offline);
+    document.body.classList.toggle('offline-pad', offline);
+  }
+
+  assignItemIndices();
+  const savedDay = restoreState();
+  const days = ['sun','mon','tue','wed','thu','fri','sat'];
+  const today = days[new Date().getDay()];
+  const initial = savedDay || today;
+  if (document.getElementById('day-' + initial)) showDay(initial);
+  else updateProgress();
+
+  updateOfflineBanner();
+  window.addEventListener('online', updateOfflineBanner);
+  window.addEventListener('offline', updateOfflineBanner);
+
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/tn-plan/sw.js', { scope: '/tn-plan/' });
+  }
+</script>
+
+
+
+</body></html>

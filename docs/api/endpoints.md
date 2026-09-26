@@ -10,9 +10,14 @@ Legend auth: **A** = admin, **U** = any authenticated user, **—** = public.
 
 | Method | Path | Auth | Mô tả |
 |--------|------|------|--------|
-| POST | `/auth/login` | — | Web session |
-| POST | `/auth/mobile/login` | — | Mobile tokens |
+| POST | `/auth/login` | — | Web session (Set-Cookie) |
+| POST | `/auth/refresh` | refresh cookie | Web rotate tokens |
+| POST | `/auth/logout` | refresh cookie | Revoke + clear cookies |
 | GET | `/auth/me` | U | Current user |
+| PATCH | `/auth/me/map-location` | U | Lưu tọa độ map user |
+| POST | `/auth/mobile/login` | — | Mobile JSON tokens |
+| POST | `/auth/mobile/refresh` | — | Body `{ refresh_token }` |
+| POST | `/auth/mobile/logout` | — | Revoke refresh token |
 
 → [auth.md](./auth.md)
 
@@ -49,7 +54,7 @@ Legend auth: **A** = admin, **U** = any authenticated user, **—** = public.
 
 | Method | Path | Auth | Mô tả |
 |--------|------|------|--------|
-| GET | `/cylinder-templates` | U | List mẫu chai |
+| GET | `/cylinder-templates` | U | List mẫu chai; `include_inactive=true` chỉ admin |
 | POST | `/cylinder-templates` | A | Create |
 | PATCH | `/cylinder-templates/{id}` | A | Update |
 | DELETE | `/cylinder-templates/{id}` | A | Delete |
@@ -96,16 +101,22 @@ Legend auth: **A** = admin, **U** = any authenticated user, **—** = public.
 
 ## Debt & finance
 
+Outstanding **theo từng đơn** (`sales_order_id`), không FIFO cấp SĐT. Body thu nợ bắt buộc `sales_order_id`.
+
 | Method | Path | Auth | Mô tả |
 |--------|------|------|--------|
-| GET | `/debt-accounts` | A | List công nợ |
+| GET | `/debt-orders` | A | List đơn có lịch sử nợ; query `status` (`all`/`open`/`paid`), `month` (`YYYY-MM`), `search`, `limit`, `offset` |
+| GET | `/debt-orders/{id}` | A | Chi tiết đơn + ledger scoped đơn đó; query `month` |
+| GET | `/debt-accounts` | A | List tài khoản theo SĐT |
 | GET | `/debt-accounts/{id}` | A | Detail + ledger |
 | GET | `/debt-accounts/{id}/ledger` | A | Ledger entries |
-| POST | `/debt-payments` | A | Thu nợ |
+| POST | `/debt-payments` | A | Thu nợ **một đơn** |
 | PATCH | `/debt-payments/{id}` | A | Sửa thu nợ |
 | DELETE | `/debt-payments/{id}` | A | Xóa thu nợ |
 | POST | `/debt-write-offs` | A | Xóa nợ |
 | GET | `/debt-aging` | A | Phân loại tuổi nợ |
+| GET | `/shell-debt-ledger` | A | Sổ nợ vỏ |
+| GET | `/shell-debt-ledger.csv` | A | Export CSV nợ vỏ |
 
 ## Gas ledger & operations
 
@@ -116,6 +127,7 @@ Legend auth: **A** = admin, **U** = any authenticated user, **—** = public.
 | GET | `/sales-gas-export.csv` | A | Export bán gas |
 | GET | `/operations/daily-cylinder-audit` | A | Kiểm kê theo ngày |
 | PUT | `/operations/daily-cylinder-audit/{date}` | A | Upsert kiểm kê |
+| GET | `/operations/delivery-day-summary` | A | Đơn theo `delivery_date`; query `dates` (CSV `YYYY-MM-DD`) |
 
 **Mobile P1 gọi trực tiếp (không qua sync):**
 
@@ -126,13 +138,14 @@ Legend auth: **A** = admin, **U** = any authenticated user, **—** = public.
 | PATCH | `/orders/{id}` | Admin sửa đơn (full body từ cache) |
 | GET | `/operations/daily-cylinder-audit` | Load kiểm kê theo ngày |
 | PUT | `/operations/daily-cylinder-audit/{date}` | Lưu kiểm kê online |
-| POST | `/debt-payments` | Thu nợ từ admin debt module |
+| POST | `/debt-payments` | Thu nợ một đơn (`sales_order_id`) |
 
 ## Dashboard & governance
 
 | Method | Path | Auth | Mô tả |
 |--------|------|------|--------|
-| GET | `/dashboard` | A | Dashboard payload |
+| GET | `/dashboard` | A | Dashboard payload (orders + products) |
+| GET | `/dashboard/summary` | A | KPI series / tóm tắt chart |
 | GET/POST | `/shift-settlements` | A | Quyết toán ca |
 | GET | `/shift-settlements/anomalies` | A | Bất thường tiền mặt |
 | GET/POST | `/finance-kpis` | A | KPI baseline |

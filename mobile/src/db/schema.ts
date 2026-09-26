@@ -14,6 +14,7 @@ export const salesOrders = sqliteTable("sales_orders", {
   deliveryLongitude: real("delivery_longitude"),
   total: text("total").notNull(),
   borrowedShellUnits: integer("borrowed_shell_units").default(0),
+  customerSegment: text("customer_segment"),
   payloadJson: text("payload_json").notNull(),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
@@ -24,6 +25,8 @@ export const products = sqliteTable("products", {
   id: integer("id").primaryKey(),
   name: text("name").notNull(),
   sellPrice: text("sell_price").notNull(),
+  wholesalePrice: text("wholesale_price"),
+  restaurantPrice: text("restaurant_price"),
   stockQuantity: integer("stock_quantity").notNull(),
   updatedAt: text("updated_at").notNull(),
 });

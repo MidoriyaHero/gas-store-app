@@ -8,6 +8,8 @@ import { colors, spacing } from "@/theme/tokens";
 type DebtPaymentSheetProps = {
   visible: boolean;
   customerName: string;
+  orderCode?: string;
+  deliveryDate?: string | null;
   maxBalance: string;
   amount: string;
   returnedShells: string;
@@ -24,6 +26,8 @@ type DebtPaymentSheetProps = {
 export function DebtPaymentSheet({
   visible,
   customerName,
+  orderCode,
+  deliveryDate,
   maxBalance,
   amount,
   returnedShells,
@@ -42,7 +46,9 @@ export function DebtPaymentSheet({
           <View style={styles.handle} />
           <AppText variant="h3">Thu nợ</AppText>
           <AppText variant="caption" muted style={styles.sub}>
-            {customerName} · Dư nợ: {Number(maxBalance).toLocaleString("vi-VN")} đ
+            {orderCode ? `${orderCode} · ` : ""}
+            {customerName}
+            {deliveryDate ? ` · Giao ${deliveryDate}` : ""} · Dư nợ: {Number(maxBalance).toLocaleString("vi-VN")} đ
           </AppText>
           <TextField label="Số tiền thu" value={amount} onChangeText={onChangeAmount} keyboardType="decimal-pad" />
           <TextField

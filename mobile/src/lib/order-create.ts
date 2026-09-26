@@ -1,4 +1,5 @@
-import { cylinderTypeFromProductName, DEFAULT_OWNER, type CylinderLineDefaults } from "@/lib/cylinder-template";
+import { cylinderTypeFromProductName, type CylinderLineDefaults } from "@/lib/cylinder-template";
+import { unitPriceForSegment } from "@/lib/product-price";
 
 export const DEFAULT_STORE_CONTACT = "Gas Huy Hoàng";
 
@@ -29,6 +30,7 @@ export type CreateOrderForm = {
   paidAmount: number;
   vatRate: number;
   borrowedShellUnits: number;
+  customerSegment: "wholesale" | "restaurant" | "retail" | "";
 };
 
 /** Order totals for preview and payload paid_amount. */
@@ -65,10 +67,11 @@ export function buildCreateOrderPayload(form: CreateOrderForm, cart: CreateCartL
     delivery_longitude: form.deliveryLongitude,
     delivery_status: "in_transit" as const,
     borrowed_shell_units: form.borrowedShellUnits,
+    customer_segment: form.customerSegment,
     lines: cart.map((i) => ({
       product_id: i.product_id,
       quantity: i.quantity,
-      owner_name: i.owner_name.trim() || DEFAULT_OWNER,
+      owner_name: i.owner_name.trim() || null,
       cylinder_type: i.cylinder_type.trim() || cylinderTypeFromProductName(i.name),
       cylinder_serial: i.cylinder_serial.trim() || null,
       inspection_expiry: i.inspection_expiry || null,
@@ -80,15 +83,22 @@ export function buildCreateOrderPayload(form: CreateOrderForm, cart: CreateCartL
 
 /** New cart line with product + template defaults. */
 export function newCartLine(
-  product: { id: number; name: string; sellPrice: string },
+  product: {
+    id: number;
+    name: string;
+    sellPrice: string;
+    wholesalePrice?: string | null;
+    restaurantPrice?: string | null;
+  },
   quantity: number,
   defaults: CylinderLineDefaults,
+  segment?: string | null,
 ): CreateCartLine {
   return {
     lineKey: `${product.id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     product_id: product.id,
     name: product.name,
-    unit_price: Number(product.sellPrice.replace(/[^\d.-]/g, "") || 0),
+    unit_price: unitPriceForSegment(product, segment),
     quantity,
     owner_name: defaults.owner_name,
     cylinder_type: cylinderTypeFromProductName(product.name),

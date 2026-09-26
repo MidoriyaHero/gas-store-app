@@ -6,14 +6,18 @@ Danh sách tính năng nghiệp vụ × client × API.
 |---------|-----|-----------|-----------|-----|
 | Auth & roles | `/login` | `login.tsx` | `/auth/*` | [auth-roles](./auth-roles.md) |
 | Products & inventory | `/kho` | read-only inventory | `/products`, stock-receipts | [products-inventory](./products-inventory.md) |
-| Orders & delivery | `/don-hang` | staff + admin create/PATCH/hoàn thành | `/orders`, `/me/orders`, `/cylinder-templates` | [orders-delivery](./orders-delivery.md) |
+| Cylinder templates | `/mau-chai` | preset khi tạo đơn | `/cylinder-templates` | [cylinder-templates](./cylinder-templates.md) |
+| Orders & delivery | `/don-hang` | staff + admin create/PATCH/hoàn thành | `/orders`, `/me/orders` | [orders-delivery](./orders-delivery.md) |
 | Order notes & voice | `/ghi-chu-giao` | order detail + toast | `/order-notes`, voice | [order-notes-voice](./order-notes-voice.md) |
-| Debt & finance | `/tai-chinh-quan-tri` (Sổ nợ + Sổ nợ vỏ) | thu nợ sheet | `/debt-*`, `/shell-debt-ledger` | [debt-finance](./debt-finance.md) |
-| Gas ledger & audit | `/so-gas`, kiểm kê | GET/PUT audit + offline | `/gas-ledger`, daily-cylinder-audit | [gas-ledger-audit](./gas-ledger-audit.md) |
+| Debt & finance | `/tai-chinh-quan-tri` (Sổ nợ + Sổ nợ vỏ) | thu nợ sheet | `/debt-orders`, `/debt-*`, `/shell-debt-ledger` | [debt-finance](./debt-finance.md) |
+| Daily operations | `/dieu-hanh` | tab kiểm kê | `/operations/daily-cylinder-audit`, `delivery-day-summary` | [daily-operations](./daily-operations.md) |
+| Gas ledger & audit | `/so-gas` | GET/PUT audit + offline | `/gas-ledger`, daily-cylinder-audit | [gas-ledger-audit](./gas-ledger-audit.md) |
 | Tax export | `/bao-cao-thue` | — | `/orders/tax-report`, exports | [tax-export](./tax-export.md) |
-| Dashboard & reports | `/` | KPI hôm nay + charts cache | `/dashboard` (web); mobile SQLite | [dashboard-reports](./dashboard-reports.md) |
+| Dashboard & reports | `/` | KPI hôm nay + charts | `/dashboard`, `/dashboard/summary` | [dashboard-reports](./dashboard-reports.md) |
 | Users admin | `/nguoi-dung` | read-only list | `/users` | [users-admin](./users-admin.md) |
-| Geocode & maps | order map, `/ban-do` | Maps + tel toast | `/geocode` | [geocode-maps](./geocode-maps.md) |
+| Customer experience | `/trai-nghiem-khach-hang` | — | `GET /orders` (+ localStorage khiếu nại) | [customer-experience](./customer-experience.md) |
+| Customer profiles mock | `/khach-hang-mock` | — | — | Mock / chưa production |
+| Geocode & maps | form đơn, `/ban-do` | Maps + tel toast | `/geocode` | [geocode-maps](./geocode-maps.md) |
 | Sync offline | — | outbox, sync bar | `/sync/*` | [sync-offline-mobile](./sync-offline-mobile.md) |
 | Staff delivery | `/don-cua-toi` | staff tabs + toast | `/me/orders`, sync | [staff-delivery](./staff-delivery.md) |
 | Admin mobile | — | FAB create + CRUD cốt lõi P1 | POST/PATCH order, audit, debt | [admin-mobile](./admin-mobile.md) |

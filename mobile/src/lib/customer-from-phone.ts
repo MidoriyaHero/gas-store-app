@@ -11,6 +11,7 @@ export type CustomerFromPhone = {
   address?: string;
   deliveryLatitude?: number | null;
   deliveryLongitude?: number | null;
+  customerSegment?: "wholesale" | "restaurant" | "retail" | null;
 };
 
 /** Lookup customer hints from local SQLite orders by phone. */
@@ -27,6 +28,10 @@ export async function lookupCustomerFromPhoneLocal(phone: string): Promise<Custo
     address: match.deliveryAddress ?? undefined,
     deliveryLatitude: match.deliveryLatitude,
     deliveryLongitude: match.deliveryLongitude,
+    customerSegment:
+      match.customerSegment === "wholesale" || match.customerSegment === "restaurant" || match.customerSegment === "retail"
+        ? match.customerSegment
+        : null,
   };
 }
 
@@ -44,9 +49,15 @@ export async function lookupCustomerFromPhone(phone: string): Promise<CustomerFr
     if (!item) return null;
     return {
       customerName: item.customer_name,
-      address: item.delivery_address ?? undefined,
+      address: item.delivery_address ?? item.address ?? undefined,
       deliveryLatitude: item.delivery_latitude ?? null,
       deliveryLongitude: item.delivery_longitude ?? null,
+      customerSegment:
+        item.customer_segment === "wholesale" ||
+        item.customer_segment === "restaurant" ||
+        item.customer_segment === "retail"
+          ? item.customer_segment
+          : null,
     };
   } catch {
     return null;

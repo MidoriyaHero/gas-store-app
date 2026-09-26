@@ -417,6 +417,16 @@ def ensure_gas_schema() -> None:
                 conn.execute(text("ALTER TABLE products ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT 1"))
             else:
                 conn.execute(text("ALTER TABLE products ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT TRUE"))
+        added_segment_price = False
+        if products and "wholesale_price" not in products:
+            conn.execute(text("ALTER TABLE products ADD COLUMN wholesale_price NUMERIC(14, 2) NOT NULL DEFAULT 0"))
+            added_segment_price = True
+        if products and "restaurant_price" not in products:
+            conn.execute(text("ALTER TABLE products ADD COLUMN restaurant_price NUMERIC(14, 2) NOT NULL DEFAULT 0"))
+            added_segment_price = True
+        if added_segment_price:
+            conn.execute(text("UPDATE products SET wholesale_price = sell_price WHERE wholesale_price = 0"))
+            conn.execute(text("UPDATE products SET restaurant_price = sell_price WHERE restaurant_price = 0"))
 
         on = cols("order_notes")
         if on:
@@ -598,6 +608,11 @@ def ensure_gas_schema() -> None:
         if "deleted_at" not in so_cols2:
             ts_type = "DATETIME" if dialect == "sqlite" else "TIMESTAMPTZ"
             conn.execute(text(f"ALTER TABLE sales_orders ADD COLUMN deleted_at {ts_type}"))
+        if "customer_segment" not in so_cols2:
+            conn.execute(text("ALTER TABLE sales_orders ADD COLUMN customer_segment VARCHAR(16)"))
+            conn.execute(
+                text("CREATE INDEX IF NOT EXISTS idx_sales_orders_customer_segment ON sales_orders(customer_segment)")
+            )
 
         on_cols = cols("order_notes")
         if on_cols and "client_id" not in on_cols:
@@ -705,6 +720,18 @@ def ensure_gas_schema() -> None:
         dp_cols = cols("debt_payments")
         if "returned_shell_units" not in dp_cols:
             conn.execute(text("ALTER TABLE debt_payments ADD COLUMN returned_shell_units INTEGER NOT NULL DEFAULT 0"))
+        if "sales_order_id" not in dp_cols:
+            if dialect == "sqlite":
+                conn.execute(text("ALTER TABLE debt_payments ADD COLUMN sales_order_id INTEGER REFERENCES sales_orders(id)"))
+            else:
+                conn.execute(text("ALTER TABLE debt_payments ADD COLUMN sales_order_id INTEGER REFERENCES sales_orders(id)"))
+
+        dle_cols = cols("debt_ledger_entries")
+        if "sales_order_id" not in dle_cols:
+            if dialect == "sqlite":
+                conn.execute(text("ALTER TABLE debt_ledger_entries ADD COLUMN sales_order_id INTEGER REFERENCES sales_orders(id)"))
+            else:
+                conn.execute(text("ALTER TABLE debt_ledger_entries ADD COLUMN sales_order_id INTEGER REFERENCES sales_orders(id)"))
 
         audit_names = set(inspect(engine).get_table_names())
         if "daily_cylinder_audit" not in audit_names:
@@ -767,4 +794,32 @@ def ensure_gas_schema() -> None:
         conn.execute(text("CREATE INDEX IF NOT EXISTS idx_debt_ledger_account ON debt_ledger_entries(debt_account_id)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS idx_debt_ledger_created ON debt_ledger_entries(created_at)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS idx_debt_ledger_type ON debt_ledger_entries(entry_type)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_debt_ledger_order ON debt_ledger_entries(sales_order_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_debt_payments_order ON debt_payments(sales_order_id)"))
         conn.commit()
+
+    _backfill_order_debt_links_if_needed()
+
+
+def _backfill_order_debt_links_if_needed() -> None:
+    """Run legacy debt link backfill once after schema adds ``sales_order_id``."""
+    from sqlalchemy import select
+
+    from app.database import SessionLocal
+    from app.models import DebtLedgerEntry, DebtPayment
+    from app.services.debt_orders import backfill_order_debt_links
+
+    with SessionLocal() as db:
+        needs = db.scalar(
+            select(DebtLedgerEntry.id)
+            .where(
+                DebtLedgerEntry.sales_order_id.is_(None),
+                DebtLedgerEntry.reference_type.in_(("sales_order", "sales_order_delete", "debt_payment")),
+            )
+            .limit(1)
+        )
+        if needs is None:
+            orphan_pay = db.scalar(select(DebtPayment.id).where(DebtPayment.sales_order_id.is_(None)).limit(1))
+            if orphan_pay is None:
+                return
+        backfill_order_debt_links(db)

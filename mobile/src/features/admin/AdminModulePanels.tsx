@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { FlatList, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 
-import { createDebtPayment, fetchDebtAccounts, fetchDeliveryDaySummary, fetchUsers } from "@/api/client";
+import { createDebtPayment, fetchDebtOrders, fetchDeliveryDaySummary, fetchUsers } from "@/api/client";
 import { AppText } from "@/components/ui/AppText";
 import { Card } from "@/components/ui/Card";
 import { DebtPaymentSheet } from "@/components/ui/DebtPaymentSheet";
@@ -15,7 +15,13 @@ import { isOnline } from "@/lib/network";
 import { runSyncCycle } from "@/sync/engine";
 import { colors, spacing } from "@/theme/tokens";
 
-type DebtRow = { id: number; customer_name: string; current_balance: string; status: string };
+type DebtRow = {
+  id: number;
+  order_code: string;
+  customer_name: string;
+  delivery_date: string | null;
+  outstanding_amount: string;
+};
 
 /** Admin debt list with tap-to-collect bottom sheet. */
 export function AdminDebtPanel() {
@@ -33,8 +39,8 @@ export function AdminDebtPanel() {
     setLoading(true);
     setError("");
     try {
-      const data = await fetchDebtAccounts();
-      setRows(data.filter((r) => Number(r.current_balance) > 0));
+      const data = await fetchDebtOrders();
+      setRows(data.filter((r) => Number(r.outstanding_amount) > 0));
     } catch (e) {
       setRows([]);
       setError(e instanceof Error ? e.message : "Không tải được công nợ");
@@ -49,7 +55,7 @@ export function AdminDebtPanel() {
 
   function openSheet(row: DebtRow) {
     setSelected(row);
-    setAmount(row.current_balance);
+    setAmount(row.outstanding_amount);
     setReturnedShells("0");
     setNote("");
   }
@@ -72,7 +78,7 @@ export function AdminDebtPanel() {
     setSubmitting(true);
     try {
       await createDebtPayment({
-        debt_account_id: selected.id,
+        sales_order_id: selected.id,
         amount: String(parsed),
         payment_method: "cash",
         returned_shell_units: Number(returnedShells) || 0,
@@ -97,7 +103,7 @@ export function AdminDebtPanel() {
         refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void load()} tintColor={colors.primary} />}
         ListHeaderComponent={
           <AppText variant="caption" muted style={{ marginBottom: spacing.sm }}>
-            Chạm tài khoản để thu nợ · cần mạng
+            Chạm đơn để thu nợ · cần mạng
           </AppText>
         }
         ListEmptyComponent={
@@ -111,10 +117,11 @@ export function AdminDebtPanel() {
           <Pressable onPress={() => openSheet(item)}>
             <Card style={styles.card}>
               <View style={styles.row}>
-                <AppText variant="bodyMedium">{item.customer_name}</AppText>
-                <StatusBadge label={item.status === "overdue" ? "Quá hạn" : "Đang theo"} tone={item.status === "overdue" ? "warning" : "info"} />
+                <AppText variant="bodyMedium">{item.order_code}</AppText>
+                <StatusBadge label="Còn nợ" tone="warning" />
               </View>
-              <AppText variant="h3">{Number(item.current_balance).toLocaleString("vi-VN")} đ</AppText>
+              <AppText variant="caption" muted>{item.customer_name}{item.delivery_date ? ` · ${item.delivery_date}` : ""}</AppText>
+              <AppText variant="h3">{Number(item.outstanding_amount).toLocaleString("vi-VN")} đ</AppText>
               <AppText variant="caption" muted>
                 Chạm để thu nợ
               </AppText>
@@ -125,7 +132,9 @@ export function AdminDebtPanel() {
       <DebtPaymentSheet
         visible={selected != null}
         customerName={selected?.customer_name ?? ""}
-        maxBalance={selected?.current_balance ?? "0"}
+        orderCode={selected?.order_code}
+        deliveryDate={selected?.delivery_date}
+        maxBalance={selected?.outstanding_amount ?? "0"}
         amount={amount}
         returnedShells={returnedShells}
         note={note}

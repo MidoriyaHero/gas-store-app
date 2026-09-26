@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>C. Điện thoại một màn cuộn</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="./theme.css" />
+  </head>
+  <body class="phone-page">
+    <div class="phone">
+      <div class="phone-status"><span>9:41</span><span>LTE</span></div>
+      <header class="phone-head">
+        <p style="margin:0 0 4px;font-size:12px"><a href="./index.html">Tất cả mock</a> · C. Một màn cuộn</p>
+        <h1>Tạo đơn hàng mới</h1>
+        <p class="hint" style="margin:6px 0 0">Approach này cố ý giống form cũ: mọi thứ trên một cuộn.</p>
+      </header>
+      <div class="phone-scroll stack">
+        <div class="block stack">
+          <div class="field">
+            <label>Tên khách hàng *</label>
+            <input class="input" data-field="name" placeholder="Chị Lan" />
+          </div>
+          <div class="field">
+            <label>Số điện thoại *</label>
+            <input class="input" data-field="phone" placeholder="0909 123 456" />
+          </div>
+          <div class="field">
+            <span class="field-label">Tệp khách hàng *</span>
+            <select class="select" data-field="segment">
+              <option value="">Chọn đại lý sỉ / quán ăn / khách lẻ</option>
+              <option value="wholesale">Đại lý sỉ</option>
+              <option value="restaurant">Quán ăn</option>
+              <option value="retail">Khách lẻ</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Vỏ cho mượn</label>
+            <input class="input" type="number" value="0" data-field="shells" />
+          </div>
+          <div class="field">
+            <label>Ngày giao chai cho khách</label>
+            <input class="input" type="date" value="2026-09-16" data-field="date" />
+          </div>
+          <div class="field">
+            <label>Nhân viên giao hàng</label>
+            <select class="select" data-field="staff">
+              <option value="">Chưa gán</option>
+              <option>Minh</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Trạng thái giao hàng</label>
+            <select class="select">
+              <option>Đang giao</option>
+              <option>Hoàn thành</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="block stack">
+          <div class="field">
+            <label>Địa chỉ</label>
+            <input class="input" data-field="address" placeholder="Số nhà, đường, phường…" />
+          </div>
+          <button type="button" class="btn btn-ghost" data-geo-hit="12 hẻm 45, P. Tân Phú, Q. Tân Phú">Tìm trên bản đồ</button>
+          <div class="field">
+            <label>Dán từ Google Maps</label>
+            <input class="input" placeholder="Plus Code, maps.app.goo.gl…" />
+          </div>
+          <button type="button" class="btn btn-ghost" data-paste>Áp dụng vị trí</button>
+          <p class="hint">Gõ địa chỉ rồi bấm Tìm trên bản đồ, hoặc ghim rồi bấm Gợi ý địa chỉ từ ghim.</p>
+          <div class="map-stage" data-pin style="height:160px">
+            <span class="map-pin is-off"></span>
+          </div>
+          <button type="button" class="btn btn-ghost" data-pin>Gợi ý địa chỉ từ ghim</button>
+        </div>
+
+        <div class="block stack">
+          <div class="field">
+            <label>Hình thức thanh toán</label>
+            <select class="select" data-field="payment">
+              <option value="cash">Thanh toán đủ</option>
+              <option value="partial">Thanh toán một phần</option>
+              <option value="debt">Ghi nợ toàn bộ</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Đã thu trước (₫)</label>
+            <input class="input" value="0" disabled />
+          </div>
+          <div class="field">
+            <label>Công nợ dự kiến (₫)</label>
+            <input class="input" value="0" readonly />
+          </div>
+        </div>
+
+        <div class="block stack">
+          <p class="field-label" style="margin:0">Mẫu thông tin chai</p>
+          <p class="hint">Tự chọn mẫu Gas Hoàng Ân nếu có. Số seri không bắt buộc.</p>
+          <select class="select"><option>Gas Hoàng Ân</option></select>
+        </div>
+
+        <div class="block stack">
+          <p class="field-label" style="margin:0">Thêm sản phẩm từ kho</p>
+          <select class="select" data-product>
+            <option value="12">Gas 12kg — 420.000đ (còn 18)</option>
+            <option value="45">Gas 45kg — 1.450.000đ (còn 4)</option>
+          </select>
+          <input class="input" type="number" min="1" value="1" />
+          <button type="button" class="btn" data-add>Thêm</button>
+        </div>
+
+        <div class="stack" data-cart></div>
+
+        <div class="block stack">
+          <div class="field">
+            <label>Ghi chú</label>
+            <textarea class="textarea" data-field="note"></textarea>
+          </div>
+          <div class="field">
+            <label>Thuế GTGT (%)</label>
+            <input class="input" type="number" value="0" data-field="vat" />
+          </div>
+          <p>Tổng cộng <strong data-slip-total>0đ</strong></p>
+        </div>
+      </div>
+      <footer class="phone-foot">
+        <a class="btn btn-ghost" href="./index.html">Hủy</a>
+        <button type="button" class="btn" data-create>Tạo đơn</button>
+      </footer>
+    </div>
+    <div class="toast" data-toast hidden></div>
+    <script src="./order-mock.js"></script>
+    <script>
+      document.addEventListener("DOMContentLoaded", function () {
+        document.querySelectorAll("[data-create]").forEach(function (b) { b.hidden = false; });
+      });
+    </script>
+  </body>
+</html>

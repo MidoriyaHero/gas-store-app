@@ -3,6 +3,7 @@ import { Pressable, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
 import { logoutSession } from "@/auth/logout";
+import { OfflineSessionBanner } from "@/components/OfflineSessionBanner";
 import { navTheme, colors, spacing } from "@/theme/tokens";
 
 /** Staff bottom navigation (UX v2: orders + map) with logout. */
@@ -13,6 +14,8 @@ export default function StaffTabsLayout() {
   }
 
   return (
+    <>
+    <OfflineSessionBanner />
     <Tabs
       screenOptions={{
         ...navTheme,
@@ -45,6 +48,7 @@ export default function StaffTabsLayout() {
         }}
       />
     </Tabs>
+    </>
   );
 }
 

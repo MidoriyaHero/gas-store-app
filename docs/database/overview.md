@@ -51,7 +51,7 @@ flowchart TB
   catalog --> orders
   auth --> orders
   auth --> debt
-  orders -.->|outstanding| debt
+  orders -.->|outstandingPerOrder| debt
   ops --> debt
 ```
 

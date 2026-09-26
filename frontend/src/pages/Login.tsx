@@ -1,6 +1,6 @@
 import { FormEvent, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
-import { Eye, EyeOff, ShieldCheck, Sparkles, Store } from "lucide-react";
+import { Eye, EyeOff, ShieldCheck, Sparkles } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -56,9 +56,13 @@ export default function Login() {
         <Card className="border-0 bg-gradient-primary text-primary-foreground shadow-elegant lg:hidden">
           <CardContent className="space-y-3 p-4">
             <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-white/15">
-                <Store className="h-5 w-5" />
-              </div>
+              <img
+                src="/brand/logo.png"
+                alt="Gas Huy Hoàng"
+                width={40}
+                height={40}
+                className="h-10 w-10 shrink-0 rounded-lg object-cover ring-1 ring-white/30"
+              />
               <div>
                 <p className="text-sm font-semibold">Gas Huy Hoàng</p>
                 <p className="text-xs text-primary-foreground/80">Bán hàng và vận hành nhanh trên di động</p>
@@ -71,7 +75,14 @@ export default function Login() {
         </Card>
 
         <Card className="hidden border-0 bg-gradient-primary text-primary-foreground shadow-elegant lg:block">
-          <CardHeader>
+          <CardHeader className="space-y-4">
+            <img
+              src="/brand/logo-stacked.png"
+              alt="Gas Huy Hoàng"
+              width={160}
+              height={160}
+              className="h-28 w-28 rounded-2xl bg-white object-contain p-2 shadow-elegant"
+            />
             <CardTitle className="text-3xl">Gas Huy Hoàng</CardTitle>
           </CardHeader>
           <CardContent className="space-y-5 text-sm leading-relaxed text-primary-foreground/90">

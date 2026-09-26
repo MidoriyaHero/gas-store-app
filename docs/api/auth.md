@@ -22,8 +22,10 @@ Prefix: `/api/auth`
 **Request:** `POST /api/auth/login`
 
 ```json
-{ "username": "admin", "password": "admin123" }
+{ "username": "shopadmin", "password": "YourStrongPass!" }
 ```
+
+Không có mật khẩu mặc định trong code — dùng tài khoản đã seed lúc boot (xem README).
 
 **Response:** `{ "user": { "id", "username", "role", "map_location" } }` + cookies httpOnly.
 

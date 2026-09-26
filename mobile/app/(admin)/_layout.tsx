@@ -24,6 +24,7 @@ export default function AdminLayout() {
       <Stack.Screen name="module/tax" options={{ title: "Báo cáo thuế" }} />
       <Stack.Screen name="module/cylinder-templates" options={{ title: "Mẫu chai" }} />
       <Stack.Screen name="module/inventory" options={{ title: "Kho hàng" }} />
+      <Stack.Screen name="module/products" options={{ title: "Sản phẩm" }} />
       <Stack.Screen name="module/users" options={{ title: "Người dùng" }} />
       <Stack.Screen name="module/operations" options={{ title: "Vận hành" }} />
       <Stack.Screen name="order/[id]" options={{ title: "Chi tiết đơn" }} />

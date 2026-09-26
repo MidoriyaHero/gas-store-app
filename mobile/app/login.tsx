@@ -6,7 +6,9 @@ import { Ionicons } from "@expo/vector-icons";
 
 import { apiFetch, mobileLogin } from "@/api/client";
 import { resolveSessionRoute, sessionHref } from "@/auth/bootstrap";
+import { saveSessionProfile, type SessionRole } from "@/auth/session";
 import { clearLocalDb } from "@/lib/clear-local-db";
+import { isOnline } from "@/lib/network";
 import { triggerAutoSync } from "@/sync/auto-sync";
 import { AppText } from "@/components/ui/AppText";
 import { Button } from "@/components/ui/Button";
@@ -22,14 +24,20 @@ export default function LoginScreen() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [booting, setBooting] = useState(true);
+  const [offline, setOffline] = useState(false);
 
   useEffect(() => {
-    void resolveSessionRoute().then((route) => {
-      if (route !== "/login") {
-        router.replace(sessionHref(route));
-      }
-      setBooting(false);
-    });
+    void isOnline().then((online) => setOffline(!online));
+    void resolveSessionRoute()
+      .then((route) => {
+        if (route !== "/login") {
+          router.replace(sessionHref(route));
+        }
+      })
+      .catch(() => {
+        /* stay on login */
+      })
+      .finally(() => setBooting(false));
   }, []);
 
   async function onLogin() {
@@ -38,12 +46,20 @@ export default function LoginScreen() {
       setError("Vui lòng nhập tài khoản và mật khẩu");
       return;
     }
+    const online = await isOnline();
+    if (!online) {
+      setError("Không có mạng. Đăng nhập lần đầu hoặc làm mới phiên cần kết nối API.");
+      return;
+    }
     setLoading(true);
     try {
       await mobileLogin(username.trim(), password);
       await clearLocalDb();
       void triggerAutoSync("login");
       const me = await apiFetch<{ user: { role: string; username: string } }>("/api/auth/me");
+      const role: SessionRole = me.user.role === "admin" ? "admin" : "user";
+      const now = new Date().toISOString();
+      await saveSessionProfile({ role, username: me.user.username, lastOnlineAuthAt: now });
       if (me.user.role === "admin") {
         router.replace("/(admin)/(tabs)" as Href);
       } else {
@@ -88,6 +104,15 @@ export default function LoginScreen() {
             Đăng nhập
           </AppText>
 
+          {offline ? (
+            <View style={styles.offlineBox} accessibilityRole="alert">
+              <Ionicons name="cloud-offline-outline" size={18} color={colors.offlineText} />
+              <AppText variant="caption" style={{ flex: 1, color: colors.offlineText }}>
+                Không có mạng. Nếu đã đăng nhập trước đó, mở lại app khi có sóng. Đăng nhập mới cần kết nối API.
+              </AppText>
+            </View>
+          ) : null}
+
           <View style={styles.fields}>
             <TextField
               label="Tài khoản"
@@ -116,7 +141,13 @@ export default function LoginScreen() {
             </View>
           ) : null}
 
-          <Button label="Đăng nhập" loading={loading} fullWidth onPress={() => void onLogin()} />
+          <Button
+            label="Đăng nhập"
+            loading={loading}
+            fullWidth
+            disabled={offline}
+            onPress={() => void onLogin()}
+          />
         </Card>
       </KeyboardAvoidingView>
     </Screen>
@@ -149,6 +180,15 @@ const styles = StyleSheet.create({
   },
   formCard: { marginTop: 0 },
   fields: { gap: spacing.md, marginBottom: spacing.lg },
+  offlineBox: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: spacing.sm,
+    backgroundColor: colors.offlineBg,
+    padding: spacing.sm + 4,
+    borderRadius: 12,
+    marginBottom: spacing.md,
+  },
   errorBox: {
     flexDirection: "row",
     alignItems: "flex-start",

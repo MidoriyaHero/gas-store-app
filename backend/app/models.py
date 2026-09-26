@@ -11,7 +11,7 @@ from app.database import Base
 
 
 class Product(Base):
-    """Catalog product with cost/sell prices and low-stock threshold."""
+    """Catalog product with cost, retail sell price, and segment list prices."""
 
     __tablename__ = "products"
 
@@ -20,7 +20,10 @@ class Product(Base):
     sku: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True, index=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     cost_price: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=Decimal("0"))
+    #: Retail (khách lẻ) list price; also fallback when a segment price is unset.
     sell_price: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=Decimal("0"))
+    wholesale_price: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=Decimal("0"))
+    restaurant_price: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=Decimal("0"))
     stock_quantity: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     low_stock_threshold: Mapped[int] = mapped_column(Integer, nullable=False, default=10)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)
@@ -99,6 +102,14 @@ class CylinderTemplate(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class CustomerSegment(str, Enum):
+    """Store customer mix tagged on each sales order for dashboard ratios."""
+
+    WHOLESALE = "wholesale"
+    RESTAURANT = "restaurant"
+    RETAIL = "retail"
+
+
 class SalesOrder(Base):
     """Sales order header with VAT summary (matches UI đơn hàng)."""
 
@@ -108,6 +119,8 @@ class SalesOrder(Base):
     order_code: Mapped[str] = mapped_column(String(40), unique=True, index=True)
     customer_name: Mapped[str] = mapped_column(String(255), nullable=False)
     phone: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    #: ``wholesale`` / ``restaurant`` / ``retail``; null on orders created before this field.
+    customer_segment: Mapped[str | None] = mapped_column(String(16), nullable=True, index=True)
     address: Mapped[str | None] = mapped_column(Text, nullable=True)
     delivery_latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
     delivery_longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -409,6 +422,7 @@ class DebtLedgerEntry(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     debt_account_id: Mapped[int] = mapped_column(ForeignKey("debt_accounts.id"), nullable=False, index=True)
+    sales_order_id: Mapped[int | None] = mapped_column(ForeignKey("sales_orders.id"), nullable=True, index=True)
     entry_type: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     amount_signed: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -425,6 +439,7 @@ class DebtPayment(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     debt_account_id: Mapped[int] = mapped_column(ForeignKey("debt_accounts.id"), nullable=False, index=True)
+    sales_order_id: Mapped[int | None] = mapped_column(ForeignKey("sales_orders.id"), nullable=True, index=True)
     amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
     payment_method: Mapped[str] = mapped_column(String(40), nullable=False, default="cash")
     paid_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())

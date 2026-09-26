@@ -1,21 +1,25 @@
 # Gas Store App
 
-Open-source app quản lý cửa hàng gas: kho hàng, đơn hàng, sổ gas, báo cáo thuế, phân quyền người dùng và xuất dữ liệu CSV/HTML.
+App quản lý cửa hàng gas: kho hàng, đơn hàng, công nợ theo đơn, sổ gas, báo cáo thuế, phân quyền và xuất CSV/HTML. Monorepo gồm API FastAPI, web React, mobile Expo (Android, offline-first).
 
 ## Tech Stack
 
 - **Backend:** FastAPI, SQLAlchemy, PostgreSQL
 - **Frontend:** Vite, React, TypeScript, shadcn/ui
-- **Auth:** JWT + httpOnly cookie (`access_token`, `refresh_token`)
+- **Mobile:** Expo, React Native, SQLite (Drizzle) + outbox
+- **Auth:** JWT — web dùng cookie httpOnly (`access_token`, `refresh_token`); mobile dùng Bearer
 - **Deploy local:** Docker Compose (web + api + db)
 
 ## Documentation
 
-Tài liệu kỹ thuật chi tiết (architecture, database ER, API, features + diagrams): **[docs/README.md](./docs/README.md)**
-
-Deploy production (Cloudflare Tunnel, domain, mobile APK): **[docs/deploy/cloudflare-tunnel.md](./docs/deploy/cloudflare-tunnel.md)**
-
-Mobile app (Expo Android): **[mobile/README.md](./mobile/README.md)**
+| Tài liệu | Nội dung |
+|----------|----------|
+| [docs/README.md](./docs/README.md) | Kiến trúc, database ER, API, features |
+| [docs/deploy/cloudflare-tunnel.md](./docs/deploy/cloudflare-tunnel.md) | Production HTTPS (Cloudflare Tunnel) |
+| [docs/deploy/windows.md](./docs/deploy/windows.md) | Auto-start Docker + tunnel trên Windows |
+| [mobile/README.md](./mobile/README.md) | Expo Android, APK, sync offline |
+| [CONTRIBUTING.md](./CONTRIBUTING.md) | Checklist trước khi mở PR |
+| [Thuế và xuất dữ liệu](./docs/thue-va-xuat-du-lieu.md) | Báo cáo thuế / CSV |
 
 ## CI
 
@@ -25,28 +29,17 @@ Release APK: [`.github/workflows/mobile-release.yml`](./.github/workflows/mobile
 
 ## Main Features
 
-- Quản lý sản phẩm kho hàng (CRUD)
-- Quản lý đơn hàng:
-  - Tạo đơn
-  - Sửa đơn
-  - Xóa đơn
-- Sổ gas:
-  - UI hiển thị theo mẫu sổ
-  - Export CSV
-- Phiếu giao hàng:
-  - In trực tiếp
-  - Export HTML / CSV theo đơn
+- Kho hàng (CRUD sản phẩm, nhập kho qua stock receipts)
+- Đơn hàng: tạo / sửa / soft-delete; phiếu giao HTML; staff xem đơn của mình (`/don-cua-toi`)
+- Công nợ **theo từng đơn** (không FIFO cấp SĐT); sổ nợ vỏ
+- Sổ gas + kiểm kê bình/vỏ theo ngày (`/so-gas`, `/dieu-hanh`)
+- Mẫu thông tin chai do admin CRUD (`/mau-chai`)
+- Ghi chú giao (text + voice); file audio qua `/media/...`
 - Báo cáo thuế + export CSV
-- Quản lý người dùng (admin-only):
-  - Tạo/sửa/xóa user
-  - Bật/tắt trạng thái hoạt động
-  - Đổi role (`admin`, `user`)
-- Phân quyền:
-  - `admin`: full quyền
-  - `user`: tạo đơn hàng + xem **lịch sử đơn do chính mình tạo** (`/don-cua-toi`)
-- **Mẫu thông tin chai** do admin CRUD (`/mau-chai`); nhân viên chọn mẫu khi tạo đơn (số seri nhập từng dòng)
-- **Ghi chú giao hàng** (admin + user): ghi chữ (CRUD) hoặc ghi âm (thêm/xóa); admin dùng cùng trang **Đơn hàng** (`/don-hang`) hoặc trang `/ghi-chu-giao`
-- **Voice note**: upload file audio qua API; phát lại qua URL tĩnh `/media/...` (dev: Vite proxy `/media` → backend)
+- Người dùng (admin): tạo/sửa/xóa, bật/tắt, role `admin` / `user`
+- Mobile admin/staff: sync offline, thu nợ online, kiểm kê
+
+Danh sách đầy đủ × web × mobile: [docs/features/README.md](./docs/features/README.md).
 
 ## Demo
 
@@ -54,13 +47,15 @@ Video giới thiệu / walkthrough: [YouTube — Gas Store App](https://www.yout
 
 ## Authentication & Authorization
 
-- Frontend không lưu token ở localStorage.
-- Session chạy bằng cookie httpOnly.
+- Web không lưu token ở localStorage; session là cookie httpOnly.
+- Mobile lưu token trong SecureStore; gọi API bằng `Authorization: Bearer`.
 - API kiểm soát quyền ở backend (RBAC), không phụ thuộc frontend.
 
 ### Default Admin Account
 
-Không còn mật khẩu mặc định trong code. Lần **đầu** chạy trên host mới, truyền tài khoản admin qua `setup.sh` (lưu vào `.env`, không commit):
+Không còn mật khẩu mặc định trong code. Lần **đầu** chạy trên host mới, seed admin vào `.env` (không commit).
+
+Git Bash / WSL / macOS / Linux:
 
 ```bash
 ./setup.sh --admin-user shopadmin --admin-pass 'YourStrongPass!'
@@ -73,11 +68,9 @@ Production (Cloudflare):
   --cors 'https://app.gashuyhoang.io.vn,https://gashuyhoang.io.vn'
 ```
 
-Chạy lại sau khi đã có `.env` (giữ nguyên admin đã seed):
+Windows PowerShell (không dùng `setup.sh`): copy `.env.example` → `.env`, điền `SEED_ADMIN_USERNAME` / `SEED_ADMIN_PASSWORD` (và `CORS_ORIGINS` nếu production), rồi `docker compose up --build`.
 
-```bash
-./setup.sh
-```
+Chạy lại `./setup.sh` sau khi đã có `.env` giữ nguyên admin đã seed.
 
 Nếu DB đã có admin, API bỏ qua seed — đổi mật khẩu qua UI admin hoặc tạo user mới.
 
@@ -89,18 +82,20 @@ Từ thư mục gốc project — **host mới** (bắt buộc admin user/pass):
 ./setup.sh --admin-user shopadmin --admin-pass 'YourStrongPass!'
 ```
 
-Hoặc thủ công:
+Hoặc thủ công (mọi OS, kể cả Windows PowerShell):
 
 ```bash
+copy .env.example .env
+# điền SEED_ADMIN_USERNAME / SEED_ADMIN_PASSWORD
 docker compose up --build
 ```
 
-*(Chỉ `docker compose up` khi `.env` đã có `SEED_ADMIN_USERNAME` / `SEED_ADMIN_PASSWORD` và DB chưa có admin, hoặc DB đã seed trước đó.)*
+*(Chỉ `docker compose up` khi `.env` đã có seed admin và DB chưa có admin, hoặc DB đã seed trước đó.)*
 
 Services mặc định:
 
 - Web: `http://localhost:8686`
-- API: `http://localhost:8000`
+- API: `http://localhost:8000` (OpenAPI: `/docs`)
 - Postgres: `localhost:5432`
 
 Nếu trùng port:
@@ -109,25 +104,28 @@ Nếu trùng port:
 WEB_PORT=9080 API_PORT=8001 POSTGRES_PORT=55432 ./setup.sh
 ```
 
-### Kiểm tra UI (trình duyệt — nên dùng cho dashboard / form)
+Windows PowerShell:
 
-1. Mở đúng URL web (theo cổng đã map, ví dụ `http://127.0.0.1:8686` hoặc giá trị `WEB_PORT` nếu bạn override).
-2. Vào `/login`, đăng nhập bằng admin đã set lúc `./setup.sh`.
+```powershell
+$env:WEB_PORT=9080; $env:API_PORT=8001; $env:POSTGRES_PORT=55432
+docker compose up --build
+```
+
+Auto-start production trên Windows (Docker + Cloudflare Tunnel): [docs/deploy/windows.md](./docs/deploy/windows.md).
+
+### Kiểm tra UI
+
+1. Mở URL web (ví dụ `http://127.0.0.1:8686` hoặc `WEB_PORT` nếu override).
+2. Vào `/login`, đăng nhập bằng admin đã seed.
 3. Duyệt `/` (Tổng quan), `/tai-chinh-quan-tri`, `/dieu-hanh` và các màn khác cần kiểm.
 
-**Lưu ý:** Nếu cổng web bị app khác chiếm, đổi `WEB_PORT` (ví dụ `WEB_PORT=9080 ./setup.sh`) rồi mở đúng URL mới.
-
-**Tự động hóa UI (Playwright):** có thể dùng skill **dev-browser** (Chromium + script `connect()` từ thư mục skill) hoặc Playwright riêng của bạn, trỏ tới cùng URL web như bước 1.
-
-### Tùy chọn: smoke HTTP (curl, không mở UI)
-
-Chỉ kiểm nhanh API qua nginx (cookie jar), không thay thế kiểm tra giao diện:
+### Tùy chọn: smoke HTTP
 
 ```bash
 SMOKETEST_URL=http://127.0.0.1:8686 ./scripts/smoke-http.sh
 ```
 
-Nếu bạn đổi `WEB_PORT`, truyền đúng URL vào `SMOKETEST_URL`.
+Nếu đổi `WEB_PORT`, truyền đúng URL vào `SMOKETEST_URL`.
 
 ### Kiểm thử API (pytest)
 
@@ -145,10 +143,22 @@ docker compose up -d db
 
 ### 2) Run backend
 
+macOS / Linux:
+
 ```bash
 cd backend
 python3.13 -m venv .venv
 source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+Windows PowerShell:
+
+```powershell
+cd backend
+py -3.13 -m venv .venv
+.\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
@@ -161,44 +171,45 @@ npm install
 npm run dev
 ```
 
-Mở `http://127.0.0.1:5173` (Vite proxy `/api` sang backend).
+Mở `http://127.0.0.1:5173` (Vite proxy `/api` và `/media` sang backend `:8000`). Chi tiết: [frontend/README.md](./frontend/README.md), [backend/README.md](./backend/README.md).
 
 ## Environment Variables
 
-### Backend
+Copy [.env.example](./.env.example) → `.env` ở thư mục gốc cho Docker Compose.
 
-- `DATABASE_URL`
-- `CORS_ORIGINS`
-- `JWT_SECRET_KEY`
-- `JWT_ACCESS_TOKEN_MINUTES`
-- `JWT_REFRESH_TOKEN_DAYS`
-- `AUTH_COOKIE_SECURE`
-- `AUTH_COOKIE_SAMESITE`
-- `SEED_ADMIN_USERNAME` / `SEED_ADMIN_PASSWORD` — first boot only (via `./setup.sh`)
+### Backend ([backend/app/config.py](./backend/app/config.py))
 
-### Docker Compose
+| Biến | Mục đích |
+|------|----------|
+| `DATABASE_URL` | SQLAlchemy URL (Compose tự set khi chạy trong Docker) |
+| `CORS_ORIGINS` | Origin trình duyệt, phân tách bằng dấu phẩy |
+| `JWT_SECRET_KEY` | Ký JWT (đổi trên production) |
+| `JWT_ACCESS_TOKEN_MINUTES` | Thời hạn access (mặc định 7 ngày) |
+| `JWT_REFRESH_TOKEN_DAYS` | Thời hạn refresh (mặc định ~10 năm) |
+| `AUTH_COOKIE_SECURE` | Cookie `Secure` (HTTPS) |
+| `AUTH_COOKIE_SAMESITE` | `lax` / `strict` / `none` |
+| `SEED_ADMIN_USERNAME` / `SEED_ADMIN_PASSWORD` | Seed lần đầu (via `./setup.sh` hoặc `.env`) |
+| `MEDIA_ROOT` | Thư mục file voice note (Compose: `/data/media`) |
+| `NOMINATIM_USER_AGENT` | User-Agent khi geocode OSM |
 
-- `WEB_PORT`
-- `API_PORT`
-- `POSTGRES_PORT`
-- `POSTGRES_USER`
-- `POSTGRES_PASSWORD`
-- `POSTGRES_DB`
+### Docker Compose / host
+
+| Biến | Mục đích |
+|------|----------|
+| `WEB_PORT` / `API_PORT` / `POSTGRES_PORT` | Cổng publish |
+| `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | Postgres |
+| `CLOUDFLARE_TUNNEL_TOKEN` | Token tunnel (Windows auto-start) |
+| `VITE_API_BASE` | Build-arg web (thường để trống, same-origin `/api`) |
+| `EXPO_PUBLIC_API_URL` | URL API cho mobile (xem `mobile/.env.example`) |
 
 ## Data & Schema Notes
 
-- Current tables:
-  - `products`
-  - `sales_orders` (cột `created_by_user_id` → `users.id`, nullable cho đơn cũ)
-  - `sales_order_items`
-  - `cylinder_templates` (mẫu chai dùng chung: tên + chủ/nơi nhập/hạn/ngày, `is_active`)
-  - `order_notes` (ghi chú giao: `note_type` `text`|`voice`, `raw_text`, `audio_path`, `mime_type`, `audio_duration_sec`, …)
-  - `users`
-  - `refresh_tokens`
-- Cột `users.template_*` (mẫu per-user cũ) có thể vẫn tồn tại trên DB đã deploy; **API không còn đọc/ghi** — dùng `cylinder_templates` thay thế.
-- App có startup migration additive trong `backend/app/schema_migrate.py` để thêm bảng/cột thiếu cho DB cũ.
+PostgreSQL là nguồn sự thật (~25 bảng: catalog, orders, debt, ops, sync, governance). Schema và ER: [docs/database/overview.md](./docs/database/overview.md).
 
-Nếu bạn nâng cấp từ schema rất cũ và gặp lỗi lạ, reset volume:
+- Startup migration additive: [backend/app/schema_migrate.py](./backend/app/schema_migrate.py) — không dùng Alembic.
+- Cột `users.template_*` (mẫu per-user cũ) có thể còn trên DB đã deploy; **API không đọc/ghi** — dùng `cylinder_templates`.
+
+Nếu nâng cấp từ schema rất cũ và gặp lỗi lạ, reset volume:
 
 ```bash
 docker compose down -v
@@ -210,7 +221,8 @@ docker compose down -v
 
 ```bash
 cd backend
-source .venv/bin/activate
+# macOS/Linux: source .venv/bin/activate
+# Windows: .\.venv\Scripts\Activate.ps1
 pip install -r requirements-dev.txt
 pytest -q
 ```
@@ -227,79 +239,31 @@ BASE_URL=http://127.0.0.1:8000 ./scripts/e2e-api.sh
 ./scripts/e2e-full.sh
 ```
 
-Chạy headed:
-
-```bash
-HEADED=1 ./scripts/e2e-full.sh
-```
+Chạy headed: `HEADED=1 ./scripts/e2e-full.sh`.
 
 ## Project Structure
 
 ```text
 .
-├── backend/
-│   ├── app/
-│   └── tests/
-├── frontend/
-│   └── src/
-├── docs/
-├── scripts/
-└── docker-compose.yml
+├── backend/          FastAPI API + pytest
+├── frontend/         Vite React admin/staff web
+├── mobile/           Expo Android (offline-first)
+├── docs/             Tài liệu kỹ thuật
+├── scripts/          Smoke, e2e, Windows start
+├── docker-compose.yml
+└── setup.sh
 ```
 
 ## API Overview
 
-Một số endpoint chính:
+Prefix `/api`. Auth cookie (web) hoặc Bearer (mobile). Bảng đầy đủ: [docs/api/endpoints.md](./docs/api/endpoints.md). Interactive: `http://localhost:8000/docs`.
 
-- Auth:
-  - `POST /api/auth/login`
-  - `POST /api/auth/refresh`
-  - `POST /api/auth/logout`
-  - `GET /api/auth/me`
-- Staff orders (đơn do user hiện tại tạo):
-  - `GET /api/me/orders`
-- Cylinder templates (mẫu chai):
-  - `GET /api/cylinder-templates` (active; query `include_inactive=true` chỉ **admin**)
-  - `POST /api/cylinder-templates` (admin)
-  - `PATCH /api/cylinder-templates/{id}` (admin)
-  - `DELETE /api/cylinder-templates/{id}` (admin)
-- Order notes (admin + staff):
-  - `GET /api/order-notes` (`mine=false` cho admin để xem toàn bộ)
-  - `POST /api/order-notes` (JSON: `{ "raw_text": "..." }` — ghi chú chữ)
-  - `POST /api/order-notes/voice` (multipart: `file`, optional `duration_sec` — ghi âm)
-  - `PATCH /api/order-notes/{id}` (chỉ cho `note_type=text`)
-  - `DELETE /api/order-notes/{id}`
-  - Static: `GET /media/...` (file ghi âm đã lưu)
-- Products:
-  - `GET /api/products`
-  - `POST /api/products`
-  - `PATCH /api/products/{id}`
-  - `DELETE /api/products/{id}`
-- Orders:
-  - `GET /api/orders` — query `limit` ∈ {10,20,50,100}, `offset` (default `limit=10`, `offset=0`); JSON `{ "items": [...], "total": number }`
-  - `POST /api/orders`
-  - `PATCH /api/orders/{id}`
-  - `DELETE /api/orders/{id}`
-- Ledger / reports / exports:
-  - `GET /api/gas-ledger`
-  - `GET /api/gas-ledger.csv`
-  - `GET /api/orders/tax-report`
-  - `GET /api/tax-export.csv`
-
-## Documentation
-
-- [Thuế và xuất dữ liệu](docs/thue-va-xuat-du-lieu.md)
+Nhóm chính: `/auth/*`, `/orders`, `/me/orders`, `/products`, `/debt-orders`, `/debt-payments`, `/gas-ledger`, `/sync/*`, `/dashboard`, `/cylinder-templates`, `/order-notes`.
 
 ## Contributing
 
-PRs/issues are welcome.
-
-Recommended before opening a PR:
-
-1. Run backend tests (`pytest -q`)
-2. Run frontend build (`npm run build`)
-3. (Optional) Run e2e scripts
+PRs/issues are welcome. Trước khi mở PR xem [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## License
 
-Add your preferred license file (for example `MIT`) before publishing.
+Chưa chọn license cho repo này.

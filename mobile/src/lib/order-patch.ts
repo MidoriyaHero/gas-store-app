@@ -54,6 +54,7 @@ export function buildOrderPatchPayload(
       patch.borrowed_shell_units !== undefined
         ? patch.borrowed_shell_units
         : Number(cached.borrowed_shell_units ?? 0),
+    ...(typeof cached.customer_segment === "string" ? { customer_segment: cached.customer_segment } : {}),
     lines,
   };
 }

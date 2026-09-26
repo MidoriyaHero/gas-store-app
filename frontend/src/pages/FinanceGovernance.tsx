@@ -39,7 +39,6 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import {
   financeRangeToSummaryKey,
   seriesFromSummary,
-  topDebtors,
   type DashboardSummaryResponse,
   type TopDebtorChartRow,
 } from "@/lib/dashboard-analytics";
@@ -49,12 +48,16 @@ const BUCKETS = ["0-7 ngày", "8-15 ngày", "16-30 ngày", "31+ ngày"] as const
 
 type DebtStatusFilter = "all" | "open" | "paid";
 
-interface DebtAccountRow {
+interface DebtOrderRow {
   id: number;
+  order_code: string;
   customer_name: string;
-  phone: string;
-  current_balance: number | string;
-  status: string;
+  phone: string | null;
+  delivery_date: string | null;
+  outstanding_amount: number | string;
+  total: number | string;
+  paid_amount: number | string;
+  payment_mode: string;
 }
 
 interface DebtLedgerRow {
@@ -68,13 +71,31 @@ interface DebtLedgerRow {
 }
 
 interface DebtDetailPayload {
-  account: DebtAccountRow;
+  order: DebtOrderRow;
   ledger: DebtLedgerRow[];
 }
 
 interface DebtAgingRow {
   bucket: string;
   amount: number | string;
+}
+
+function currentMonthValue(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function formatMonthLabel(month: string): string {
+  const [year, monthNum] = month.split("-");
+  if (!year || !monthNum) return month;
+  return `${monthNum}/${year}`;
+}
+
+function formatDeliveryDate(value: string | null): string {
+  if (!value) return "—";
+  const [year, month, day] = value.split("-");
+  if (!year || !month || !day) return value;
+  return `${day}/${month}/${year}`;
 }
 
 /**
@@ -85,11 +106,12 @@ export default function FinanceGovernance() {
   const [error, setError] = useState<string | null>(null);
   const [summary, setSummary] = useState<DashboardSummaryResponse | null>(null);
   const [rangeDays, setRangeDays] = useState("30");
+  const [debtMonth, setDebtMonth] = useState(currentMonthValue);
   const [tab, setTab] = useState("overview");
   const [search, setSearch] = useState("");
-  const [debtStatusFilter, setDebtStatusFilter] = useState<DebtStatusFilter>("all");
-  const [accounts, setAccounts] = useState<DebtAccountRow[]>([]);
-  const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
+  const [debtStatusFilter, setDebtStatusFilter] = useState<DebtStatusFilter>("open");
+  const [debtOrders, setDebtOrders] = useState<DebtOrderRow[]>([]);
+  const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
   const [selectedLedger, setSelectedLedger] = useState<DebtLedgerRow[]>([]);
   const [aging, setAging] = useState<DebtAgingRow[]>([]);
   const [paymentOpen, setPaymentOpen] = useState(false);
@@ -106,21 +128,24 @@ export default function FinanceGovernance() {
     setError(null);
     try {
       const rangeKey = financeRangeToSummaryKey(rangeDays);
-      const [summaryData, debtAccounts, agingRows] = await Promise.all([
+      const debtMonthQuery = encodeURIComponent(debtMonth);
+      const [summaryData, orderRows, agingRows] = await Promise.all([
         apiGet<DashboardSummaryResponse>(`/api/dashboard/summary?range=${rangeKey}`),
-        apiGet<DebtAccountRow[]>("/api/debt-accounts?status=all&limit=200"),
+        apiGet<DebtOrderRow[]>(`/api/debt-orders?status=all&limit=200&month=${debtMonthQuery}`),
         apiGet<DebtAgingRow[]>("/api/debt-aging"),
       ]);
       setSummary(summaryData);
-      setAccounts(debtAccounts ?? []);
+      setDebtOrders(orderRows ?? []);
       setAging(agingRows ?? []);
-      if (debtAccounts.length > 0 && selectedAccountId === null) setSelectedAccountId(debtAccounts[0].id);
-      setState((summaryData.order_count ?? 0) > 0 || (debtAccounts ?? []).length > 0 ? "success" : "empty");
+      if (orderRows.length > 0 && (selectedOrderId === null || !orderRows.some((o) => o.id === selectedOrderId))) {
+        setSelectedOrderId(orderRows[0].id);
+      }
+      setState((summaryData.order_count ?? 0) > 0 || (orderRows ?? []).length > 0 ? "success" : "empty");
     } catch (e) {
       setState("error");
       setError(e instanceof Error ? e.message : "Không tải được dữ liệu tài chính");
     }
-  }, [rangeDays, selectedAccountId]);
+  }, [debtMonth, rangeDays, selectedOrderId]);
 
   useEffect(() => {
     void load();
@@ -143,53 +168,73 @@ export default function FinanceGovernance() {
   }, [aging]);
 
   const debtTotal = useMemo(
-    () => accounts.reduce((sum, a) => sum + Number(a.current_balance || 0), 0),
-    [accounts]
+    () => debtOrders.reduce((sum, o) => sum + Number(o.outstanding_amount || 0), 0),
+    [debtOrders]
+  );
+  const openDebtOrders = useMemo(
+    () => debtOrders.filter((o) => Number(o.outstanding_amount || 0) > 0).length,
+    [debtOrders]
   );
   const debtStatusData = useMemo(() => {
-    const paid = accounts.filter((a) => Number(a.current_balance || 0) <= 0).length;
-    const open = accounts.filter((a) => Number(a.current_balance || 0) > 0).length;
+    const paid = debtOrders.filter((o) => Number(o.outstanding_amount || 0) <= 0).length;
+    const open = debtOrders.filter((o) => Number(o.outstanding_amount || 0) > 0).length;
     return [
       { name: "Đã trả", value: paid, color: "hsl(var(--success))" },
       { name: "Còn nợ", value: open, color: "hsl(var(--destructive))" },
     ];
-  }, [accounts]);
+  }, [debtOrders]);
   const agingChartData = useMemo(
     () => BUCKETS.map((bucket, idx) => ({ bucket, amount: agingBuckets[idx] })),
     [agingBuckets]
   );
-  const topDebtChart = useMemo(() => topDebtors(accounts, 7), [accounts]);
+  const topDebtChart = useMemo(() => {
+    const byCustomer = new Map<string, TopDebtorChartRow>();
+    for (const o of debtOrders) {
+      const value = Number(o.outstanding_amount || 0);
+      if (value <= 0) continue;
+      const key = o.phone || o.customer_name;
+      const prev = byCustomer.get(key);
+      if (prev) {
+        prev.value += value;
+      } else {
+        byCustomer.set(key, { id: o.id, name: o.customer_name, value });
+      }
+    }
+    return [...byCustomer.values()].sort((a, b) => b.value - a.value).slice(0, 7);
+  }, [debtOrders]);
 
   const debtFilterLabel = useMemo(() => {
     if (debtStatusFilter === "open") return "Còn nợ";
     if (debtStatusFilter === "paid") return "Đã trả";
     return "Tất cả";
   }, [debtStatusFilter]);
+  const debtMonthLabel = useMemo(() => formatMonthLabel(debtMonth), [debtMonth]);
 
-  const filteredAccounts = useMemo(() => {
+  const filteredOrders = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return accounts.filter((a) => {
-      const balance = Number(a.current_balance || 0);
+    return debtOrders.filter((o) => {
+      const balance = Number(o.outstanding_amount || 0);
       if (debtStatusFilter === "open" && balance <= 0) return false;
       if (debtStatusFilter === "paid" && balance > 0) return false;
       if (!q) return true;
-      return a.customer_name.toLowerCase().includes(q) || (a.phone ?? "").toLowerCase().includes(q);
+      return (
+        o.customer_name.toLowerCase().includes(q)
+        || (o.phone ?? "").toLowerCase().includes(q)
+        || o.order_code.toLowerCase().includes(q)
+      );
     });
-  }, [accounts, debtStatusFilter, search]);
+  }, [debtOrders, debtStatusFilter, search]);
 
   const filteredDebtTotal = useMemo(
-    () => filteredAccounts.reduce((sum, a) => sum + Number(a.current_balance || 0), 0),
-    [filteredAccounts],
+    () => filteredOrders.reduce((sum, o) => sum + Number(o.outstanding_amount || 0), 0),
+    [filteredOrders],
   );
 
-  const selectedAccount = useMemo(
-    () => accounts.find((a) => a.id === selectedAccountId) ?? null,
-    [accounts, selectedAccountId]
+  const selectedOrder = useMemo(
+    () => debtOrders.find((o) => o.id === selectedOrderId) ?? null,
+    [debtOrders, selectedOrderId]
   );
-  const repaymentHistory = useMemo(
-    () => selectedLedger.filter((row) => Number(row.amount_signed) < 0),
-    [selectedLedger]
-  );
+  const repaymentHistory = useMemo(() => selectedLedger, [selectedLedger]);
 
   const debtStatusLabel = (balance: number | string) => (Number(balance) <= 0 ? "Đã trả" : "Còn nợ");
   const debtTypeLabel = (entryType: string) => {
@@ -201,24 +246,24 @@ export default function FinanceGovernance() {
   };
 
   const loadDetail = useCallback(async () => {
-    if (!selectedAccountId) {
+    if (!selectedOrderId) {
       setSelectedLedger([]);
       return;
     }
-    const detail = await apiGet<DebtDetailPayload>(`/api/debt-accounts/${selectedAccountId}`);
+    const detail = await apiGet<DebtDetailPayload>(`/api/debt-orders/${selectedOrderId}?month=${encodeURIComponent(debtMonth)}`);
     setSelectedLedger(detail.ledger ?? []);
-  }, [selectedAccountId]);
+  }, [debtMonth, selectedOrderId]);
 
   useEffect(() => {
     void loadDetail();
   }, [loadDetail]);
 
   const submitPayment = async () => {
-    if (!selectedAccountId || amountInput <= 0) return;
+    if (!selectedOrderId || amountInput <= 0) return;
     setSavingAction(true);
     try {
       await apiPost("/api/debt-payments", {
-        debt_account_id: selectedAccountId,
+        sales_order_id: selectedOrderId,
         amount: amountInput,
         payment_method: "cash",
         note: paymentNote.trim() || null,
@@ -286,7 +331,7 @@ export default function FinanceGovernance() {
   };
 
   const exportHistoryPdf = () => {
-    if (!selectedAccount || repaymentHistory.length === 0) {
+    if (!selectedOrder || repaymentHistory.length === 0) {
       toast.error("Không có lịch sử trả nợ để xuất");
       return;
     }
@@ -294,15 +339,16 @@ export default function FinanceGovernance() {
     registerVietnameseFont(doc);
     doc.setFont("BeVietnamPro", "bold");
     doc.setFontSize(13);
-    doc.text("LỊCH SỬ TRẢ NỢ KHÁCH HÀNG", 105, 14, { align: "center" });
+    doc.text("LỊCH SỬ CÔNG NỢ THEO ĐƠN", 105, 14, { align: "center" });
     doc.setFont("BeVietnamPro", "normal");
     doc.setFontSize(10);
-    doc.text(`Khách hàng: ${selectedAccount.customer_name}`, 14, 22);
-    doc.text(`Số điện thoại: ${selectedAccount.phone}`, 14, 28);
-    doc.text(`Dư nợ hiện tại: ${formatVND(selectedAccount.current_balance)}`, 14, 34);
+    doc.text(`Mã đơn: ${selectedOrder.order_code}`, 14, 22);
+    doc.text(`Khách hàng: ${selectedOrder.customer_name} · ${selectedOrder.phone ?? "—"}`, 14, 28);
+    doc.text(`Ngày giao: ${formatDeliveryDate(selectedOrder.delivery_date)}`, 14, 34);
+    doc.text(`Dư nợ đơn: ${formatVND(selectedOrder.outstanding_amount)}`, 14, 40);
 
     autoTable(doc, {
-      startY: 40,
+      startY: 46,
       head: [["STT", "Thời gian", "Nghiệp vụ", "Ghi chú", "Giá trị"]],
       body: repaymentHistory.map((row, idx) => [
         idx + 1,
@@ -316,12 +362,11 @@ export default function FinanceGovernance() {
       bodyStyles: { font: "BeVietnamPro", fontStyle: "normal" },
       columnStyles: { 4: { halign: "right" } },
     });
-    const safePhone = selectedAccount.phone.replace(/[^\d+]/g, "");
-    doc.save(`lich-su-tra-no_${safePhone || "khach-hang"}.pdf`);
+    doc.save(`lich-su-tra-no_${selectedOrder.order_code}.pdf`);
   };
 
   const exportHistoryCsv = () => {
-    if (!selectedAccount || repaymentHistory.length === 0) {
+    if (!selectedOrder || repaymentHistory.length === 0) {
       toast.error("Không có lịch sử trả nợ để xuất");
       return;
     }
@@ -338,13 +383,13 @@ export default function FinanceGovernance() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `lich-su-tra-no_${selectedAccount.phone.replace(/[^\d+]/g, "") || "khach-hang"}.csv`;
+    a.download = `lich-su-tra-no_${selectedOrder.order_code}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };
 
   const exportHistoryExcel = () => {
-    if (!selectedAccount || repaymentHistory.length === 0) {
+    if (!selectedOrder || repaymentHistory.length === 0) {
       toast.error("Không có lịch sử trả nợ để xuất");
       return;
     }
@@ -371,23 +416,25 @@ export default function FinanceGovernance() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `lich-su-tra-no_${selectedAccount.phone.replace(/[^\d+]/g, "") || "khach-hang"}.xls`;
+    a.download = `lich-su-tra-no_${selectedOrder.order_code}.xls`;
     a.click();
     URL.revokeObjectURL(url);
   };
 
   const exportDebtAccountsCsv = () => {
-    if (filteredAccounts.length === 0) {
+    if (filteredOrders.length === 0) {
       toast.error("Không có dữ liệu sổ nợ để xuất");
       return;
     }
-    const header = ["STT", "Khách hàng", "Số điện thoại", "Trạng thái", "Dư nợ"];
-    const body = filteredAccounts.map((a, idx) => [
+    const header = ["STT", "Mã đơn", "Khách hàng", "SĐT", "Ngày giao", "Trạng thái", "Dư nợ"];
+    const body = filteredOrders.map((o, idx) => [
       String(idx + 1),
-      a.customer_name,
-      a.phone,
-      debtStatusLabel(a.current_balance),
-      String(Number(a.current_balance || 0)),
+      o.order_code,
+      o.customer_name,
+      o.phone ?? "",
+      formatDeliveryDate(o.delivery_date),
+      debtStatusLabel(o.outstanding_amount),
+      String(Number(o.outstanding_amount || 0)),
     ]);
     const csvRows = [header, ...body].map((r) => r.map((x) => `"${x.replaceAll('"', '""')}"`).join(",")).join("\n");
     const blob = new Blob(["\ufeff" + csvRows], { type: "text/csv;charset=utf-8;" });
@@ -400,26 +447,28 @@ export default function FinanceGovernance() {
   };
 
   const exportDebtAccountsExcel = () => {
-    if (filteredAccounts.length === 0) {
+    if (filteredOrders.length === 0) {
       toast.error("Không có dữ liệu sổ nợ để xuất");
       return;
     }
-    const rows = filteredAccounts
+    const rows = filteredOrders
       .map(
-        (a, idx) => `
+        (o, idx) => `
         <tr>
           <td>${idx + 1}</td>
-          <td>${a.customer_name}</td>
-          <td>${a.phone}</td>
-          <td>${debtStatusLabel(a.current_balance)}</td>
-          <td style="text-align:right">${Number(a.current_balance || 0).toLocaleString("vi-VN")}</td>
+          <td>${o.order_code}</td>
+          <td>${o.customer_name}</td>
+          <td>${o.phone ?? ""}</td>
+          <td>${formatDeliveryDate(o.delivery_date)}</td>
+          <td>${debtStatusLabel(o.outstanding_amount)}</td>
+          <td style="text-align:right">${Number(o.outstanding_amount || 0).toLocaleString("vi-VN")}</td>
         </tr>`
       )
       .join("");
     const html = `
       <table border="1">
         <thead>
-          <tr><th>STT</th><th>Khách hàng</th><th>Số điện thoại</th><th>Trạng thái</th><th>Dư nợ</th></tr>
+          <tr><th>STT</th><th>Mã đơn</th><th>Khách hàng</th><th>SĐT</th><th>Ngày giao</th><th>Trạng thái</th><th>Dư nợ</th></tr>
         </thead>
         <tbody>${rows}</tbody>
       </table>`;
@@ -433,7 +482,7 @@ export default function FinanceGovernance() {
   };
 
   const exportDebtAccountsPdf = () => {
-    if (filteredAccounts.length === 0) {
+    if (filteredOrders.length === 0) {
       toast.error("Không có dữ liệu sổ nợ để xuất");
       return;
     }
@@ -441,20 +490,22 @@ export default function FinanceGovernance() {
     registerVietnameseFont(doc);
     doc.setFont("BeVietnamPro", "bold");
     doc.setFontSize(13);
-    doc.text("SỔ NỢ KHÁCH HÀNG", 105, 14, { align: "center" });
+    doc.text("SỔ NỢ THEO ĐƠN", 105, 14, { align: "center" });
     doc.setFont("BeVietnamPro", "normal");
     doc.setFontSize(10);
-    doc.text(`Bộ lọc: ${debtFilterLabel}`, 14, 22);
+    doc.text(`Bộ lọc: ${debtFilterLabel} · Tháng giao ${debtMonthLabel}`, 14, 22);
     doc.text(`Tổng dư nợ (theo bộ lọc): ${formatVND(filteredDebtTotal)}`, 14, 28);
     autoTable(doc, {
       startY: 34,
-      head: [["STT", "Khách hàng", "Số điện thoại", "Trạng thái", "Dư nợ"]],
-      body: filteredAccounts.map((a, idx) => [
+      head: [["STT", "Mã đơn", "Khách hàng", "SĐT", "Ngày giao", "TT", "Dư nợ"]],
+      body: filteredOrders.map((o, idx) => [
         idx + 1,
-        a.customer_name,
-        a.phone,
-        debtStatusLabel(a.current_balance),
-        formatVND(a.current_balance),
+        o.order_code,
+        o.customer_name,
+        o.phone ?? "—",
+        formatDeliveryDate(o.delivery_date),
+        debtStatusLabel(o.outstanding_amount),
+        formatVND(o.outstanding_amount),
       ]),
       headStyles: { fillColor: [15, 118, 110], textColor: 255, font: "BeVietnamPro", fontStyle: "bold" },
       styles: { font: "BeVietnamPro", fontSize: 9, cellPadding: 2 },
@@ -497,7 +548,7 @@ export default function FinanceGovernance() {
           </TabsList>
 
           <TabsContent value="overview" className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-3">
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
             <Card className="p-4 shadow-card">
               <p className="text-xs text-muted-foreground">Doanh thu thuần</p>
               <p className="mt-1 text-xl font-semibold">{formatVND(totals.revenue)}</p>
@@ -507,18 +558,23 @@ export default function FinanceGovernance() {
               <p className="mt-1 text-xl font-semibold">{totals.orderCount.toLocaleString("vi-VN")} / {formatVND(totals.avgOrder)}</p>
             </Card>
             <Card className="p-4 shadow-card">
-              <p className="text-xs text-muted-foreground">Dư nợ / Tiền lời (ước tính)</p>
-              <p className="mt-1 text-xl font-semibold">{formatVND(debtTotal)} / {formatVND(totals.grossProfit)}</p>
+              <p className="text-xs text-muted-foreground">Nợ chưa thu (Sổ nợ) đến cuối {debtMonthLabel}</p>
+              <p className="mt-1 text-xl font-semibold">{formatVND(debtTotal)}</p>
+              <p className="mt-1 text-xs text-muted-foreground">{openDebtOrders} đơn còn nợ</p>
+            </Card>
+            <Card className="p-4 shadow-card">
+              <p className="text-xs text-muted-foreground">Tiền lời (ước tính)</p>
+              <p className="mt-1 text-xl font-semibold">{formatVND(totals.grossProfit)}</p>
             </Card>
           </div>
 
           <Card className="p-4 shadow-card">
             <div className="mb-3 flex items-center justify-between gap-2">
-              <h2 className="text-sm font-semibold">Xu hướng doanh thu và dư nợ theo ngày</h2>
+              <h2 className="text-sm font-semibold">Xu hướng doanh thu và nợ còn trên đơn theo ngày</h2>
               <TrendingUp className="h-4 w-4 text-primary" aria-hidden />
             </div>
             <p className="sr-only">
-              Hai đường: doanh thu và dư nợ phát sinh theo ngày trong khoảng thời gian đã chọn.
+              Hai đường: doanh thu và nợ còn trên đơn tạo trong kỳ theo ngày. Tổng Sổ nợ hiện tại nằm ở KPI phía trên.
             </p>
             <div className="h-80">
               <ResponsiveContainer width="100%" height="100%">
@@ -527,12 +583,12 @@ export default function FinanceGovernance() {
                   <XAxis dataKey="label" interval={chartInterval} tick={{ fontSize: 11 }} />
                   <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => (v >= 1_000_000 ? `${Math.round(v / 1_000_000)}tr` : String(v))} />
                   <Tooltip
-                    formatter={(value: number, name: string) => [formatVND(value), name === "revenue" ? "Doanh thu" : "Dư nợ phát sinh"]}
+                    formatter={(value: number, name: string) => [formatVND(value), name === "revenue" ? "Doanh thu" : "Nợ còn trên đơn trong kỳ"]}
                     labelFormatter={(label) => `Ngày ${label}`}
                   />
                   <Legend verticalAlign="top" height={28} wrapperStyle={{ fontSize: 12 }} />
                   <Line type="monotone" name="Doanh thu" dataKey="revenue" stroke="hsl(var(--primary))" strokeWidth={2.5} dot={false} />
-                  <Line type="monotone" name="Dư nợ phát sinh" dataKey="outstanding" stroke="hsl(var(--destructive))" strokeWidth={2.5} dot={false} />
+                  <Line type="monotone" name="Nợ còn trên đơn trong kỳ" dataKey="outstanding" stroke="hsl(var(--destructive))" strokeWidth={2.5} dot={false} />
                 </LineChart>
               </ResponsiveContainer>
             </div>
@@ -558,7 +614,7 @@ export default function FinanceGovernance() {
 
             <Card className="p-4 shadow-card">
               <h2 className="mb-3 text-sm font-semibold">Tỷ trọng trạng thái nợ</h2>
-              <p className="sr-only">Tỷ lệ số tài khoản đã trả hết và còn dư nợ.</p>
+              <p className="sr-only">Tỷ lệ số đơn đã trả hết và còn dư nợ.</p>
               <div className="h-72">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
@@ -567,7 +623,7 @@ export default function FinanceGovernance() {
                         <Cell key={entry.name} fill={entry.color} />
                       ))}
                     </Pie>
-                    <Tooltip formatter={(value: number) => [value.toLocaleString("vi-VN"), "Số tài khoản"]} />
+                    <Tooltip formatter={(value: number) => [value.toLocaleString("vi-VN"), "Số đơn"]} />
                   </PieChart>
                 </ResponsiveContainer>
               </div>
@@ -595,14 +651,9 @@ export default function FinanceGovernance() {
                     name="Dư nợ"
                     onClick={(barSegment: { payload?: TopDebtorChartRow }) => {
                       const row = barSegment.payload;
-                      const id =
-                        row && typeof row.id === "number"
-                          ? row.id
-                          : row?.name
-                            ? accounts.find((a) => a.customer_name === row.name)?.id
-                            : undefined;
+                      const id = row && typeof row.id === "number" ? row.id : undefined;
                       if (typeof id === "number") {
-                        setSelectedAccountId(id);
+                        setSelectedOrderId(id);
                         setTab("accounts");
                         window.requestAnimationFrame(() => {
                           document.getElementById("finance-debt-accounts")?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -644,8 +695,17 @@ export default function FinanceGovernance() {
             <Card id="finance-debt-accounts" className="p-4 shadow-card space-y-3">
               <div className="flex flex-wrap items-end justify-between gap-2">
                 <div className="grid min-w-[200px] flex-1 gap-1.5">
-                  <Label>Tìm khách hàng / số điện thoại</Label>
-                  <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Ví dụ: 0909..." />
+                  <Label>Tìm mã đơn / khách / SĐT</Label>
+                  <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Ví dụ: DH-… / 0909…" />
+                </div>
+                <div className="grid min-w-[160px] gap-1.5">
+                  <Label>Tháng công nợ</Label>
+                  <Input
+                    type="month"
+                    value={debtMonth}
+                    onChange={(e) => setDebtMonth(e.target.value || currentMonthValue())}
+                    aria-label="Lọc công nợ theo tháng"
+                  />
                 </div>
                 <div className="grid min-w-[160px] gap-1.5">
                   <Label>Trạng thái nợ</Label>
@@ -673,30 +733,37 @@ export default function FinanceGovernance() {
                   </DropdownMenuContent>
                 </DropdownMenu>
               </div>
+              <p className="text-xs text-muted-foreground">
+                Lọc theo ngày giao trong tháng {debtMonthLabel}; mỗi dòng là một đơn nợ độc lập.
+              </p>
               <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead>Mã đơn</TableHead>
                       <TableHead>Khách hàng</TableHead>
                       <TableHead>SĐT</TableHead>
+                      <TableHead>Ngày giao</TableHead>
                       <TableHead>Trạng thái</TableHead>
                       <TableHead className="text-right">Dư nợ</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredAccounts.map((a) => (
+                    {filteredOrders.map((o) => (
                       <TableRow
-                        key={a.id}
-                        className={`${selectedAccountId === a.id ? "bg-muted/40" : ""} cursor-pointer`}
+                        key={o.id}
+                        className={`${selectedOrderId === o.id ? "bg-muted/40" : ""} cursor-pointer`}
                         onClick={() => {
-                          setSelectedAccountId(a.id);
+                          setSelectedOrderId(o.id);
                           setHistoryOpen(true);
                         }}
                       >
-                        <TableCell className="font-medium text-primary">{a.customer_name}</TableCell>
-                        <TableCell>{a.phone}</TableCell>
-                        <TableCell>{debtStatusLabel(a.current_balance)}</TableCell>
-                        <TableCell className="text-right font-semibold">{formatVND(a.current_balance)}</TableCell>
+                        <TableCell className="font-mono text-sm">{o.order_code}</TableCell>
+                        <TableCell className="font-medium text-primary">{o.customer_name}</TableCell>
+                        <TableCell>{o.phone ?? "—"}</TableCell>
+                        <TableCell>{formatDeliveryDate(o.delivery_date)}</TableCell>
+                        <TableCell>{debtStatusLabel(o.outstanding_amount)}</TableCell>
+                        <TableCell className="text-right font-semibold">{formatVND(o.outstanding_amount)}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -714,11 +781,11 @@ export default function FinanceGovernance() {
       <Sheet open={historyOpen} onOpenChange={setHistoryOpen}>
         <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-2xl">
           <SheetHeader>
-            <SheetTitle>Lịch sử trả nợ</SheetTitle>
+            <SheetTitle>Giao dịch công nợ trong tháng {debtMonthLabel}</SheetTitle>
             <SheetDescription>
-              {selectedAccount
-                ? `${selectedAccount.customer_name} - ${selectedAccount.phone} | Dư nợ: ${formatVND(selectedAccount.current_balance)}`
-                : "Chọn khách hàng từ Sổ nợ để xem lịch sử trả nợ"}
+              {selectedOrder
+                ? `${selectedOrder.order_code} · ${selectedOrder.customer_name} · Ngày giao ${formatDeliveryDate(selectedOrder.delivery_date)} · Dư nợ: ${formatVND(selectedOrder.outstanding_amount)}`
+                : "Chọn đơn từ Sổ nợ để xem lịch sử công nợ"}
             </SheetDescription>
           </SheetHeader>
           <div className="mt-4 space-y-4">
@@ -726,7 +793,7 @@ export default function FinanceGovernance() {
               <Button type="button" variant="outline" onClick={() => {
                 setPaymentShellInput(0);
                 setPaymentOpen(true);
-              }} disabled={!selectedAccountId}>
+              }} disabled={!selectedOrderId || Number(selectedOrder?.outstanding_amount || 0) <= 0}>
                 Thu nợ
               </Button>
               <DropdownMenu>
@@ -758,7 +825,7 @@ export default function FinanceGovernance() {
                   {repaymentHistory.length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={6} className="py-8 text-center text-sm text-muted-foreground">
-                        Chưa có lịch sử trả nợ.
+                        Chưa có giao dịch công nợ trong tháng này.
                       </TableCell>
                     </TableRow>
                   ) : (
@@ -800,9 +867,14 @@ export default function FinanceGovernance() {
       <Dialog open={paymentOpen} onOpenChange={setPaymentOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Thu nợ khách hàng</DialogTitle>
+            <DialogTitle>Thu nợ theo đơn</DialogTitle>
           </DialogHeader>
           <div className="grid gap-3">
+            {selectedOrder ? (
+              <p className="text-sm text-muted-foreground">
+                {selectedOrder.order_code} · {selectedOrder.customer_name} · Dư nợ tối đa {formatVND(selectedOrder.outstanding_amount)}
+              </p>
+            ) : null}
             <div className="grid gap-1.5">
               <Label>Số tiền thu (₫)</Label>
               <Input type="number" min={0} value={amountInput} onChange={(e) => setAmountInput(Number(e.target.value || 0))} />

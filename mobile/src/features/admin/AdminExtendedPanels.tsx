@@ -13,10 +13,11 @@ import {
   deleteProduct,
   deleteUser,
   fetchCylinderTemplatesAll,
-  fetchDebtAccountDetail,
-  fetchDebtAccounts,
+  fetchDebtOrderDetail,
+  fetchDebtOrders,
   fetchGasLedger,
   fetchProductsList,
+  fetchStockReceipts,
   fetchTaxReport,
   fetchUsers,
   patchCylinderTemplate,
@@ -38,7 +39,14 @@ import { isOnline } from "@/lib/network";
 import { runSyncCycle } from "@/sync/engine";
 import { colors, spacing } from "@/theme/tokens";
 
-type DebtRow = { id: number; customer_name: string; phone: string; current_balance: string; status: string };
+type DebtRow = {
+  id: number;
+  order_code: string;
+  customer_name: string;
+  phone: string | null;
+  delivery_date: string | null;
+  outstanding_amount: string;
+};
 
 /** Live debt collection queue (web /doi-no parity). */
 export function AdminDebtCollectionPanel() {
@@ -47,16 +55,16 @@ export function AdminDebtCollectionPanel() {
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [detailId, setDetailId] = useState<number | null>(null);
-  const [detail, setDetail] = useState<Awaited<ReturnType<typeof fetchDebtAccountDetail>> | null>(null);
+  const [detail, setDetail] = useState<Awaited<ReturnType<typeof fetchDebtOrderDetail>> | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await fetchDebtAccounts();
+      const data = await fetchDebtOrders();
       setRows(
         data
-          .filter((r) => Number(r.current_balance) > 0)
-          .sort((a, b) => Number(b.current_balance) - Number(a.current_balance)),
+          .filter((r) => Number(r.outstanding_amount) > 0)
+          .sort((a, b) => Number(b.outstanding_amount) - Number(a.outstanding_amount)),
       );
     } catch (e) {
       toast.showError(e instanceof Error ? e.message : "Không tải công nợ");
@@ -74,7 +82,7 @@ export function AdminDebtCollectionPanel() {
       setDetail(null);
       return;
     }
-    void fetchDebtAccountDetail(detailId)
+    void fetchDebtOrderDetail(detailId)
       .then(setDetail)
       .catch((e) => toast.showError(e instanceof Error ? e.message : "Không mở chi tiết"));
   }, [detailId, toast]);
@@ -82,7 +90,12 @@ export function AdminDebtCollectionPanel() {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return rows;
-    return rows.filter((r) => r.customer_name.toLowerCase().includes(q) || r.phone.includes(q));
+    return rows.filter(
+      (r) =>
+        r.customer_name.toLowerCase().includes(q)
+        || (r.phone ?? "").includes(q)
+        || r.order_code.toLowerCase().includes(q),
+    );
   }, [rows, search]);
 
   return (
@@ -97,16 +110,19 @@ export function AdminDebtCollectionPanel() {
             <AppText variant="caption" muted>
               Danh sách thu nợ tiền · live API
             </AppText>
-            <TextField value={search} onChangeText={setSearch} placeholder="Tên hoặc SĐT…" />
+            <TextField value={search} onChangeText={setSearch} placeholder="Mã đơn, tên hoặc SĐT…" />
           </View>
         }
         ListEmptyComponent={<EmptyState icon="wallet-outline" title="Không có công nợ" description="Hoặc chưa kết nối mạng" />}
         renderItem={({ item }) => (
           <Pressable onPress={() => setDetailId(item.id)}>
             <Card style={styles.card}>
-              <AppText variant="bodyMedium">{item.customer_name}</AppText>
-              <AppText variant="caption" muted>{item.phone}</AppText>
-              <AppText variant="h3">{Number(item.current_balance).toLocaleString("vi-VN")} đ</AppText>
+              <AppText variant="bodyMedium">{item.order_code}</AppText>
+              <AppText variant="caption" muted>
+                {item.customer_name} · {item.phone ?? "—"}
+                {item.delivery_date ? ` · Giao ${item.delivery_date}` : ""}
+              </AppText>
+              <AppText variant="h3">{Number(item.outstanding_amount).toLocaleString("vi-VN")} đ</AppText>
             </Card>
           </Pressable>
         )}
@@ -114,7 +130,7 @@ export function AdminDebtCollectionPanel() {
       <Modal visible={detailId != null} animationType="slide" onRequestClose={() => setDetailId(null)}>
         <ScrollView contentContainerStyle={styles.modal}>
           <View style={styles.modalHeader}>
-            <AppText variant="h2">{detail?.account.customer_name ?? "Chi tiết"}</AppText>
+            <AppText variant="h2">{detail?.order.order_code ?? "Chi tiết đơn"}</AppText>
             <Pressable onPress={() => setDetailId(null)}>
               <Ionicons name="close" size={24} color={colors.text} />
             </Pressable>
@@ -135,7 +151,7 @@ export function AdminDebtCollectionPanel() {
               variant="secondary"
               onPress={() =>
                 void Linking.openURL(
-                  `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${detail.account.customer_name} ${detail.account.phone}`)}`,
+                  `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${detail.order.customer_name} ${detail.order.phone ?? ""}`)}`,
                 )
               }
             />
@@ -229,32 +245,31 @@ export function AdminTaxPanel() {
   );
 }
 
-/** Product CRUD + stock receipts (online). */
+/** Product catalog CRUD (online). Stock inbound lives on the warehouse screen. */
 export function AdminInventoryCrudPanel() {
   const toast = useToast();
   const [rows, setRows] = useState<Awaited<ReturnType<typeof fetchProductsList>>>([]);
   const [name, setName] = useState("");
-  const [price, setPrice] = useState("");
+  const [wholesale, setWholesale] = useState("");
+  const [restaurant, setRestaurant] = useState("");
+  const [retail, setRetail] = useState("");
   const [stock, setStock] = useState("0");
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
   const [editId, setEditId] = useState<number | null>(null);
   const [editName, setEditName] = useState("");
-  const [editPrice, setEditPrice] = useState("");
-  const [editStock, setEditStock] = useState("");
+  const [editWholesale, setEditWholesale] = useState("");
+  const [editRestaurant, setEditRestaurant] = useState("");
+  const [editRetail, setEditRetail] = useState("");
   const [editActive, setEditActive] = useState(true);
   const [savingEdit, setSavingEdit] = useState(false);
-  const [stockTarget, setStockTarget] = useState<{ id: number; name: string } | null>(null);
-  const [stockQty, setStockQty] = useState("10");
-  const [stockDate, setStockDate] = useState(new Date().toISOString().slice(0, 10));
-  const [stockSaving, setStockSaving] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       setRows(await fetchProductsList());
     } catch (e) {
-      toast.showError(e instanceof Error ? e.message : "Không tải kho");
+      toast.showError(e instanceof Error ? e.message : "Không tải sản phẩm");
     } finally {
       setLoading(false);
     }
@@ -271,9 +286,17 @@ export function AdminInventoryCrudPanel() {
     }
     setAdding(true);
     try {
-      await createProduct({ name: name.trim(), sell_price: price || "0", stock_quantity: Number(stock) || 0 });
+      await createProduct({
+        name: name.trim(),
+        sell_price: retail || "0",
+        wholesale_price: wholesale || retail || "0",
+        restaurant_price: restaurant || retail || "0",
+        stock_quantity: Number(stock) || 0,
+      });
       setName("");
-      setPrice("");
+      setWholesale("");
+      setRestaurant("");
+      setRetail("");
       setStock("0");
       await load();
       void runSyncCycle();
@@ -288,8 +311,9 @@ export function AdminInventoryCrudPanel() {
   function openEdit(item: (typeof rows)[0]) {
     setEditId(item.id);
     setEditName(item.name);
-    setEditPrice(String(item.sell_price));
-    setEditStock(String(item.stock_quantity));
+    setEditRetail(String(item.sell_price));
+    setEditWholesale(String(item.wholesale_price ?? item.sell_price));
+    setEditRestaurant(String(item.restaurant_price ?? item.sell_price));
     setEditActive(item.is_active);
   }
 
@@ -302,8 +326,9 @@ export function AdminInventoryCrudPanel() {
     try {
       await patchProduct(editId, {
         name: editName.trim(),
-        sell_price: editPrice || "0",
-        stock_quantity: Number(editStock) || 0,
+        sell_price: editRetail || "0",
+        wholesale_price: editWholesale || "0",
+        restaurant_price: editRestaurant || "0",
         is_active: editActive,
       });
       setEditId(null);
@@ -314,27 +339,6 @@ export function AdminInventoryCrudPanel() {
       toast.showError(e instanceof Error ? e.message : "Lưu thất bại");
     } finally {
       setSavingEdit(false);
-    }
-  }
-
-  async function confirmStockReceipt() {
-    if (!stockTarget) return;
-    const qty = Number(stockQty);
-    if (!Number.isFinite(qty) || qty <= 0) {
-      toast.showError("Nhập số lượng hợp lệ");
-      return;
-    }
-    setStockSaving(true);
-    try {
-      await createStockReceipt(stockTarget.id, qty, undefined, stockDate);
-      setStockTarget(null);
-      await load();
-      void runSyncCycle();
-      toast.showSuccess("Đã nhập kho");
-    } catch (e) {
-      toast.showError(e instanceof Error ? e.message : "Nhập kho thất bại");
-    } finally {
-      setStockSaving(false);
     }
   }
 
@@ -349,8 +353,10 @@ export function AdminInventoryCrudPanel() {
           <Card style={[styles.card, { gap: spacing.sm }]}>
             <AppText variant="bodyMedium">Thêm sản phẩm</AppText>
             <TextField label="Tên" value={name} onChangeText={setName} />
-            <TextField label="Giá bán" value={price} onChangeText={setPrice} keyboardType="numeric" />
-            <TextField label="Tồn" value={stock} onChangeText={setStock} keyboardType="number-pad" />
+            <TextField label="Giá sỉ" value={wholesale} onChangeText={setWholesale} keyboardType="numeric" />
+            <TextField label="Giá quán" value={restaurant} onChangeText={setRestaurant} keyboardType="numeric" />
+            <TextField label="Giá lẻ" value={retail} onChangeText={setRetail} keyboardType="numeric" />
+            <TextField label="Tồn ban đầu" value={stock} onChangeText={setStock} keyboardType="number-pad" />
             <Button label="Thêm" loading={adding} onPress={() => void addProduct()} />
           </Card>
         }
@@ -362,24 +368,13 @@ export function AdminInventoryCrudPanel() {
                 <StatusBadge label={item.is_active ? "Active" : "Off"} tone={item.is_active ? "success" : "neutral"} />
               </View>
               <AppText variant="caption" muted>
-                Tồn: {item.stock_quantity} · {item.sell_price} đ
+                Tồn: {item.stock_quantity} · sỉ {item.wholesale_price ?? item.sell_price} · quán {item.restaurant_price ?? item.sell_price} · lẻ {item.sell_price}
               </AppText>
-              <View style={styles.row}>
-                <Button
-                  label="Nhập kho"
-                  variant="secondary"
-                  onPress={() => {
-                    setStockTarget({ id: item.id, name: item.name });
-                    setStockQty("10");
-                    setStockDate(new Date().toISOString().slice(0, 10));
-                  }}
-                />
-                <Button
-                  label="Xóa"
-                  variant="ghost"
-                  onPress={() => void deleteProduct(item.id).then(load).catch((e) => toast.showError(String(e)))}
-                />
-              </View>
+              <Button
+                label="Xóa"
+                variant="ghost"
+                onPress={() => void deleteProduct(item.id).then(load).catch((e) => toast.showError(String(e)))}
+              />
             </Card>
           </Pressable>
         )}
@@ -396,29 +391,108 @@ export function AdminInventoryCrudPanel() {
         }
       >
         <TextField label="Tên" value={editName} onChangeText={setEditName} />
-        <TextField label="Giá bán" value={editPrice} onChangeText={setEditPrice} keyboardType="numeric" />
-        <TextField label="Tồn" value={editStock} onChangeText={setEditStock} keyboardType="number-pad" />
+        <TextField label="Giá sỉ" value={editWholesale} onChangeText={setEditWholesale} keyboardType="numeric" />
+        <TextField label="Giá quán" value={editRestaurant} onChangeText={setEditRestaurant} keyboardType="numeric" />
+        <TextField label="Giá lẻ" value={editRetail} onChangeText={setEditRetail} keyboardType="numeric" />
         <View style={styles.chips}>
           <FilterChip label="Đang bán" active={editActive} onPress={() => setEditActive(true)} />
           <FilterChip label="Ngừng bán" active={!editActive} onPress={() => setEditActive(false)} />
         </View>
       </FormBottomSheet>
-      <FormBottomSheet
-        visible={stockTarget != null}
-        title="Nhập kho"
-        subtitle={stockTarget?.name}
-        onClose={() => setStockTarget(null)}
-        footer={
-          <>
-            <Button label="Xác nhận nhập kho" variant="accent" loading={stockSaving} fullWidth onPress={() => void confirmStockReceipt()} />
-            <Button label="Hủy" variant="ghost" fullWidth onPress={() => setStockTarget(null)} />
-          </>
-        }
-      >
-        <TextField label="Số lượng" value={stockQty} onChangeText={setStockQty} keyboardType="number-pad" />
-        <TextField label="Ngày nhập (YYYY-MM-DD)" value={stockDate} onChangeText={setStockDate} />
-      </FormBottomSheet>
     </>
+  );
+}
+
+/** Inbound receipts only — syncs daily audit import_full. */
+export function AdminWarehousePanel() {
+  const toast = useToast();
+  const [products, setProducts] = useState<Awaited<ReturnType<typeof fetchProductsList>>>([]);
+  const [receipts, setReceipts] = useState<Awaited<ReturnType<typeof fetchStockReceipts>>>([]);
+  const [pickId, setPickId] = useState<number | null>(null);
+  const [qty, setQty] = useState("10");
+  const [stockDate, setStockDate] = useState(new Date().toISOString().slice(0, 10));
+  const [note, setNote] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [plist, rlist] = await Promise.all([fetchProductsList(), fetchStockReceipts()]);
+      setProducts(plist);
+      setReceipts(rlist);
+    } catch (e) {
+      toast.showError(e instanceof Error ? e.message : "Không tải kho");
+    } finally {
+      setLoading(false);
+    }
+  }, [toast]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  async function confirmStockReceipt() {
+    if (pickId == null) {
+      toast.showError("Chọn sản phẩm");
+      return;
+    }
+    const n = Number(qty);
+    if (!Number.isFinite(n) || n <= 0) {
+      toast.showError("Nhập số lượng hợp lệ");
+      return;
+    }
+    setSaving(true);
+    try {
+      await createStockReceipt(pickId, n, note.trim() || undefined, stockDate);
+      setQty("10");
+      setNote("");
+      await load();
+      void runSyncCycle();
+      toast.showSuccess("Đã nhập kho");
+    } catch (e) {
+      toast.showError(e instanceof Error ? e.message : "Nhập kho thất bại");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <FlatList
+      data={receipts}
+      keyExtractor={(item) => String(item.id)}
+      contentContainerStyle={styles.list}
+      refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void load()} tintColor={colors.primary} />}
+      ListHeaderComponent={
+        <Card style={[styles.card, { gap: spacing.sm }]}>
+          <AppText variant="bodyMedium">Nhập gas</AppText>
+          <AppText variant="caption" muted>
+            Cộng tồn và cộng số nhập vào kiểm kê ngày phiếu.
+          </AppText>
+          <ScrollView horizontal contentContainerStyle={styles.chips}>
+            {products.map((p) => (
+              <FilterChip key={p.id} label={p.name} active={pickId === p.id} onPress={() => setPickId(p.id)} />
+            ))}
+          </ScrollView>
+          <TextField label="Số lượng" value={qty} onChangeText={setQty} keyboardType="number-pad" />
+          <TextField label="Ngày nhập (YYYY-MM-DD)" value={stockDate} onChangeText={setStockDate} />
+          <TextField label="Ghi chú" value={note} onChangeText={setNote} />
+          <Button label="Ghi nhận nhập" variant="accent" loading={saving} onPress={() => void confirmStockReceipt()} />
+        </Card>
+      }
+      ListEmptyComponent={<EmptyState icon="cube-outline" title="Chưa có phiếu" description="Nhập số bình từ form trên" />}
+      renderItem={({ item }) => (
+        <Card style={styles.card}>
+          <AppText variant="bodyMedium">
+            {item.product_name ?? `#${item.product_id}`} · +{item.quantity}
+          </AppText>
+          <AppText variant="caption" muted>
+            {item.receipt_date} · {item.receipt_kind === "opening" ? "Tồn đầu" : "Nhập"}
+            {item.note ? ` · ${item.note}` : ""}
+          </AppText>
+        </Card>
+      )}
+    />
   );
 }
 

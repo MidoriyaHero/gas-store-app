@@ -110,7 +110,7 @@ flowchart LR
 | `api` | 8000 | FastAPI, `/docs` OpenAPI |
 | `db` | 5432 | Postgres 16 |
 
-Khởi động: `./setup.sh` hoặc `docker compose up --build` — xem [README gốc](../../README.md).
+Khởi động: `./setup.sh` hoặc `docker compose up --build` — xem [README gốc](../../README.md). Windows auto-start: [deploy/windows.md](../deploy/windows.md).
 
 ## Liên kết
 

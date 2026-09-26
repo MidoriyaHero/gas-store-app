@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>A. Trang phiếu — tạo đơn</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="./theme.css" />
+  </head>
+  <body>
+    <div class="mock-strip">
+      <span><a href="./index.html">Tất cả mock</a> · <strong>A. Trang phiếu</strong></span>
+      <span>Rời danh sách · phiếu sống bên trái</span>
+    </div>
+
+    <div class="app">
+      <aside class="rail">
+        <div class="rail-brand">
+          <img src="../brand/logo.png" alt="" width="36" height="36" />
+          <p>Gas Huy Hoàng<span>Quản lý bán hàng</span></p>
+        </div>
+        <nav>
+          <a class="nav" href="./index.html">Tổng quan</a>
+          <a class="nav is-on" href="./web-page.html">Đơn hàng</a>
+          <a class="nav" href="./index.html">Kho</a>
+          <a class="nav" href="./index.html">Sổ gas</a>
+        </nav>
+      </aside>
+
+      <div class="workspace">
+        <header class="workspace-head">
+          <h1>Phiếu giao mới</h1>
+          <a class="btn btn-ghost" href="./web-sheet.html">Xem approach B</a>
+        </header>
+        <div class="workspace-body">
+          <div class="composer">
+            <aside class="slip">
+              <div class="slip-perf"></div>
+              <div class="slip-body">
+                <p class="slip-shop">Gas Huy Hoàng</p>
+                <p class="slip-kicker">Phiếu giao</p>
+                <span class="slip-stamp" data-slip-stamp>Thiếu sổ gas</span>
+                <ul class="slip-lines">
+                  <li><span>Khách</span><b data-slip-name class="is-empty">Chưa ghi tên</b></li>
+                  <li><span>Điện thoại</span><b data-slip-phone class="is-empty">Chưa có SĐT</b></li>
+                  <li><span>Tệp</span><b data-slip-segment class="is-empty">Chưa chọn tệp</b></li>
+                  <li><span>Điểm giao</span><b data-slip-place class="is-empty">Chưa ghim điểm giao</b></li>
+                  <li><span>Ngày giao</span><b data-slip-date>16/09/2026</b></li>
+                  <li><span>Chai</span><b data-slip-goods class="is-empty">Chưa thêm chai</b></li>
+                  <li><span>Thu</span><b data-slip-pay>Thanh toán đủ</b></li>
+                </ul>
+                <div class="slip-total"><span>Tổng</span><strong data-slip-total>0đ</strong></div>
+              </div>
+            </aside>
+
+            <section class="composer-main">
+              <div class="composer-head">
+                <h2 data-step-title>Khách nhận hàng</h2>
+                <nav class="steps" aria-label="Bước lập phiếu">
+                  <button type="button" class="is-on" data-step="customer">Khách</button>
+                  <button type="button" data-step="place">Điểm giao</button>
+                  <button type="button" data-step="goods">Chai</button>
+                  <button type="button" data-step="pay">Thu tiền</button>
+                </nav>
+              </div>
+
+              <div class="composer-body">
+                <div class="stack" data-panel="customer">
+                  <div class="row row-2">
+                    <div class="field">
+                      <label for="name">Tên khách</label>
+                      <input id="name" class="input" data-field="name" placeholder="Chị Lan" autocomplete="name" />
+                    </div>
+                    <div class="field">
+                      <label for="phone">Số điện thoại</label>
+                      <input id="phone" class="input" data-field="phone" placeholder="0909 123 456" inputmode="tel" />
+                    </div>
+                  </div>
+                  <div class="field">
+                    <span class="field-label">Tệp khách hàng</span>
+                    <div class="chips">
+                      <button type="button" class="chip" data-segment="wholesale">Đại lý sỉ</button>
+                      <button type="button" class="chip" data-segment="restaurant">Quán ăn</button>
+                      <button type="button" class="chip" data-segment="retail">Khách lẻ</button>
+                    </div>
+                    <p class="hint">SĐT cũ sẽ gợi ý tệp đã lưu. Dashboard dùng tệp này để xem tỉ lệ.</p>
+                  </div>
+                  <div class="row row-2">
+                    <div class="field">
+                      <label for="date">Ngày giao chai</label>
+                      <input id="date" class="input" type="date" value="2026-09-16" data-field="date" />
+                    </div>
+                    <div class="field">
+                      <label for="staff">Nhân viên giao</label>
+                      <select id="staff" class="select" data-field="staff">
+                        <option value="">Chưa gán</option>
+                        <option>Minh</option>
+                        <option>Hùng</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class="field">
+                    <label for="shells">Vỏ cho mượn (nếu có)</label>
+                    <input id="shells" class="input" type="number" min="0" value="0" data-field="shells" />
+                  </div>
+                </div>
+
+                <div class="stack" data-panel="place" hidden>
+                  <div class="field">
+                    <label for="address">Địa chỉ giao</label>
+                    <input id="address" class="input" data-field="address" placeholder="Số nhà, hẻm, phường…" />
+                  </div>
+                  <div class="map-toolbar">
+                    <button type="button" class="btn btn-ghost" data-geo-hit="12 hẻm 45, P. Tân Phú, Q. Tân Phú">Tìm trên bản đồ</button>
+                    <button type="button" class="btn btn-ghost" data-paste>Áp dụng vị trí từ Maps</button>
+                    <button type="button" class="btn" data-pin>Ghim điểm này</button>
+                  </div>
+                  <div class="field">
+                    <label for="paste">Dán link Google Maps</label>
+                    <input id="paste" class="input" placeholder="maps.app.goo.gl / Plus Code / tọa độ" />
+                  </div>
+                  <ul class="geo-hits">
+                    <li><button type="button" data-geo-hit="12 hẻm 45, P. Tân Phú, Q. Tân Phú">12 hẻm 45, P. Tân Phú, Q. Tân Phú, TP.HCM</button></li>
+                    <li><button type="button" data-geo-hit="45 Tân Phú, Q. Tân Phú">45 Tân Phú, gần chợ Tân Hương</button></li>
+                  </ul>
+                  <div class="map-stage" data-pin>
+                    <span class="map-pin is-off" aria-hidden="true"></span>
+                  </div>
+                  <p class="hint">Hẻm nhỏ hay không ra chữ — ghim tay trên bản đồ rồi dùng điểm đó.</p>
+                </div>
+
+                <div class="stack" data-panel="goods" hidden>
+                  <div class="field">
+                    <span class="field-label">Mẫu thông tin chai</span>
+                    <select class="select">
+                      <option>Gas Hoàng Ân</option>
+                      <option>Không dùng mẫu</option>
+                    </select>
+                    <p class="hint">Thêm dòng sẽ điền chủ sở hữu, hạn kiểm, nơi nhập từ mẫu.</p>
+                  </div>
+                  <div class="row" style="grid-template-columns: 1fr 90px auto">
+                    <select class="select" data-product>
+                      <option value="12">Gas 12kg — 420.000đ (còn 18)</option>
+                      <option value="45">Gas 45kg — 1.450.000đ (còn 4)</option>
+                    </select>
+                    <input class="input" type="number" min="1" value="1" />
+                    <button type="button" class="btn" data-add>Thêm</button>
+                  </div>
+                  <div class="stack" data-cart></div>
+                </div>
+
+                <div class="stack" data-panel="pay" hidden>
+                  <div class="field">
+                    <span class="field-label">Hình thức thu</span>
+                    <div class="chips">
+                      <button type="button" class="chip is-on" data-pay="cash">Thanh toán đủ</button>
+                      <button type="button" class="chip" data-pay="partial">Thu một phần</button>
+                      <button type="button" class="chip" data-pay="debt">Ghi nợ</button>
+                    </div>
+                  </div>
+                  <div class="field">
+                    <label for="note">Ghi chú giao</label>
+                    <textarea id="note" class="textarea" data-field="note" placeholder="Gọi trước 10 phút, để cổng hẻm"></textarea>
+                  </div>
+                  <div class="field">
+                    <label for="vat">Thuế GTGT (%)</label>
+                    <input id="vat" class="input" type="number" min="0" value="0" data-field="vat" />
+                  </div>
+                </div>
+              </div>
+
+              <footer class="composer-foot">
+                <div class="foot-total">
+                  <span>Tổng trên phiếu</span>
+                  <strong data-foot-total>0đ</strong>
+                </div>
+                <div class="foot-actions">
+                  <button type="button" class="btn btn-ghost" data-prev>Quay lại</button>
+                  <button type="button" class="btn" data-next>Tiếp theo</button>
+                  <button type="button" class="btn" data-create hidden>Tạo đơn</button>
+                </div>
+              </footer>
+            </section>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="toast" data-toast hidden></div>
+    <script src="./order-mock.js"></script>
+  </body>
+</html>

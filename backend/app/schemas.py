@@ -6,15 +6,20 @@ from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+CustomerSegmentLiteral = Literal["wholesale", "restaurant", "retail"]
+CustomerSegmentBucket = Literal["wholesale", "restaurant", "retail", "unspecified"]
+
 
 class ProductCreate(BaseModel):
-    """Create catalog row."""
+    """Create catalog row. ``sell_price`` is retail; omitted segment prices copy retail."""
 
     name: str = Field(..., max_length=255)
     sku: str | None = Field(default=None, max_length=64)
     description: str | None = None
     cost_price: Decimal = Field(ge=0, default=Decimal("0"))
     sell_price: Decimal = Field(ge=0, default=Decimal("0"))
+    wholesale_price: Decimal | None = Field(default=None, ge=0)
+    restaurant_price: Decimal | None = Field(default=None, ge=0)
     stock_quantity: int = Field(ge=0, default=0)
     low_stock_threshold: int = Field(ge=0, default=10)
 
@@ -27,6 +32,8 @@ class ProductUpdate(BaseModel):
     description: str | None = None
     cost_price: Decimal | None = Field(default=None, ge=0)
     sell_price: Decimal | None = Field(default=None, ge=0)
+    wholesale_price: Decimal | None = Field(default=None, ge=0)
+    restaurant_price: Decimal | None = Field(default=None, ge=0)
     low_stock_threshold: int | None = Field(default=None, ge=0)
     is_active: bool | None = None
 
@@ -40,6 +47,8 @@ class ProductResponse(BaseModel):
     description: str | None
     cost_price: Decimal
     sell_price: Decimal
+    wholesale_price: Decimal
+    restaurant_price: Decimal
     stock_quantity: int
     low_stock_threshold: int
     is_active: bool
@@ -67,8 +76,18 @@ class StockReceiptResponse(BaseModel):
     note: str | None
     created_by_user_id: int | None
     created_at: datetime
+    product_name: str | None = None
 
     model_config = {"from_attributes": True}
+
+
+class DailySegmentMixRow(BaseModel):
+    """Sold mix for one customer segment on a delivery/audit date."""
+
+    segment: CustomerSegmentBucket
+    order_count: int = 0
+    unit_quantity: int = 0
+    revenue: Decimal = Decimal("0")
 
 
 class DailyCylinderAuditComputed(BaseModel):
@@ -85,6 +104,10 @@ class DailyCylinderAuditComputed(BaseModel):
         default=None, description="evening_full - expected; None nếu chưa nhập đủ buổi tối"
     )
     variance_shell: int | None = None
+    warehouse_import_full: int = Field(default=0, description="Tổng phiếu nhập kho inbound trong ngày")
+    sold_units_total: int = Field(default=0, description="Tổng SL mọi đơn có ngày giao = ngày (kể cả đang giao)")
+    remaining_full: int = Field(default=0, description="morning_full + nhập kho − sold_units_total")
+    segment_mix: list[DailySegmentMixRow] = Field(default_factory=list)
 
 
 class DailyCylinderAuditRecord(BaseModel):
@@ -155,6 +178,7 @@ class SalesOrderCreate(BaseModel):
     delivery_longitude: float | None = Field(default=None, ge=-180, le=180)
     delivery_status: Literal["in_transit", "completed"] | None = None
     borrowed_shell_units: int = Field(default=0, ge=0, description="Vỏ cho mượn / nợ vỏ trên đơn")
+    customer_segment: CustomerSegmentLiteral | None = None
     lines: list[SalesOrderLineIn] = Field(min_length=1)
 
     @model_validator(mode="after")
@@ -209,6 +233,7 @@ class SalesOrderResponse(BaseModel):
     delivery_longitude: float | None = None
     delivery_status: Literal["in_transit", "completed"] = "in_transit"
     borrowed_shell_units: int = Field(default=0, ge=0)
+    customer_segment: CustomerSegmentLiteral | None = None
     order_items: list[SalesOrderItemOut]
     gas_ledger_ready: bool = False
     gas_ledger_gaps: list[str] = Field(default_factory=list)
@@ -265,6 +290,7 @@ class DebtLedgerEntryResponse(BaseModel):
 
     id: int
     debt_account_id: int
+    sales_order_id: int | None = None
     entry_type: str
     amount_signed: Decimal
     note: str | None
@@ -277,6 +303,28 @@ class DebtLedgerEntryResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class DebtOrderRow(BaseModel):
+    """One sales order row in the order-centric debt ledger."""
+
+    id: int
+    order_code: str
+    customer_name: str
+    phone: str | None
+    delivery_date: date | None
+    total: Decimal
+    paid_amount: Decimal
+    outstanding_amount: Decimal
+    payment_mode: str
+    created_at: datetime
+
+
+class DebtOrderDetailResponse(BaseModel):
+    """Debt detail for one order with ledger history."""
+
+    order: DebtOrderRow
+    ledger: list[DebtLedgerEntryResponse]
+
+
 class DebtAccountDetailResponse(BaseModel):
     """Debt account detail with latest ledger entries."""
 
@@ -285,9 +333,9 @@ class DebtAccountDetailResponse(BaseModel):
 
 
 class DebtPaymentIn(BaseModel):
-    """Create payload for debt collection."""
+    """Create payload for debt collection against one order."""
 
-    debt_account_id: int = Field(gt=0)
+    sales_order_id: int = Field(gt=0)
     amount: Decimal = Field(gt=0)
     payment_method: str = Field(default="cash", min_length=1, max_length=40)
     paid_at: datetime | None = None
@@ -310,7 +358,7 @@ class DebtPaymentUpdateIn(BaseModel):
 class DebtWriteOffIn(BaseModel):
     """Create payload for debt write-off."""
 
-    debt_account_id: int = Field(gt=0)
+    sales_order_id: int = Field(gt=0)
     amount: Decimal = Field(gt=0)
     reason: str = Field(..., min_length=1)
     approved_by_user_id: int = Field(gt=0)
@@ -374,6 +422,25 @@ class DailyMetricRow(BaseModel):
     outstanding: Decimal
     profit: Decimal
     order_count: int
+    unit_quantity: int
+
+
+class DashboardPeriodTotals(BaseModel):
+    """KPI totals for one dashboard date window (e.g. previous period)."""
+
+    revenue: Decimal
+    outstanding: Decimal
+    profit: Decimal
+    order_count: int
+    unit_quantity: int
+
+
+class CustomerSegmentMetric(BaseModel):
+    """Order-count and revenue share for one customer-segment bucket in the dashboard window."""
+
+    segment: CustomerSegmentBucket
+    order_count: int
+    revenue: Decimal
 
 
 class DashboardSummaryResponse(BaseModel):
@@ -384,7 +451,10 @@ class DashboardSummaryResponse(BaseModel):
     outstanding: Decimal
     profit: Decimal
     order_count: int
+    unit_quantity: int
     series: list[DailyMetricRow]
+    previous: DashboardPeriodTotals | None = None
+    customer_segments: list[CustomerSegmentMetric] = Field(default_factory=list)
 
 
 class TaxReportRow(BaseModel):

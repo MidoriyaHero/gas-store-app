@@ -81,7 +81,7 @@ def test_sync_sequential_order_updates_and_change_log():
                 "payload": {
                     "customer_name": "Sync Customer",
                     "phone": "0900111222",
-                    "vat_rate": 0,
+                    "vat_rate": 0, "customer_segment": "retail",
                     "lines": [{"product_id": pid, "quantity": 1}],
                 },
             },
@@ -94,7 +94,7 @@ def test_sync_sequential_order_updates_and_change_log():
         base_payload = {
             "customer_name": "Sync Customer",
             "phone": "0900111222",
-            "vat_rate": 0,
+            "vat_rate": 0, "customer_segment": "retail",
             "lines": [{"product_id": pid, "quantity": 1}],
         }
         u1 = client.post(
@@ -156,7 +156,7 @@ def test_sync_push_admin_complete_delivery_status_only():
                 "payload": {
                     "customer_name": "Complete Customer",
                     "phone": "0900333444",
-                    "vat_rate": 0,
+                    "vat_rate": 0, "customer_segment": "retail",
                     "lines": [{"product_id": pid, "quantity": 1}],
                 },
             },
@@ -224,7 +224,7 @@ def test_sync_pull_emits_delete_on_soft_delete():
             json={
                 "customer_name": "To Delete",
                 "phone": "0900555666",
-                "vat_rate": 0,
+                "vat_rate": 0, "customer_segment": "retail",
                 "lines": [{"product_id": pid, "quantity": 1}],
             },
             headers=headers,

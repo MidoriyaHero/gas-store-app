@@ -154,13 +154,15 @@ export interface OrderAddressPickMapProps {
   /** User chose a point on the map (click, right-click, long-press, or tap). */
   onPick: (lat: number, lng: number) => void;
   className?: string;
+  /** Shorter map + one-line hint, for the two-column order dialog. */
+  compact?: boolean;
 }
 
 /**
  * Interactive OSM map for choosing ``delivery_latitude`` / ``delivery_longitude``
  * without typing numbers. Cross-origin embeds cannot receive pointer events from the host page.
  */
-export function OrderAddressPickMap({ marker, fallbackCenter, visible, onPick, className }: OrderAddressPickMapProps) {
+export function OrderAddressPickMap({ marker, fallbackCenter, visible, onPick, className, compact = false }: OrderAddressPickMapProps) {
   const center = marker ?? { lat: fallbackCenter[0], lng: fallbackCenter[1] };
   const stablePick = useCallback(
     (lat: number, lng: number) => {
@@ -177,6 +179,11 @@ export function OrderAddressPickMap({ marker, fallbackCenter, visible, onPick, c
       role="group"
       aria-label="Bản đồ chọn vị trí giao hàng: bấm hoặc giữ trên bản đồ để ghim tọa độ GPS."
     >
+      {compact ? (
+        <p className="border-b bg-muted/40 px-2 py-1.5 text-xs text-muted-foreground">
+          Bấm bản đồ để ghim. Phóng to bằng +/−; giữ Ctrl rồi cuộn chuột trên bản đồ.
+        </p>
+      ) : (
       <div className="flex flex-col gap-1 border-b bg-muted/40 px-2 py-2 text-xs text-muted-foreground">
         <div className="flex flex-wrap items-start gap-2">
           <MousePointerClick className="mt-0.5 h-4 w-4 shrink-0 text-foreground/70" aria-hidden />
@@ -195,10 +202,11 @@ export function OrderAddressPickMap({ marker, fallbackCenter, visible, onPick, c
           <kbd className="rounded border bg-background px-1 font-mono text-[10px]">⌘</kbd> rồi cuộn chuột trên bản đồ — cuộn thường vẫn cuộn form.
         </p>
       </div>
+      )}
       <MapContainer
         center={[center.lat, center.lng]}
         zoom={marker ? 16 : 12}
-        className="h-[min(50vh,380px)] w-full touch-manipulation rounded-b-md z-0"
+        className={`${compact ? "h-52" : "h-[min(50vh,380px)]"} w-full touch-manipulation rounded-b-md z-0`}
         scrollWheelZoom={false}
         attributionControl
       >

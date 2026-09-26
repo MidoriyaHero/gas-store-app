@@ -28,11 +28,20 @@ import {
 import type { GeocodeHit } from "@/lib/geocode-map";
 import { defaultOrderMapCenter, googleDirectionsUrl } from "@/lib/geocode-map";
 import { OrderAddressPickMap } from "@/components/OrderAddressPickMap";
+import { OrderSlip } from "@/components/order-composer/OrderSlip";
 import { DeliveryMapPanel } from "@/components/DeliveryMapPanel";
 import { Badge } from "@/components/ui/badge";
 import { formatVND, formatDateTime } from "@/lib/format";
 import { toast } from "sonner";
 import { apiDelete, apiGet, apiPatch, apiPost } from "@/lib/api";
+import {
+  CUSTOMER_SEGMENT_LABEL,
+  CUSTOMER_SEGMENT_OPTIONS,
+  isCustomerSegment,
+  phonesLikelyMatch,
+  type CustomerSegment,
+} from "@/lib/customer-segment";
+import { unitPriceForSegment } from "@/lib/product-price";
 
 /** ``YYYY-MM-DD`` theo giờ máy (dùng cho ``<input type="date" />``). */
 function todayLocalIso(): string {
@@ -100,6 +109,8 @@ interface Product {
   name: string;
   sku: string | null;
   sell_price: string | number;
+  wholesale_price?: string | number;
+  restaurant_price?: string | number;
   stock_quantity: number;
 }
 
@@ -108,6 +119,7 @@ interface OrderRow {
   order_code: string;
   customer_name: string;
   phone: string | null;
+  customer_segment?: CustomerSegment | null;
   address?: string | null;
   note?: string | null;
   delivery_date?: string | null;
@@ -209,8 +221,18 @@ interface CartLine {
 
 const NONE_TEMPLATE = "__none__";
 
-/** Default cylinder owner when template or line is empty. */
-const DEFAULT_OWNER = "Gas Huy Hoàng";
+/** Auto-select this template when it exists; otherwise keep "Không dùng mẫu". */
+const PREFERRED_TEMPLATE_NAME = "Gas Hoàng Ân";
+
+/** Pick active template id matching the preferred template name, if any. */
+function resolveDefaultTemplateId(templates: ApiCylinderTemplate[]): string | null {
+  const key = PREFERRED_TEMPLATE_NAME.toLowerCase();
+  const hit = templates.find(
+    (t) =>
+      t.name.trim().toLowerCase() === key || (t.owner_name?.trim().toLowerCase() ?? "") === key,
+  );
+  return hit ? String(hit.id) : null;
+}
 
 /** Chuỗi in phiếu / lưu ``store_contact`` — có thể override bằng ``VITE_DEFAULT_STORE_CONTACT``. */
 const DEFAULT_STORE_CONTACT_LINE =
@@ -283,6 +305,17 @@ export default function Orders() {
   const [mapPasteLoading, setMapPasteLoading] = useState(false);
   const [deliveryStatus, setDeliveryStatus] = useState<"in_transit" | "completed">("in_transit");
   const [borrowedShellUnits, setBorrowedShellUnits] = useState(0);
+  const [customerSegment, setCustomerSegment] = useState<CustomerSegment | "">("");
+
+  useEffect(() => {
+    setCart((prev) =>
+      prev.map((line) => {
+        const p = products.find((x) => x.id === line.product_id);
+        if (!p) return line;
+        return { ...line, unit_price: unitPriceForSegment(p, customerSegment || null) };
+      }),
+    );
+  }, [customerSegment, products]);
 
   const load = useCallback(async () => {
     try {
@@ -302,7 +335,12 @@ export default function Orders() {
       setOrders(ordersRes.items ?? []);
       setOrdersTotal(total);
       setProducts(p ?? []);
-      setCylinderTemplates(tpl ?? []);
+      const activeTemplates = tpl ?? [];
+      setCylinderTemplates(activeTemplates);
+      const defaultTemplateId = resolveDefaultTemplateId(activeTemplates);
+      if (defaultTemplateId) {
+        setSelectedTemplateId((cur) => (cur === NONE_TEMPLATE ? defaultTemplateId : cur));
+      }
       setStaffOptions((users ?? []).filter((u) => u.role === "user").map((x) => ({ id: x.id, username: x.username })));
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Không tải được dữ liệu");
@@ -340,6 +378,37 @@ export default function Orders() {
     total - (paymentMode === "cash" ? total : paymentMode === "debt" ? 0 : paidAmount)
   );
 
+  const liveLedgerGaps = useMemo(
+    () =>
+      computeClientGasLedgerGaps({
+        id: 0,
+        order_code: "",
+        customer_name: customer.name,
+        phone: customer.phone,
+        address: customer.address,
+        delivery_date: deliveryDate,
+        total: 0,
+        created_at: "",
+        order_items: cart.map((i) => ({
+          product_id: i.product_id,
+          product_name: i.name,
+          quantity: i.quantity,
+          unit_price: i.unit_price,
+          subtotal: i.unit_price * i.quantity,
+          owner_name: i.owner_name,
+          cylinder_type: i.cylinder_type,
+          inspection_expiry: i.inspection_expiry,
+          import_source: i.import_source,
+          import_date: i.import_date,
+        })),
+      }),
+    [customer.name, customer.phone, customer.address, deliveryDate, cart],
+  );
+
+  const slipGoodsLabel = cart.map((i) => `${i.name} × ${i.quantity}`).join(", ");
+  const paymentLabel =
+    paymentMode === "cash" ? "Thanh toán đủ" : paymentMode === "partial" ? "Thu một phần" : "Ghi nợ";
+
   const pinAsMapPoint = useMemo(() => {
     try {
       const p = parseOptionalLatLng(pinLatStr, pinLngStr);
@@ -374,7 +443,7 @@ export default function Orders() {
       toast.error(`Không đủ tồn kho (${p.stock_quantity - reserved} còn lại cho mặt hàng này)`);
       return;
     }
-    const owner = selectedPreset?.owner_name?.trim() || DEFAULT_OWNER;
+    const owner = selectedPreset?.owner_name?.trim() ?? "";
     const insp = selectedPreset?.inspection_expiry ?? "";
     const impSrc = selectedPreset?.import_source?.trim() ?? "";
     const impD = selectedPreset?.import_date ?? "";
@@ -384,7 +453,7 @@ export default function Orders() {
         lineKey: crypto.randomUUID(),
         product_id: p.id,
         name: p.name,
-        unit_price: Number(p.sell_price),
+        unit_price: unitPriceForSegment(p, customerSegment || null),
         quantity: pickQty,
         owner_name: owner,
         cylinder_type: cylinderTypeFromProductName(p.name),
@@ -432,14 +501,14 @@ export default function Orders() {
   const reset = () => {
     setEditingOrderId(null);
     setCustomer({ name: "", phone: "", address: "", note: "" });
-    setDeliveryDate("");
+    setDeliveryDate(todayLocalIso());
     setCart([]);
     setVatRate(0);
     setPaymentMode("cash");
     setPaidAmount(0);
     setPickProductId("");
     setPickQty(1);
-    setSelectedTemplateId(NONE_TEMPLATE);
+    setSelectedTemplateId(resolveDefaultTemplateId(cylinderTemplates) ?? NONE_TEMPLATE);
     setDeliveryStaffId("__none__");
     clearAddrGeocodeUi();
     setPinLatStr("");
@@ -447,6 +516,7 @@ export default function Orders() {
     setMapPasteRaw("");
     setDeliveryStatus("in_transit");
     setBorrowedShellUnits(0);
+    setCustomerSegment("");
   };
 
   const openEditOrder = async (orderId: number) => {
@@ -467,6 +537,7 @@ export default function Orders() {
       setDeliveryStaffId(o.assigned_to_user_id != null ? String(o.assigned_to_user_id) : "__none__");
       setDeliveryStatus(o.delivery_status === "completed" ? "completed" : "in_transit");
       setBorrowedShellUnits(Number(o.borrowed_shell_units ?? 0));
+      setCustomerSegment(isCustomerSegment(o.customer_segment) ? o.customer_segment : "");
       setPinLatStr(
         o.delivery_latitude != null && Number.isFinite(Number(o.delivery_latitude)) ? String(o.delivery_latitude) : ""
       );
@@ -610,6 +681,26 @@ export default function Orders() {
     }
   };
 
+  /** Prefill segment from the newest other order on the same phone when the field is still empty. */
+  const prefillsSegmentFromPhone = async () => {
+    const phone = customer.phone.trim();
+    if (!phone || customerSegment) return;
+    try {
+      const res = await apiGet<OrdersListPayload>(`/api/orders?q=${encodeURIComponent(phone)}&limit=10&offset=0`);
+      const match = (res.items ?? []).find(
+        (o) =>
+          o.id !== editingOrderId &&
+          phonesLikelyMatch(o.phone, phone) &&
+          isCustomerSegment(o.customer_segment),
+      );
+      if (match && isCustomerSegment(match.customer_segment)) {
+        setCustomerSegment(match.customer_segment);
+      }
+    } catch {
+      /* lookup is optional; submit still requires an explicit pick */
+    }
+  };
+
   const submit = async () => {
     if (!customer.name.trim()) {
       toast.error("Vui lòng nhập tên khách hàng");
@@ -621,6 +712,10 @@ export default function Orders() {
     }
     if (!customer.phone.trim()) {
       toast.error("Vui lòng nhập số điện thoại khách");
+      return;
+    }
+    if (!isCustomerSegment(customerSegment)) {
+      toast.error("Vui lòng chọn tệp khách hàng");
       return;
     }
     setSaving(true);
@@ -642,6 +737,7 @@ export default function Orders() {
         delivery_longitude,
         delivery_status: deliveryStatus,
         borrowed_shell_units: borrowedShellUnits,
+        customer_segment: customerSegment,
         lines: cart.map((i) => ({
           product_id: i.product_id,
           quantity: i.quantity,
@@ -833,6 +929,11 @@ export default function Orders() {
                       <TableCell>
                         <div className="font-medium">{o.customer_name}</div>
                         {o.phone && <div className="text-xs text-muted-foreground">{o.phone}</div>}
+                        <Badge variant="outline" className="mt-1 w-fit text-xs">
+                          {isCustomerSegment(o.customer_segment)
+                            ? CUSTOMER_SEGMENT_LABEL[o.customer_segment]
+                            : CUSTOMER_SEGMENT_LABEL.unspecified}
+                        </Badge>
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">
                         {o.assigned_to_username ?? "—"}
@@ -964,49 +1065,81 @@ export default function Orders() {
           if (!v) reset();
         }}
       >
-        <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>{editingOrderId === null ? "Tạo đơn hàng mới" : "Cập nhật đơn hàng"}</DialogTitle>
+        <DialogContent className="flex h-[min(90vh,920px)] w-[min(1100px,calc(100vw-2rem))] max-w-[1100px] flex-col gap-0 overflow-hidden p-0 sm:rounded-lg">
+          <DialogHeader className="shrink-0 space-y-0 border-b px-5 py-4 pr-12 text-left">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <DialogTitle>{editingOrderId === null ? "Tạo đơn hàng" : "Cập nhật đơn hàng"}</DialogTitle>
+              <span
+                className={`inline-block rotate-[-2deg] border-2 px-2 py-0.5 text-[11px] font-bold ${
+                  liveLedgerGaps.length === 0 ? "border-[#2c8a58] text-[#2c8a58]" : "border-[#e3940f] text-[#e3940f]"
+                }`}
+              >
+                {liveLedgerGaps.length === 0 ? "Đủ sổ gas" : "Thiếu sổ gas"}
+              </span>
+            </div>
           </DialogHeader>
 
-          <div className="grid gap-4">
-            <div className="rounded-lg border bg-muted/20 p-3">
-              <p className="mb-3 text-sm font-medium text-foreground">Thông tin khách &amp; ngày giao</p>
+          <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden lg:grid-cols-2">
+            <div className="min-h-0 space-y-4 overflow-y-auto border-b p-4 lg:border-b-0 lg:border-r">
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="grid gap-1.5">
-                  <Label>Tên khách hàng *</Label>
-                  <Input value={customer.name} onChange={(e) => setCustomer({ ...customer, name: e.target.value })} />
-                </div>
-                <div className="grid gap-1.5">
-                  <Label>Số điện thoại *</Label>
-                  <Input value={customer.phone} onChange={(e) => setCustomer({ ...customer, phone: e.target.value })} />
-                </div>
-                <div className="grid gap-1.5 sm:col-span-2">
-                  <Label>Vỏ cho mượn / nợ vỏ (nếu có)</Label>
+                  <Label>Tên khách</Label>
                   <Input
-                    type="number"
-                    min={0}
-                    className="min-h-11"
-                    value={borrowedShellUnits}
-                    onChange={(e) => setBorrowedShellUnits(Number(e.target.value) || 0)}
+                    value={customer.name}
+                    onChange={(e) => setCustomer({ ...customer, name: e.target.value })}
+                    placeholder="Chị Lan"
                   />
                 </div>
-                <div className="grid gap-1.5 sm:col-span-2 lg:col-span-1">
-                  <Label>Ngày giao chai cho khách</Label>
-                  <div className="flex flex-wrap items-center gap-2">
+                <div className="grid gap-1.5">
+                  <Label>Số điện thoại</Label>
+                  <Input
+                    value={customer.phone}
+                    onChange={(e) => setCustomer({ ...customer, phone: e.target.value })}
+                    onBlur={() => void prefillsSegmentFromPhone()}
+                    placeholder="0909 123 456"
+                    inputMode="tel"
+                  />
+                </div>
+              </div>
+              <div className="grid gap-1.5">
+                <Label>Tệp khách hàng</Label>
+                <div className="flex flex-wrap gap-2">
+                  {CUSTOMER_SEGMENT_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      className={`min-h-10 rounded-full border px-3.5 text-sm ${
+                        customerSegment === opt.value
+                          ? "border-primary bg-accent font-semibold text-accent-foreground"
+                          : "border-input bg-background hover:bg-muted"
+                      }`}
+                      onClick={() => setCustomerSegment(opt.value)}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Giá bán lấy theo tệp này. SĐT cũ sẽ gợi ý tệp đã lưu.
+                </p>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="grid gap-1.5">
+                  <Label>Ngày giao chai</Label>
+                  <div className="flex items-center gap-2">
                     <Input
                       type="date"
-                      className="min-h-11 min-w-[160px] flex-1"
+                      className="min-h-11 min-w-0 flex-1"
                       value={deliveryDate}
                       onChange={(e) => setDeliveryDate(e.target.value)}
                     />
-                    <Button type="button" variant="outline" size="sm" className="min-h-11" onClick={() => setDeliveryDate(todayLocalIso())}>
+                    <Button type="button" variant="outline" size="sm" className="min-h-11 shrink-0" onClick={() => setDeliveryDate(todayLocalIso())}>
                       Hôm nay
                     </Button>
                   </div>
                 </div>
-                <div className="grid gap-1.5 sm:col-span-2">
-                  <Label>Nhân viên giao hàng</Label>
+                <div className="grid gap-1.5">
+                  <Label>Nhân viên giao</Label>
                   <Select value={deliveryStaffId} onValueChange={setDeliveryStaffId}>
                     <SelectTrigger className="min-h-11 bg-background">
                       <SelectValue placeholder="Chưa gán" />
@@ -1020,12 +1153,11 @@ export default function Orders() {
                       ))}
                     </SelectContent>
                   </Select>
-                  <p className="text-xs text-muted-foreground">
-                    NV thấy đơn <span className="font-medium text-foreground">Đang giao</span> trên Bản đồ giao và tab Đang giao; khi họ hoàn thành, đơn nằm trong Lịch sử giao.
-                  </p>
                 </div>
-                <div className="grid gap-1.5 sm:col-span-2">
-                  <Label>Trạng thái giao hàng</Label>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="grid gap-1.5">
+                  <Label>Trạng thái giao</Label>
                   <Select value={deliveryStatus} onValueChange={(v) => setDeliveryStatus(v as "in_transit" | "completed")}>
                     <SelectTrigger className="min-h-11 bg-background">
                       <SelectValue />
@@ -1035,209 +1167,189 @@ export default function Orders() {
                       <SelectItem value="completed">Hoàn thành</SelectItem>
                     </SelectContent>
                   </Select>
-                  <p className="text-xs text-muted-foreground">Admin có thể chỉnh lại (vd. giao nhầm cần mở lại đơn).</p>
+                </div>
+                <div className="grid gap-1.5">
+                  <Label>Vỏ cho mượn</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    className="min-h-11"
+                    value={borrowedShellUnits}
+                    onChange={(e) => setBorrowedShellUnits(Number(e.target.value) || 0)}
+                  />
                 </div>
               </div>
-            </div>
 
-            <div className="grid gap-2 rounded-lg border bg-muted/15 p-3">
-              <Label>Địa chỉ</Label>
-              <div className="flex flex-wrap gap-2">
-                <Input
-                  className="min-h-11 min-w-[200px] flex-1"
-                  value={customer.address}
-                  onChange={(e) => setCustomer({ ...customer, address: e.target.value })}
-                  placeholder="Số nhà, đường, phường…"
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="min-h-11 shrink-0 gap-1"
-                  disabled={addrGeocodeLoading}
-                  onClick={() => void searchAddressOnMap()}
-                >
-                  <MapPin className="h-4 w-4" aria-hidden />
-                  {addrGeocodeLoading ? "Đang tìm…" : "Tìm trên bản đồ"}
-                </Button>
-                {addrMapPoint && (
-                  <Button type="button" variant="secondary" className="min-h-11 shrink-0 gap-1" asChild>
-                    <a href={googleDirectionsUrl(addrMapLabel ?? `${addrMapPoint.lat},${addrMapPoint.lng}`)} target="_blank" rel="noreferrer">
-                      <Navigation className="h-4 w-4" aria-hidden />
-                      Chỉ đường
-                    </a>
-                  </Button>
-                )}
-                <Button
-                  type="button"
-                  variant="default"
-                  className="min-h-11 shrink-0"
-                  disabled={!addrMapLabel?.trim()}
-                  onClick={applyPinnedAddressToField}
-                >
-                  Dùng làm địa chỉ
-                </Button>
-              </div>
-              <div className="grid gap-1.5 rounded-md border border-dashed bg-background/80 p-2">
-                <Label className="text-xs font-medium text-muted-foreground">Dán từ Google Maps</Label>
+              <div className="grid gap-2">
+                <Label>Địa chỉ giao</Label>
                 <div className="flex flex-wrap gap-2">
                   <Input
-                    className="min-h-11 min-w-[200px] flex-1 font-mono text-sm"
-                    value={mapPasteRaw}
-                    onChange={(e) => setMapPasteRaw(e.target.value)}
-                    placeholder="Plus Code, maps.app.goo.gl, @lat,lng hoặc DMS (độ phút giây + N/E)"
-                    autoComplete="off"
+                    className="min-h-11 min-w-[200px] flex-1"
+                    value={customer.address}
+                    onChange={(e) => setCustomer({ ...customer, address: e.target.value })}
+                    placeholder="Số nhà, hẻm, phường…"
                   />
                   <Button
                     type="button"
-                    variant="secondary"
+                    variant="outline"
                     className="min-h-11 shrink-0 gap-1"
-                    disabled={mapPasteLoading}
-                    onClick={() => void applyMapPasteToOrderLocation()}
+                    disabled={addrGeocodeLoading}
+                    onClick={() => void searchAddressOnMap()}
                   >
-                    <ClipboardPaste className="h-4 w-4" aria-hidden />
-                    {mapPasteLoading ? "Đang xử lý…" : "Áp dụng vị trí"}
+                    <MapPin className="h-4 w-4" aria-hidden />
+                    {addrGeocodeLoading ? "Đang tìm…" : "Tìm trên bản đồ"}
+                  </Button>
+                  {addrMapPoint && (
+                    <Button type="button" variant="secondary" className="min-h-11 shrink-0 gap-1" asChild>
+                      <a href={googleDirectionsUrl(addrMapLabel ?? `${addrMapPoint.lat},${addrMapPoint.lng}`)} target="_blank" rel="noreferrer">
+                        <Navigation className="h-4 w-4" aria-hidden />
+                        Chỉ đường
+                      </a>
+                    </Button>
+                  )}
+                  <Button
+                    type="button"
+                    variant="default"
+                    className="min-h-11 shrink-0"
+                    disabled={!addrMapLabel?.trim()}
+                    onClick={applyPinnedAddressToField}
+                  >
+                    Dùng làm địa chỉ
                   </Button>
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  Một dòng: link rút gọn, Plus Code (vd 673P+FC…), cặp số thập phân, hoặc DMS — server đọc tọa độ rồi điền bản đồ và ô địa chỉ (OSM).
-                </p>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Gõ địa chỉ rồi bấm <span className="font-medium text-foreground">Tìm trên bản đồ</span>, hoặc ghim trên bản đồ rồi bấm{" "}
-                <span className="font-medium text-foreground">Gợi ý địa chỉ từ ghim</span> nếu cần chữ vào ô.
-              </p>
-              <Collapsible className="group rounded-md border border-dashed bg-muted/20 px-2 py-1">
-                <CollapsibleTrigger asChild>
-                  <Button type="button" variant="ghost" size="sm" className="h-9 w-full justify-between gap-2 px-2 text-xs text-muted-foreground hover:text-foreground">
-                    Hướng dẫn chi tiết (Nominatim, hẻm nhỏ, thứ tự nút)
-                    <ChevronDown className="h-4 w-4 shrink-0 transition-transform group-data-[state=open]:rotate-180" aria-hidden />
+                <div className="grid gap-1.5 rounded-md border border-dashed bg-background/80 p-2">
+                  <Label className="text-xs font-medium text-muted-foreground">Dán từ Google Maps</Label>
+                  <div className="flex flex-wrap gap-2">
+                    <Input
+                      className="min-h-11 min-w-[200px] flex-1 text-sm"
+                      value={mapPasteRaw}
+                      onChange={(e) => setMapPasteRaw(e.target.value)}
+                      placeholder="maps.app.goo.gl / Plus Code / tọa độ"
+                      autoComplete="off"
+                    />
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      className="min-h-11 shrink-0 gap-1"
+                      disabled={mapPasteLoading}
+                      onClick={() => void applyMapPasteToOrderLocation()}
+                    >
+                      <ClipboardPaste className="h-4 w-4" aria-hidden />
+                      {mapPasteLoading ? "Đang xử lý…" : "Áp dụng vị trí"}
+                    </Button>
+                  </div>
+                </div>
+                <Collapsible className="group rounded-md border border-dashed bg-muted/20 px-2 py-1">
+                  <CollapsibleTrigger asChild>
+                    <Button type="button" variant="ghost" size="sm" className="h-9 w-full justify-between gap-2 px-2 text-xs text-muted-foreground hover:text-foreground">
+                      Hẻm nhỏ không ra chữ — ghim tay rồi gợi ý địa chỉ
+                      <ChevronDown className="h-4 w-4 shrink-0 transition-transform group-data-[state=open]:rotate-180" aria-hidden />
+                    </Button>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="space-y-1.5 pb-2 pt-1 text-xs text-muted-foreground">
+                    <p>
+                      Tìm kiếm dùng OpenStreetMap. Ở hẻm nhỏ, tìm chữ đôi khi không ra — vẫn ghim đúng chỗ rồi tra ngược địa chỉ.
+                    </p>
+                    <p>
+                      Nếu có nhiều kết quả: chọn một dòng, rồi bấm Dùng làm địa chỉ.
+                    </p>
+                  </CollapsibleContent>
+                </Collapsible>
+                {addrGeocodeHits.length > 0 && (
+                  <ul className="max-h-40 space-y-1 overflow-y-auto rounded-md border bg-background p-2 text-xs">
+                    {addrGeocodeHits.map((h) => (
+                      <li key={h.place_id}>
+                        <button
+                          type="button"
+                          className={`min-h-11 w-full rounded-md px-3 py-2 text-left outline-none ring-offset-background hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
+                            addrMapPoint && addrMapPoint.lat === h.lat && addrMapPoint.lng === h.lng ? "bg-muted font-medium" : ""
+                          }`}
+                          onClick={() => pickAddrGeocodeHit(h)}
+                        >
+                          {h.display_name}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {addrMapLabel && (
+                  <p className="text-xs text-muted-foreground">
+                    Đang ghim: <span className="text-foreground">{addrMapLabel}</span>
+                  </p>
+                )}
+                <OrderAddressPickMap
+                  className="overflow-hidden rounded-md border"
+                  visible={open}
+                  marker={mapPickMarker}
+                  fallbackCenter={defaultOrderMapCenter()}
+                  onPick={onMapPickCoords}
+                  compact
+                />
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="min-h-11"
+                    disabled={reverseGeocodeLoading || !mapPickMarker}
+                    onClick={() => void reversePinToAddress()}
+                  >
+                    {reverseGeocodeLoading ? "Đang tra…" : "Gợi ý địa chỉ từ ghim"}
                   </Button>
-                </CollapsibleTrigger>
-                <CollapsibleContent className="space-y-1.5 pb-2 pt-1 text-xs text-muted-foreground">
-                  <p>
-                    Tìm kiếm dùng OpenStreetMap (Nominatim). Ở hẻm nhỏ, tìm chữ đôi khi không ra — vẫn có thể ghim đúng chỗ trên bản đồ và tra ngược địa chỉ.
-                  </p>
-                  <p>
-                    Nếu có nhiều dòng kết quả: chọn đúng một dòng, bản đồ sẽ cập nhật; bấm <span className="font-medium text-foreground">Dùng làm địa chỉ</span> để chép
-                    tên đường vào ô phía trên (có thể sửa tay sau).
-                  </p>
-                </CollapsibleContent>
-              </Collapsible>
-              {addrGeocodeHits.length > 0 && (
-                <ul className="max-h-40 space-y-1 overflow-y-auto rounded-md border bg-background p-2 text-xs">
-                  {addrGeocodeHits.map((h) => (
-                    <li key={h.place_id}>
-                      <button
-                        type="button"
-                        className={`min-h-11 w-full rounded-md px-3 py-2 text-left outline-none ring-offset-background hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
-                          addrMapPoint && addrMapPoint.lat === h.lat && addrMapPoint.lng === h.lng ? "bg-muted font-medium" : ""
-                        }`}
-                        onClick={() => pickAddrGeocodeHit(h)}
-                      >
-                        {h.display_name}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {addrMapLabel && (
-                <p className="text-xs text-muted-foreground">
-                  Đang ghim: <span className="text-foreground">{addrMapLabel}</span>
-                </p>
-              )}
-              <OrderAddressPickMap
-                className="overflow-hidden rounded-md border"
-                visible={open}
-                marker={mapPickMarker}
-                fallbackCenter={defaultOrderMapCenter()}
-                onPick={onMapPickCoords}
-              />
-              <div className="flex flex-wrap gap-2 border-t bg-muted/20 px-2 py-2">
-                <Button
-                  type="button"
-                  variant="secondary"
-                  className="min-h-11"
-                  disabled={reverseGeocodeLoading || !mapPickMarker}
-                  onClick={() => void reversePinToAddress()}
-                >
-                  {reverseGeocodeLoading ? "Đang tra…" : "Gợi ý địa chỉ từ ghim"}
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="min-h-11"
-                  disabled={!mapPickMarker}
-                  onClick={() => {
-                    setPinLatStr("");
-                    setPinLngStr("");
-                    setAddrMapPoint(null);
-                    setAddrMapLabel(null);
-                    toast.message("Đã xóa ghim trên bản đồ");
-                  }}
-                >
-                  Xóa ghim
-                </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="min-h-11"
+                    disabled={!mapPickMarker}
+                    onClick={() => {
+                      setPinLatStr("");
+                      setPinLngStr("");
+                      setAddrMapPoint(null);
+                      setAddrMapLabel(null);
+                      toast.message("Đã xóa ghim trên bản đồ");
+                    }}
+                  >
+                    Xóa ghim
+                  </Button>
+                </div>
               </div>
             </div>
 
-            <div className="grid gap-2 rounded-lg border bg-muted/20 p-3 sm:grid-cols-3">
-              <div className="grid gap-1.5">
-                <Label>Hình thức thanh toán</Label>
-                <Select value={paymentMode} onValueChange={(v) => setPaymentMode(v as "cash" | "debt" | "partial")}>
-                  <SelectTrigger className="min-h-11 bg-background">
-                    <SelectValue />
+            <div className="min-h-0 space-y-4 overflow-y-auto p-4">
+              <OrderSlip
+                customerName={customer.name}
+                phone={customer.phone}
+                segmentLabel={isCustomerSegment(customerSegment) ? CUSTOMER_SEGMENT_LABEL[customerSegment] : ""}
+                address={customer.address}
+                deliveryDate={deliveryDate}
+                goodsLabel={slipGoodsLabel}
+                paymentLabel={paymentLabel}
+                total={total}
+                ready={liveLedgerGaps.length === 0}
+              />
+
+              <div className="grid gap-2">
+                <Label>Mẫu thông tin chai</Label>
+                <Select value={selectedTemplateId} onValueChange={setSelectedTemplateId}>
+                  <SelectTrigger className="min-h-11 w-full bg-background">
+                    <SelectValue placeholder="Không dùng mẫu" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="cash">Thanh toán đủ</SelectItem>
-                    <SelectItem value="partial">Thanh toán một phần</SelectItem>
-                    <SelectItem value="debt">Ghi nợ toàn bộ</SelectItem>
+                    <SelectItem value={NONE_TEMPLATE}>Không dùng mẫu</SelectItem>
+                    {cylinderTemplates.map((t) => (
+                      <SelectItem key={t.id} value={String(t.id)}>
+                        {t.name}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
+                {cylinderTemplates.length === 0 && (
+                  <p className="text-xs text-amber-700 dark:text-amber-400">Chưa có mẫu hoạt động — tạo mẫu trong &quot;Mẫu thông tin chai&quot;.</p>
+                )}
               </div>
-              <div className="grid gap-1.5">
-                <Label>Đã thu trước (₫)</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  disabled={paymentMode !== "partial"}
-                  value={paymentMode === "partial" ? paidAmount : paymentMode === "cash" ? total : 0}
-                  onChange={(e) => setPaidAmount(Math.max(0, Number(e.target.value || 0)))}
-                />
-              </div>
-              <div className="grid gap-1.5">
-                <Label>Công nợ dự kiến (₫)</Label>
-                <Input readOnly value={String(outstandingPreview)} />
-              </div>
-            </div>
 
-            <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
-              <Label className="text-sm font-medium">Mẫu thông tin chai</Label>
-              <p className="text-xs text-muted-foreground">
-                Chọn mẫu — mỗi lần &quot;Thêm&quot; điền chủ sở hữu (mặc định Gas Huy Hoàng) và ngày kiểm/nhập. Loại chai theo tên SP. Số seri không bắt buộc.
-              </p>
-              <Select value={selectedTemplateId} onValueChange={setSelectedTemplateId}>
-                <SelectTrigger className="min-h-11 w-full bg-background">
-                  <SelectValue placeholder="Không dùng mẫu" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={NONE_TEMPLATE}>Không dùng mẫu</SelectItem>
-                  {cylinderTemplates.map((t) => (
-                    <SelectItem key={t.id} value={String(t.id)}>
-                      {t.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {cylinderTemplates.length === 0 && (
-                <p className="text-xs text-amber-700 dark:text-amber-400">Chưa có mẫu hoạt động — liên hệ admin tạo mẫu trong &quot;Mẫu thông tin chai&quot;.</p>
-              )}
-            </div>
-
-            <div className="rounded-lg border bg-muted/30 p-3">
-              <Label className="text-xs uppercase text-muted-foreground">Thêm sản phẩm từ kho</Label>
-              <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_90px_auto]">
+              <div className="grid gap-2 sm:grid-cols-[1fr_90px_auto]">
                 <Select value={pickProductId} onValueChange={setPickProductId}>
-                  <SelectTrigger>
+                  <SelectTrigger className="min-h-11">
                     <SelectValue placeholder="Chọn sản phẩm..." />
                   </SelectTrigger>
                   <SelectContent>
@@ -1246,135 +1358,168 @@ export default function Orders() {
                     )}
                     {products.map((p) => (
                       <SelectItem key={p.id} value={String(p.id)} disabled={p.stock_quantity === 0}>
-                        {p.name} — {formatVND(p.sell_price)} {p.stock_quantity === 0 ? "(hết)" : `(còn ${p.stock_quantity})`}
+                        {p.name} — {formatVND(unitPriceForSegment(p, customerSegment || null))} {p.stock_quantity === 0 ? "(hết)" : `(còn ${p.stock_quantity})`}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
-                <Input type="number" min={1} value={pickQty} onChange={(e) => setPickQty(Math.max(1, Number(e.target.value)))} />
-                <Button type="button" onClick={addToCart}>
+                <Input type="number" min={1} className="min-h-11" value={pickQty} onChange={(e) => setPickQty(Math.max(1, Number(e.target.value)))} />
+                <Button type="button" className="min-h-11" onClick={addToCart}>
                   Thêm
                 </Button>
               </div>
-            </div>
 
-            {cart.length > 0 && (
-              <div className="space-y-4">
-                <Label className="text-xs uppercase text-muted-foreground">
-                  Giỏ hàng &amp; thông tin chai (theo phiếu giao / sổ gas)
-                </Label>
-                {cart.map((i) => (
-                  <div key={i.lineKey} className="rounded-lg border">
-                    <div className="flex flex-wrap items-end gap-2 border-b bg-muted/20 p-3">
-                      <div className="min-w-[160px] flex-1">
-                        <p className="text-sm font-medium">{i.name}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {formatVND(i.unit_price)} / đơn vị
-                        </p>
-                      </div>
-                      <div className="grid gap-1">
-                        <Label className="text-xs">SL</Label>
+              {cart.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Chưa có chai. Chọn sản phẩm rồi bấm Thêm.</p>
+              ) : (
+                <div className="space-y-3">
+                  {cart.map((i) => (
+                    <div key={i.lineKey} className="rounded-lg border">
+                      <div className="flex flex-wrap items-end gap-2 p-3">
+                        <div className="min-w-[140px] flex-1">
+                          <p className="text-sm font-medium">{i.name}</p>
+                          <p className="text-xs text-muted-foreground">{formatVND(i.unit_price)} / bình</p>
+                        </div>
                         <Input
                           className="h-9 w-20"
                           type="number"
                           min={1}
                           value={i.quantity}
                           onChange={(e) => updateLine(i.lineKey, { quantity: Number(e.target.value) })}
+                          aria-label={`Số lượng ${i.name}`}
                         />
-                      </div>
-                      <div className="ml-auto font-medium">{formatVND(i.unit_price * i.quantity)}</div>
-                      <Button type="button" variant="ghost" size="icon" onClick={() => removeLine(i.lineKey)}>
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
-                    </div>
-                    <div className="grid gap-2 p-3 sm:grid-cols-2 lg:grid-cols-3">
-                      <div className="grid gap-1">
-                        <Label className="text-xs">Chủ sở hữu</Label>
-                        <Input
-                          value={i.owner_name}
-                          onChange={(e) => updateLine(i.lineKey, { owner_name: e.target.value })}
-                        />
-                      </div>
-                      <div className="grid gap-1">
-                        <Label className="text-xs">Loại chai (theo sản phẩm)</Label>
-                        <Input
-                          value={i.cylinder_type}
-                          onChange={(e) => updateLine(i.lineKey, { cylinder_type: e.target.value })}
-                          placeholder="Tự điền từ tên SP"
-                        />
-                      </div>
-                      <div className="grid gap-1">
-                        <Label className="text-xs">Số sê ri chai (tuỳ chọn)</Label>
-                        <Input
-                          className="font-mono text-sm"
-                          value={i.cylinder_serial}
-                          onChange={(e) => updateLine(i.lineKey, { cylinder_serial: e.target.value })}
-                          placeholder="Không bắt buộc"
-                        />
-                      </div>
-                      <div className="grid gap-1">
-                        <Label className="text-xs">Hạn kiểm định</Label>
-                        <Input
-                          type="date"
-                          value={i.inspection_expiry}
-                          onChange={(e) => updateLine(i.lineKey, { inspection_expiry: e.target.value })}
-                        />
-                      </div>
-                      <div className="grid gap-1 sm:col-span-2">
-                        <Label className="text-xs">Nơi nhập chai chứa cho cửa hàng</Label>
-                        <Input
-                          value={i.import_source}
-                          onChange={(e) => updateLine(i.lineKey, { import_source: e.target.value })}
-                        />
-                      </div>
-                      <div className="grid gap-1">
-                        <Label className="text-xs">Ngày nhập</Label>
-                        <Input
-                          type="date"
-                          value={i.import_date}
-                          onChange={(e) => updateLine(i.lineKey, { import_date: e.target.value })}
-                        />
+                        <div className="ml-auto font-medium">{formatVND(i.unit_price * i.quantity)}</div>
+                        <Button type="button" variant="ghost" size="icon" onClick={() => removeLine(i.lineKey)}>
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
                       </div>
                     </div>
-                  </div>
-                ))}
-              </div>
-            )}
+                  ))}
+                  <details className="rounded-lg border bg-muted/20 px-3 py-2" open={liveLedgerGaps.length > 0}>
+                    <summary className="cursor-pointer py-1 font-semibold">Chi tiết sổ gas trên từng chai</summary>
+                    <div className="mt-2 space-y-3">
+                      {cart.map((i) => (
+                        <div key={`${i.lineKey}-meta`} className="grid gap-2 sm:grid-cols-2">
+                          <p className="sm:col-span-2 text-sm font-medium">{i.name}</p>
+                          <div className="grid gap-1">
+                            <Label className="text-xs">Chủ sở hữu</Label>
+                            <Input
+                              value={i.owner_name}
+                              onChange={(e) => updateLine(i.lineKey, { owner_name: e.target.value })}
+                            />
+                          </div>
+                          <div className="grid gap-1">
+                            <Label className="text-xs">Loại chai</Label>
+                            <Input
+                              value={i.cylinder_type}
+                              onChange={(e) => updateLine(i.lineKey, { cylinder_type: e.target.value })}
+                              placeholder="Tự điền từ tên SP"
+                            />
+                          </div>
+                          <div className="grid gap-1">
+                            <Label className="text-xs">Số seri (tuỳ chọn)</Label>
+                            <Input
+                              value={i.cylinder_serial}
+                              onChange={(e) => updateLine(i.lineKey, { cylinder_serial: e.target.value })}
+                              placeholder="Không bắt buộc"
+                            />
+                          </div>
+                          <div className="grid gap-1">
+                            <Label className="text-xs">Hạn kiểm định</Label>
+                            <Input
+                              type="date"
+                              value={i.inspection_expiry}
+                              onChange={(e) => updateLine(i.lineKey, { inspection_expiry: e.target.value })}
+                            />
+                          </div>
+                          <div className="grid gap-1 sm:col-span-2">
+                            <Label className="text-xs">Nơi nhập chai chứa cho cửa hàng</Label>
+                            <Input
+                              value={i.import_source}
+                              onChange={(e) => updateLine(i.lineKey, { import_source: e.target.value })}
+                            />
+                          </div>
+                          <div className="grid gap-1">
+                            <Label className="text-xs">Ngày nhập</Label>
+                            <Input
+                              type="date"
+                              value={i.import_date}
+                              onChange={(e) => updateLine(i.lineKey, { import_date: e.target.value })}
+                            />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                </div>
+              )}
 
-            <div className="grid gap-3 sm:grid-cols-2">
               <div className="grid gap-1.5">
-                <Label>Ghi chú</Label>
-                <Textarea rows={2} value={customer.note} onChange={(e) => setCustomer({ ...customer, note: e.target.value })} />
+                <Label>Hình thức thu</Label>
+                <div className="flex flex-wrap gap-2">
+                  {(
+                    [
+                      ["cash", "Thanh toán đủ"],
+                      ["partial", "Thu một phần"],
+                      ["debt", "Ghi nợ"],
+                    ] as const
+                  ).map(([mode, label]) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      className={`min-h-10 rounded-full border px-3.5 text-sm ${
+                        paymentMode === mode
+                          ? "border-primary bg-accent font-semibold text-accent-foreground"
+                          : "border-input bg-background hover:bg-muted"
+                      }`}
+                      onClick={() => setPaymentMode(mode)}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {paymentMode === "partial" && (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="grid gap-1.5">
+                    <Label>Đã thu trước (₫)</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      value={paidAmount}
+                      onChange={(e) => setPaidAmount(Math.max(0, Number(e.target.value || 0)))}
+                    />
+                  </div>
+                  <div className="grid gap-1.5">
+                    <Label>Công nợ dự kiến (₫)</Label>
+                    <Input readOnly value={String(outstandingPreview)} />
+                  </div>
+                </div>
+              )}
+              <div className="grid gap-1.5">
+                <Label>Ghi chú giao</Label>
+                <Textarea rows={2} value={customer.note} onChange={(e) => setCustomer({ ...customer, note: e.target.value })} placeholder="Gọi trước 10 phút, để cổng hẻm" />
               </div>
               <div className="grid gap-1.5">
                 <Label>Thuế GTGT (%)</Label>
                 <Input type="number" min={0} value={vatRate} onChange={(e) => setVatRate(Number(e.target.value))} />
               </div>
             </div>
-
-            <div className="rounded-lg bg-accent/50 p-4 text-sm">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Tạm tính</span>
-                <span>{formatVND(subtotal)}</span>
-              </div>
-              <div className="mt-1 flex justify-between">
-                <span className="text-muted-foreground">VAT ({vatRate}%)</span>
-                <span>{formatVND(vatAmount)}</span>
-              </div>
-              <div className="mt-2 flex justify-between border-t border-border pt-2 text-base font-semibold">
-                <span>Tổng cộng</span>
-                <span className="text-primary">{formatVND(total)}</span>
-              </div>
-            </div>
           </div>
 
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setOpen(false)}>
-              Hủy
-            </Button>
-            <Button onClick={submit} disabled={saving}>
-              {saving ? "Đang lưu..." : editingOrderId === null ? "Tạo đơn" : "Cập nhật"}
-            </Button>
+          <DialogFooter className="relative z-10 shrink-0 gap-3 border-t bg-background px-5 py-3 sm:justify-between">
+            <div className="grid text-left">
+              <span className="text-xs text-muted-foreground">Tổng trên phiếu</span>
+              <strong className="text-lg tabular-nums">{formatVND(total)}</strong>
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setOpen(false)}>
+                Hủy
+              </Button>
+              <Button onClick={submit} disabled={saving}>
+                {saving ? "Đang lưu..." : editingOrderId === null ? "Tạo đơn" : "Cập nhật"}
+              </Button>
+            </div>
           </DialogFooter>
         </DialogContent>
         </Dialog>

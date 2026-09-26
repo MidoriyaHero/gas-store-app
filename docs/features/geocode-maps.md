@@ -38,7 +38,9 @@ URL pattern: `https://www.google.com/maps/dir/?api=1&destination=lat,lng`
 
 ## Web
 
-- Map trong form đơn; `/ban-do` staff
+- Map ghim địa chỉ trong form tạo/sửa đơn (`/don-hang`)
+- `/ban-do` — bản đồ giao (admin + staff); `/ban-do-mock` redirect về `/ban-do`
+- Staff nav: [navGroups.ts](../../frontend/src/lib/navGroups.ts) `staffNavGroups` → Bản đồ giao
 
 ## Mobile
 

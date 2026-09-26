@@ -39,6 +39,7 @@ export function CallHistoryOrderPicker() {
         ...(hint?.deliveryLatitude != null && hint?.deliveryLongitude != null
           ? { lat: String(hint.deliveryLatitude), lng: String(hint.deliveryLongitude) }
           : {}),
+        ...(hint?.customerSegment ? { customerSegment: hint.customerSegment } : {}),
       },
     } as Href);
   }, []);

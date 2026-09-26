@@ -1,5 +1,5 @@
 import { NavLink, useLocation } from "react-router-dom";
-import { LogOut, Store } from "lucide-react";
+import { LogOut } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -28,9 +28,13 @@ export function AppSidebar() {
     <Sidebar collapsible="icon">
       <SidebarHeader className="border-b">
         <div className="flex items-center gap-2 px-2 py-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-primary text-primary-foreground shadow-elegant">
-            <Store className="h-5 w-5" />
-          </div>
+          <img
+            src="/brand/logo.png"
+            alt="Gas Huy Hoàng"
+            width={36}
+            height={36}
+            className="h-9 w-9 shrink-0 rounded-lg object-cover shadow-elegant"
+          />
           {!collapsed && (
             <div className="leading-tight">
               <p className="text-sm font-semibold">Gas Huy Hoàng</p>

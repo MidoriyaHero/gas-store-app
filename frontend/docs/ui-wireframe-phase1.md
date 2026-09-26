@@ -1,4 +1,12 @@
-# Phase 1 IA + Wireframe (Low fidelity)
+# Phase 1 IA + Wireframe (historical)
+
+**Không phản ánh app hiện tại.** Giữ để tham chiếu thiết kế sớm. Route và state machine dưới đây đã đổi.
+
+- Tạo đơn: **không còn** `/tao-don` — form nằm trên `/don-hang`.
+- Vòng đời đơn thật: `in_transit` → `completed` (soft-delete), xem [orders-delivery.md](../../docs/features/orders-delivery.md).
+- Nav và feature live: [docs/features/README.md](../../docs/features/README.md).
+
+---
 
 ## Information Architecture
 - `Tổng quan` -> chart-first hero + 2 chart phụ + action queue

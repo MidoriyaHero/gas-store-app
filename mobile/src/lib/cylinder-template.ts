@@ -1,6 +1,9 @@
 /** Cylinder line defaults from admin templates (aligned with web Orders). */
 
-export const DEFAULT_OWNER = "Gas Huy Hoàng";
+/** Auto-select this template when it exists; otherwise use no template. */
+export const PREFERRED_TEMPLATE_NAME = "Gas Hoàng Ân";
+
+const PREFERRED_TEMPLATE_KEY = PREFERRED_TEMPLATE_NAME.toLowerCase();
 
 export type CylinderTemplateRow = {
   id: number;
@@ -25,24 +28,22 @@ export function cylinderTypeFromProductName(productName: string): string {
   return productName.trim();
 }
 
-/** Apply template or store default owner + dates to a new cart line. */
+/** Apply selected template fields to a new cart line; empty when no template is chosen. */
 export function lineDefaultsFromTemplate(template: CylinderTemplateRow | null): CylinderLineDefaults {
   return {
-    owner_name: template?.owner_name?.trim() || DEFAULT_OWNER,
+    owner_name: template?.owner_name?.trim() ?? "",
     import_source: template?.import_source?.trim() ?? "",
     inspection_expiry: template?.inspection_expiry ?? "",
     import_date: template?.import_date ?? "",
   };
 }
 
-/** Offline fallback when API templates unavailable. */
-export function localDefaultTemplate(): CylinderTemplateRow {
-  return {
-    id: 0,
-    name: DEFAULT_OWNER,
-    owner_name: DEFAULT_OWNER,
-    import_source: null,
-    inspection_expiry: null,
-    import_date: null,
-  };
+/** Match admin template row for the preferred template name, if configured. */
+export function resolveDefaultTemplateId(templates: CylinderTemplateRow[]): string {
+  const hit = templates.find(
+    (t) =>
+      t.name.trim().toLowerCase() === PREFERRED_TEMPLATE_KEY ||
+      (t.owner_name?.trim().toLowerCase() ?? "") === PREFERRED_TEMPLATE_KEY,
+  );
+  return hit ? String(hit.id) : "";
 }

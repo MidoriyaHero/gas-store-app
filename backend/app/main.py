@@ -10,11 +10,11 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
 
 from app.api.auth import router as auth_router
-from app.api.routes import router
+from app.api.routes import reconcile_all_orders_debt_from_headers, router
 from app.api.sync import router as sync_router
 from app.config import get_settings
 from app.database import Base, SessionLocal, engine
-from app.models import Product, User, UserRole
+from app.models import CylinderTemplate, Product, User, UserRole
 from app.schema_migrate import ensure_gas_schema
 from app.services.auth import hash_password
 from app.services.stock_receipts import record_opening_receipt
@@ -35,6 +35,8 @@ def _seed_demo_products() -> None:
                 description="Bình gas 12kg",
                 cost_price=350000,
                 sell_price=420000,
+                wholesale_price=420000,
+                restaurant_price=420000,
                 stock_quantity=120,
                 low_stock_threshold=10,
             ),
@@ -44,6 +46,8 @@ def _seed_demo_products() -> None:
                 description="Bình gas 45kg",
                 cost_price=1200000,
                 sell_price=1450000,
+                wholesale_price=1450000,
+                restaurant_price=1450000,
                 stock_quantity=40,
                 low_stock_threshold=10,
             ),
@@ -53,6 +57,8 @@ def _seed_demo_products() -> None:
                 description=None,
                 cost_price=25000,
                 sell_price=35000,
+                wholesale_price=35000,
+                restaurant_price=35000,
                 stock_quantity=200,
                 low_stock_threshold=10,
             ),
@@ -69,6 +75,22 @@ def _seed_demo_products() -> None:
                 note="Tồn đầu kỳ (seed demo)",
                 created_by_user_id=None,
             )
+        db.commit()
+
+
+def _seed_default_cylinder_template() -> None:
+    """Insert the default cylinder preset when no templates exist."""
+    with SessionLocal() as db:
+        n = db.scalar(select(CylinderTemplate.id).limit(1))
+        if n is not None:
+            return
+        db.add(
+            CylinderTemplate(
+                name="Gas Hoàng Ân",
+                owner_name="Gas Hoàng Ân",
+                is_active=True,
+            )
+        )
         db.commit()
 
 
@@ -101,9 +123,12 @@ async def lifespan(_: FastAPI):
     """Create tables on startup and optional seed data."""
     Base.metadata.create_all(bind=engine)
     ensure_gas_schema()
+    with SessionLocal() as db:
+        reconcile_all_orders_debt_from_headers(db)
     media_root = Path(get_settings().media_root).resolve()
     (media_root / "order-notes").mkdir(parents=True, exist_ok=True)
     _seed_demo_products()
+    _seed_default_cylinder_template()
     _seed_admin_user()
     yield
 
