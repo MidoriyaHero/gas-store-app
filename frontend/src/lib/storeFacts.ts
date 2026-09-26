@@ -1,0 +1,25 @@
+/** Confirmed public facts for GAS Huy Hoàng. */
+export const STORE = {
+  name: "GAS Huy Hoàng",
+  address: "199 ĐT784, Ấp Thuận Tân, Truông Mít, Tây Ninh",
+  hours: "Mở cửa 24 giờ",
+  areas: ["Truông Mít", "Bàu Đồn", "Ngã ba Đất Sét", "Tầm Lanh", "Cầu Khởi"],
+  offers: "Luôn luôn nhiều ưu đãi",
+  gift: "Thu bếp cũ đổi bếp mới",
+  raffle: "Rút thăm trúng thưởng mỗi năm",
+  products: ["Gas 12kg", "Gas 45kg", "Van gas", "Bếp gas"],
+  shopUrl: "#",
+  callDisplay: "0984 135 227",
+  callTel: "tel:+84984135227",
+  phoneDisplay: "0908 868 643",
+  phoneTel: "tel:+84908868643",
+  zaloDisplay: "0984 135 227",
+  zaloUrl: "https://zalo.me/84984135227",
+  mapsUrl: "https://maps.app.goo.gl/uT9Smi7HwfjcJzKB9",
+  directionsUrl: "https://www.google.com/maps/dir/?api=1&destination=11.2036643,106.2860549",
+  mapsEmbed: "https://www.google.com/maps?cid=13871117475713552749&hl=vi&output=embed",
+  facebookUrl: "https://www.facebook.com/gashuyhoang.vn",
+  pageTitle: "Gas Huy Hoàng — Cửa hàng gas Truông Mít, Tây Ninh",
+  pageDescription:
+    "GAS Huy Hoàng tại 199 ĐT784, Ấp Thuận Tân, Truông Mít, Tây Ninh. Mở cửa 24 giờ. Gọi 0984 135 227 hoặc 0908 868 643.",
+} as const;

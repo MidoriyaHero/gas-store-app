@@ -25,6 +25,8 @@ import NotFound from "./pages/NotFound.tsx";
 import PlanRedirect from "./pages/PlanRedirect";
 import TnPlanRedirect from "./pages/TnPlanRedirect";
 import { AuthProvider, useAuth } from "@/lib/auth";
+import { ADMIN_HOME_PATH, ERP_LOGIN_PATH, STAFF_HOME_PATH } from "@/lib/appPaths";
+import StoreLanding from "./pages/StoreLanding";
 
 const queryClient = new QueryClient();
 
@@ -32,25 +34,30 @@ const queryClient = new QueryClient();
 function BanDoRedirect() {
   const { user, loading } = useAuth();
   if (loading) return <div className="p-6 text-sm text-muted-foreground">Đang tải phiên đăng nhập…</div>;
-  if (!user) return <Navigate to="/login" replace />;
+  if (!user) return <Navigate to={ERP_LOGIN_PATH} replace />;
   if (user.role === "admin") return <Navigate to="/don-hang?tab=map" replace />;
   return <StaffDeliveryMap />;
 }
 
-/** Redirect authenticated users to their landing page by role. */
+/** Send a signed-in user to the ERP home for their role. */
+function roleHome(role: "admin" | "user") {
+  return role === "admin" ? ADMIN_HOME_PATH : STAFF_HOME_PATH;
+}
+
+/** Redirect authenticated users to their ERP home by role. */
 function HomeRedirect() {
   const { user } = useAuth();
-  if (!user) return <Navigate to="/login" replace />;
-  return <Navigate to={user.role === "admin" ? "/" : "/ghi-chu-giao"} replace />;
+  if (!user) return <Navigate to={ERP_LOGIN_PATH} replace />;
+  return <Navigate to={roleHome(user.role)} replace />;
 }
 
 /** Protect route and enforce optional allowed roles. */
 function GuardedRoute({ allowedRoles, children }: { allowedRoles?: Array<"admin" | "user">; children: ReactElement }) {
   const { user, loading } = useAuth();
   if (loading) return <div className="p-6 text-sm text-muted-foreground">Đang tải phiên đăng nhập...</div>;
-  if (!user) return <Navigate to="/login" replace />;
+  if (!user) return <Navigate to={ERP_LOGIN_PATH} replace />;
   if (allowedRoles && !allowedRoles.includes(user.role)) {
-    return <Navigate to={user.role === "admin" ? "/" : "/ghi-chu-giao"} replace />;
+    return <Navigate to={roleHome(user.role)} replace />;
   }
   return children;
 }
@@ -63,9 +70,11 @@ const App = () => (
         <Sonner />
         <BrowserRouter>
           <Routes>
-            <Route path="/login" element={<Login />} />
+            <Route path="/" element={<StoreLanding />} />
+            <Route path="/login" element={<Navigate to={ERP_LOGIN_PATH} replace />} />
+            <Route path={ERP_LOGIN_PATH} element={<Login />} />
             <Route
-              path="/"
+              path={ADMIN_HOME_PATH}
               element={
                 <GuardedRoute allowedRoles={["admin"]}>
                   <Dashboard />

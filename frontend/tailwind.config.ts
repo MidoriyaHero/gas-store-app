@@ -14,6 +14,7 @@ export default {
     extend: {
       fontFamily: {
         sans: ['"Be Vietnam Pro"', "system-ui", "sans-serif"],
+        display: ['"Be Vietnam Pro"', "system-ui", "sans-serif"],
       },
       colors: {
         border: "hsl(var(--border))",

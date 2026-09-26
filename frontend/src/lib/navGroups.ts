@@ -1,4 +1,5 @@
 import type { LucideIcon } from "lucide-react";
+import { ADMIN_HOME_PATH } from "@/lib/appPaths";
 import {
   BookOpen,
   ClipboardList,
@@ -41,7 +42,7 @@ export const adminNavGroups: ReadonlyArray<NavGroup> = [
     id: "overview",
     title: "Tổng quan & đơn hàng",
     items: [
-      { title: "Tổng quan", url: "/", icon: LayoutDashboard },
+      { title: "Tổng quan", url: ADMIN_HOME_PATH, icon: LayoutDashboard },
       { title: "Đơn hàng", url: "/don-hang", icon: ShoppingCart },
       { title: "Vận hành hằng ngày", url: "/dieu-hanh", icon: ClipboardList },
     ],

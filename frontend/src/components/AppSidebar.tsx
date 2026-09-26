@@ -50,11 +50,11 @@ export function AppSidebar() {
             <SidebarGroupContent>
               <SidebarMenu>
                 {group.items.map((item) => {
-                  const isActive = item.url === "/" ? pathname === "/" : pathname.startsWith(item.url);
+                  const isActive = pathname === item.url || pathname.startsWith(`${item.url}/`);
                   return (
                     <SidebarMenuItem key={item.url}>
                       <SidebarMenuButton asChild isActive={isActive}>
-                        <NavLink to={item.url} end={item.url === "/"}>
+                        <NavLink to={item.url}>
                           <item.icon className="h-4 w-4" />
                           {!collapsed && <span>{item.title}</span>}
                         </NavLink>
