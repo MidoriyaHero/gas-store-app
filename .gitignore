@@ -22,3 +22,6 @@ mobile/android/app/release/
 .dev.vars*
 !.dev.vars.example
 !.env.example
+.agents/
+skills-lock.json
+.idea/
