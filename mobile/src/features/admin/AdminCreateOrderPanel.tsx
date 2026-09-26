@@ -20,6 +20,7 @@ import {
 import { lookupCustomerFromPhone } from "@/lib/customer-from-phone";
 import { CUSTOMER_SEGMENT_OPTIONS, isCustomerSegment } from "@/lib/customer-segment";
 import { unitPriceForSegment } from "@/lib/product-price";
+import { newClientId } from "@/lib/ids";
 import { isOnline } from "@/lib/network";
 import { roundCoord6, type GeocodeHit } from "@/lib/geocode";
 import { resolveGoogleMapsPasteClient } from "@/lib/maps-paste";

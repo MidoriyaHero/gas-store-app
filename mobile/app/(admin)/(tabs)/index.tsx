@@ -43,15 +43,13 @@ export default function AdminHome() {
   const [period, setPeriod] = useState<PeriodKey>("7d");
   const [chartMode, setChartMode] = useState<"revenue" | "units">("revenue");
   const [orders, setOrders] = useState<(typeof salesOrders.$inferSelect)[]>([]);
-  const [apiOrders, setApiOrders] = useState<
-    Array<{
-      total: string;
-      created_at: string;
-      delivery_date?: string | null;
-      line_quantity: number;
-      customer_segment?: string | null;
-    }>
-  > | null>(null);
+  const [apiOrders, setApiOrders] = useState<Array<{
+    total: string;
+    created_at: string;
+    delivery_date?: string | null;
+    line_quantity: number;
+    customer_segment?: string | null;
+  }> | null>(null);
   const [productRows, setProductRows] = useState<(typeof products.$inferSelect)[]>([]);
   const [pending, setPending] = useState(0);
   const [refreshing, setRefreshing] = useState(false);

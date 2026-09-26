@@ -1,6 +1,7 @@
 """Smoke tests for the gas store HTTP API."""
 
 from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal
 
 from fastapi.testclient import TestClient
 from sqlalchemy import select
@@ -649,7 +650,7 @@ def test_debt_payment_does_not_rewrite_order_paid_amount():
 
 
 def test_dashboard_summary_outstanding_zero_after_cash_patch():
-    """Dashboard summary outstanding must be zero after debt order is patched to cash."""
+    """Patching a debt order to cash drops that order's outstanding from the dashboard total."""
     with TestClient(app) as client:
         _login_admin(client)
         pid = _create_test_product(client, "Dash Debt Cash")
@@ -666,7 +667,10 @@ def test_dashboard_summary_outstanding_zero_after_cash_patch():
         )
         assert created.status_code == 200
         oid = created.json()["id"]
-        assert float(created.json()["outstanding_amount"]) > 0
+        created_outstanding = Decimal(created.json()["outstanding_amount"])
+        assert created_outstanding > 0
+        before = client.get("/api/dashboard/summary", params={"range": "today"})
+        assert before.status_code == 200
 
         patched = client.patch(
             f"/api/orders/{oid}",
@@ -683,7 +687,7 @@ def test_dashboard_summary_outstanding_zero_after_cash_patch():
 
         summary = client.get("/api/dashboard/summary", params={"range": "today"})
         assert summary.status_code == 200
-        assert float(summary.json()["outstanding"]) == 0
+        assert Decimal(summary.json()["outstanding"]) == Decimal(before.json()["outstanding"]) - created_outstanding
 
 
 def test_gas_ledger():

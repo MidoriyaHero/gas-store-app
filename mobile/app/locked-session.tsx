@@ -57,7 +57,7 @@ export default function LockedSessionScreen() {
         ) : null}
         <View style={styles.actions}>
           <Button label="Thử lại" loading={loading} fullWidth onPress={() => void onRetry()} />
-          <Button label="Đăng xuất" variant="outline" fullWidth onPress={() => void onLogout()} />
+          <Button label="Đăng xuất" variant="ghost" fullWidth onPress={() => void onLogout()} />
         </View>
       </Card>
     </Screen>

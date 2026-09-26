@@ -52,6 +52,8 @@ def recompute_single_order_outstanding(db: Session, order_id: int) -> None:
 
 def recompute_account_balance_from_orders(db: Session, account: DebtAccount) -> None:
     """Derive account cache from sum of active order outstanding on the same phone."""
+    # SUM runs in SQL and misses outstanding values still pending on the session.
+    db.flush()
     balance = db.scalar(
         select(func.coalesce(func.sum(SalesOrder.outstanding_amount), 0)).where(
             sales.active_order_clause(SalesOrder.phone == account.customer_key)
