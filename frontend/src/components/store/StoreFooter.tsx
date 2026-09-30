@@ -1,12 +1,19 @@
 import { STORE } from "@/lib/storeFacts";
 
-/** Address, phone, and map links on an ink background. */
+/** Brand, contact and location links on an ink background. */
 export function StoreFooter() {
   return (
     <footer className="store-section bg-[var(--store-ink)] text-white">
-      <div className="mx-auto grid max-w-6xl gap-8 lg:grid-cols-3">
+      <div className="mx-auto grid max-w-6xl gap-8 sm:grid-cols-2 lg:grid-cols-4">
         <div className="store-stack">
-          <p className="store-copy text-base leading-snug">{STORE.address}</p>
+          <div className="flex items-center gap-3">
+            <img src="/brand/logo-mark-80.png" alt="" width={44} height={44} className="h-11 w-11 rounded-lg bg-white object-contain" />
+            <p className="font-bold">Gas Huy Hoàng</p>
+          </div>
+          <p className="max-w-xs text-sm text-white/65">{STORE.tagline}</p>
+        </div>
+        <div className="store-stack">
+          <p className="text-base leading-relaxed">{STORE.address}</p>
           <p className="text-base">{STORE.hours}</p>
         </div>
         <div className="store-stack">

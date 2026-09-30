@@ -1,4 +1,5 @@
 import type { CSSProperties, ReactNode } from "react";
+import { Phone } from "lucide-react";
 import { STORE } from "@/lib/storeFacts";
 import { cn } from "@/lib/utils";
 
@@ -41,6 +42,11 @@ export function StoreLinkButton({
       rel={isCall ? undefined : "noreferrer"}
       className={cn("store-btn", isCall ? "store-btn-call" : "store-btn-zalo", className)}
     >
+      {isCall ? (
+        <Phone className="h-4 w-4" aria-hidden />
+      ) : (
+        <img src="/brand/zalo-icon-40.png" alt="" width={20} height={20} className="h-5 w-5 rounded-full" />
+      )}
       {children}
     </a>
   );

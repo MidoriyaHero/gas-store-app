@@ -1,14 +1,17 @@
 import { useEffect, useState } from "react";
+import { Clock3 } from "lucide-react";
 import { STORE } from "@/lib/storeFacts";
 import { cn } from "@/lib/utils";
-import { StoreLinkButton, StorePhoneLine } from "./StoreActions";
+import { StoreLinkButton } from "./StoreActions";
 
 const NAV = [
   { href: "#san-pham", label: "Sản phẩm" },
+  { href: "#cam-ket", label: "Cam kết" },
+  { href: "#duong-di", label: "Đường đi" },
   { href: "#hoi-dap", label: "Hỏi đáp" },
 ] as const;
 
-/** Sticky hours bar and navigation. The nav turns to glass after the page scrolls. */
+/** Compact sticky storefront navigation. */
 export function StoreHeader() {
   const [scrolled, setScrolled] = useState(false);
 
@@ -20,19 +23,10 @@ export function StoreHeader() {
   }, []);
 
   return (
-    <div className={cn("store-chrome sticky top-0 z-30", scrolled && "is-scrolled")}>
-      <div className="store-pad flex min-h-10 items-center justify-between gap-3 bg-[var(--store-orange)] py-2 text-sm text-white">
-        <span>{STORE.hours}</span>
-        <StorePhoneLine />
-      </div>
-      <header
-        className={cn(
-          "store-pad grid h-16 grid-cols-[1fr_auto] items-center gap-4 bg-transparent lg:grid-cols-[1fr_auto_1fr]",
-          scrolled && "store-glass rounded-none",
-        )}
-      >
-        <a href="#dau-trang" className="flex items-center gap-3 text-lg font-semibold text-[var(--store-ink)]">
-          <img src="/brand/logo-mark.png" alt="" width={40} height={40} className="h-10 w-10 object-contain" />
+    <header className={cn("store-chrome store-pad sticky top-0 z-30", scrolled && "is-scrolled")}>
+      <div className="mx-auto grid h-[72px] max-w-7xl grid-cols-[1fr_auto] items-center gap-4 lg:grid-cols-[1fr_auto_1fr]">
+        <a href="#dau-trang" className="flex items-center gap-3 text-base font-bold text-[var(--store-ink)] sm:text-lg">
+          <img src="/brand/logo-mark-80.png" alt="" width={40} height={40} className="h-10 w-10 object-contain" />
           Gas Huy Hoàng
         </a>
         <nav className="hidden items-center gap-6 lg:flex" aria-label="Mục trên trang">
@@ -42,10 +36,17 @@ export function StoreHeader() {
             </a>
           ))}
         </nav>
-        <div className="hidden justify-self-end lg:block">
-          <StoreLinkButton kind="call">Gọi</StoreLinkButton>
+        <div className="flex items-center gap-2 justify-self-end">
+          <span className="store-pill text-xs sm:text-sm">
+            <Clock3 className="h-4 w-4 text-[var(--store-orange)]" aria-hidden />
+            <span className="sm:hidden">24 giờ</span>
+            <span className="hidden sm:inline">{STORE.hours}</span>
+          </span>
+          <StoreLinkButton kind="call" className="hidden lg:inline-flex">
+            Gọi ngay
+          </StoreLinkButton>
         </div>
-      </header>
-    </div>
+      </div>
+    </header>
   );
 }

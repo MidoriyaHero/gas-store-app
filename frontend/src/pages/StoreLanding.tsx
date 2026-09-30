@@ -9,7 +9,8 @@ import { StoreMobileBar } from "@/components/store/StoreMobileBar";
 import { StoreProducts } from "@/components/store/StoreProducts";
 import { StoreReveal } from "@/components/store/StoreReveal";
 import { StoreSign } from "@/components/store/StoreSign";
-import { StoreWhy } from "@/components/store/StoreWhy";
+import { StoreSteps } from "@/components/store/StoreSteps";
+import { StoreValues } from "@/components/store/StoreValues";
 import { STORE } from "@/lib/storeFacts";
 
 /**
@@ -32,7 +33,10 @@ export default function StoreLanding() {
           <StoreProducts />
         </StoreReveal>
         <StoreReveal>
-          <StoreWhy />
+          <StoreSteps />
+        </StoreReveal>
+        <StoreReveal>
+          <StoreValues />
         </StoreReveal>
         <StoreReveal>
           <StoreMedia />

@@ -1,25 +1,18 @@
-import { Gift, Tag, Ticket } from "lucide-react";
-import type { LucideIcon } from "lucide-react";
+import { BadgeCheck } from "lucide-react";
 import { STORE } from "@/lib/storeFacts";
 
-const TILES: Array<{ icon: LucideIcon; text: string; tone: string }> = [
-  { icon: Tag, text: STORE.offers, tone: "var(--store-orange)" },
-  { icon: Gift, text: STORE.gift, tone: "var(--store-sky)" },
-  { icon: Ticket, text: STORE.raffle, tone: "var(--store-orange)" },
-];
-
-/** One row of three glass offer squares. A copy waits off-screen for the loop. */
+/** Continuous strip of confirmed storefront promises. */
 export function StoreSign() {
   return (
-    <section aria-label="Ưu đãi" className="store-marquee store-section">
+    <section aria-label="Cam kết phục vụ" className="store-marquee border-y border-white/60 bg-white/45 py-4">
       <div className="store-marquee-track">
         {[0, 1].map((copy) => (
           <div key={copy} className="store-marquee-row" aria-hidden={copy === 1}>
-            {TILES.map((item) => (
-              <article key={`${item.text}-${copy}`} className="store-glass store-tile">
-                <item.icon className="mx-auto h-6 w-6" style={{ color: item.tone }} aria-hidden />
-                <p className="text-[var(--store-ink)]">{item.text}</p>
-              </article>
+            {STORE.promises.map((text) => (
+              <span key={`${text}-${copy}`} className="flex shrink-0 items-center gap-2 whitespace-nowrap px-5 text-sm font-semibold">
+                <BadgeCheck className="h-5 w-5 text-[var(--store-orange)]" aria-hidden />
+                {text}
+              </span>
             ))}
           </div>
         ))}
