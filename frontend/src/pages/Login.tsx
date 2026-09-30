@@ -1,4 +1,4 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import { Eye, EyeOff, ShieldCheck, Sparkles } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth";
+import { ADMIN_HOME_PATH, STAFF_HOME_PATH } from "@/lib/appPaths";
 import { toast } from "sonner";
 
 /** Styled login page for cookie-based JWT authentication. */
@@ -17,8 +18,16 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
+  useEffect(() => {
+    const previous = document.title;
+    document.title = "Đăng nhập — Gas Huy Hoàng";
+    return () => {
+      document.title = previous;
+    };
+  }, []);
+
   if (!loading && user) {
-    return <Navigate to={user.role === "admin" ? "/" : "/ghi-chu-giao"} replace />;
+    return <Navigate to={user.role === "admin" ? ADMIN_HOME_PATH : STAFF_HOME_PATH} replace />;
   }
 
   if (loading) {

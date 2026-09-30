@@ -1,4 +1,4 @@
-import { ReactNode } from "react";
+import { ReactNode, useEffect } from "react";
 import { LogOut } from "lucide-react";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,14 @@ interface Props {
 
 export function AppLayout({ title, description, actions, children }: Props) {
   const { user, logout } = useAuth();
+
+  useEffect(() => {
+    const previous = document.title;
+    document.title = `${title} — Gas Huy Hoàng`;
+    return () => {
+      document.title = previous;
+    };
+  }, [title]);
 
   if (user?.role === "user") {
     return (
