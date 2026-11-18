@@ -25,6 +25,15 @@ class Settings(BaseSettings):
     media_root: str = "data/media"
     order_note_audio_max_bytes: int = 20 * 1024 * 1024
     nominatim_user_agent: str = "GasStoreApp/1.0 (internal geocode; contact: admin@localhost)"
+    ocr_llm_base_url: str = "https://openrouter.ai/api/v1"
+    openrouter_api_key: str = ""
+    #: Comma-separated; first = primary, rest = OpenRouter fallbacks (sent as ``models`` array).
+    ocr_llm_models: str = (
+        "nvidia/nemotron-3.5-super-vl:free,google/gemma-4-31b-it:free,google/gemma-4-26b-a4b-it:free"
+    )
+    #: OCR runs in a background task (a full page takes ~2 min on free models), so this is not bound by proxy timeouts.
+    ocr_llm_timeout_sec: float = 300.0
+    order_draft_image_max_bytes: int = 10 * 1024 * 1024
 
 
 def get_settings() -> Settings:

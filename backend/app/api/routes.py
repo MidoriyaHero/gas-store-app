@@ -1168,13 +1168,8 @@ def list_orders(
     return SalesOrderListResponse(items=[sales.order_to_response(o) for o in orders], total=total)
 
 
-@router.post("/orders", response_model=SalesOrderResponse, dependencies=[Depends(require_admin_user)])
-def create_order_route(
-    payload: SalesOrderCreate,
-    db: Session = Depends(get_db),
-    actor: User = Depends(get_current_user),
-) -> SalesOrderResponse:
-    """Create a VAT sales order (admin only); optional delivery staff assignment."""
+def create_order_with_debt(db: Session, payload: SalesOrderCreate, actor: User) -> SalesOrderResponse:
+    """Create a VAT sales order and record a debt invoice for any outstanding amount (shared by web + OCR drafts)."""
     try:
         if payload.customer_segment is None:
             raise HTTPException(status_code=422, detail="Cần chọn tệp khách hàng: đại lý sỉ, quán ăn hoặc khách lẻ")
@@ -1206,6 +1201,16 @@ def create_order_route(
         return created
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@router.post("/orders", response_model=SalesOrderResponse, dependencies=[Depends(require_admin_user)])
+def create_order_route(
+    payload: SalesOrderCreate,
+    db: Session = Depends(get_db),
+    actor: User = Depends(get_current_user),
+) -> SalesOrderResponse:
+    """Create a VAT sales order (admin only); optional delivery staff assignment."""
+    return create_order_with_debt(db, payload, actor)
 
 
 @router.patch("/orders/{order_id}", response_model=SalesOrderResponse, dependencies=[Depends(require_admin_user)])

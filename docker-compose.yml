@@ -35,6 +35,9 @@ services:
       SEED_ADMIN_USERNAME: ${SEED_ADMIN_USERNAME:-}
       SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-}
       MEDIA_ROOT: /data/media
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OCR_LLM_BASE_URL: ${OCR_LLM_BASE_URL:-https://openrouter.ai/api/v1}
+      OCR_LLM_MODELS: ${OCR_LLM_MODELS:-nvidia/nemotron-3.5-super-vl:free,google/gemma-4-31b-it:free,google/gemma-4-26b-a4b-it:free}
     volumes:
       - api_media:/data/media
     depends_on:

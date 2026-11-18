@@ -189,8 +189,12 @@ Copy [.env.example](./.env.example) → `.env` ở thư mục gốc cho Docker C
 | `AUTH_COOKIE_SECURE` | Cookie `Secure` (HTTPS) |
 | `AUTH_COOKIE_SAMESITE` | `lax` / `strict` / `none` |
 | `SEED_ADMIN_USERNAME` / `SEED_ADMIN_PASSWORD` | Seed lần đầu (via `./setup.sh` hoặc `.env`) |
-| `MEDIA_ROOT` | Thư mục file voice note (Compose: `/data/media`) |
+| `MEDIA_ROOT` | Thư mục file voice note và ảnh đơn nháp OCR (Compose: `/data/media`) |
 | `NOMINATIM_USER_AGENT` | User-Agent khi geocode OSM |
+| `OPENROUTER_API_KEY` | Key OpenRouter cho OCR sổ đơn viết tay (`/don-hang?tab=drafts`): mỗi dòng trên ảnh thành một đơn nháp, đọc nền (~2 phút/trang với model free); trống → upload trả 503 |
+| `OCR_LLM_MODELS` | Danh sách model VLM, phân tách bằng dấu phẩy; model đầu là chính, các model sau là fallback của OpenRouter |
+| `OCR_LLM_BASE_URL` | Endpoint OpenAI-compatible (mặc định `https://openrouter.ai/api/v1`) |
+| `OCR_LLM_TIMEOUT_SEC` | Timeout gọi VLM, mặc định 300s (chạy nền nên không bị giới hạn 100s của Cloudflare) |
 
 ### Docker Compose / host
 

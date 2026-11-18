@@ -28,12 +28,14 @@ import {
 import type { GeocodeHit } from "@/lib/geocode-map";
 import { defaultOrderMapCenter, googleDirectionsUrl } from "@/lib/geocode-map";
 import { OrderAddressPickMap } from "@/components/OrderAddressPickMap";
+import { OrderDraftsPanel } from "@/components/OrderDraftsPanel";
+import { paymentFromDraft, type OrderDraft } from "@/lib/order-draft";
 import { OrderSlip } from "@/components/order-composer/OrderSlip";
 import { DeliveryMapPanel } from "@/components/DeliveryMapPanel";
 import { Badge } from "@/components/ui/badge";
 import { formatVND, formatDateTime } from "@/lib/format";
 import { toast } from "sonner";
-import { apiDelete, apiGet, apiPatch, apiPost } from "@/lib/api";
+import { apiDelete, apiExportPath, apiGet, apiPatch, apiPost } from "@/lib/api";
 import {
   CUSTOMER_SEGMENT_LABEL,
   CUSTOMER_SEGMENT_OPTIONS,
@@ -240,18 +242,21 @@ const DEFAULT_STORE_CONTACT_LINE =
     ? import.meta.env.VITE_DEFAULT_STORE_CONTACT.trim()
     : "GAS Huy Hoàng - Thuận Tân, Truông Mít - 0984135227 | 0908868643";
 
-type AdminOrdersSection = "orders" | "notes" | "map";
+type AdminOrdersSection = "orders" | "notes" | "map" | "drafts";
+
+function isAdminSubsection(t: string | null): t is Exclude<AdminOrdersSection, "orders"> {
+  return t === "map" || t === "notes" || t === "drafts";
+}
 
 function initialOrdersSectionFromUrl(): AdminOrdersSection {
   if (typeof window === "undefined") return "orders";
   const t = new URLSearchParams(window.location.search).get("tab");
-  if (t === "map" || t === "notes") return t;
-  return "orders";
+  return isAdminSubsection(t) ? t : "orders";
 }
 
 export default function Orders() {
   const [searchParams, setSearchParams] = useSearchParams();
-  /** Admin-only: đơn, ghi chú giao, hoặc bản đồ giao (``?tab=map``). */
+  /** Admin-only: đơn, ghi chú giao, bản đồ giao (``?tab=map``), hoặc đơn nháp OCR (``?tab=drafts``). */
   const [adminSection, setAdminSection] = useState<AdminOrdersSection>(initialOrdersSectionFromUrl);
 
   const setAdminSectionSynced = useCallback(
@@ -268,8 +273,7 @@ export default function Orders() {
 
   useEffect(() => {
     const t = searchParams.get("tab");
-    if (t === "map" || t === "notes") setAdminSection(t);
-    else setAdminSection("orders");
+    setAdminSection(isAdminSubsection(t) ? t : "orders");
   }, [searchParams]);
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [ordersTotal, setOrdersTotal] = useState(0);
@@ -306,6 +310,9 @@ export default function Orders() {
   const [deliveryStatus, setDeliveryStatus] = useState<"in_transit" | "completed">("in_transit");
   const [borrowedShellUnits, setBorrowedShellUnits] = useState(0);
   const [customerSegment, setCustomerSegment] = useState<CustomerSegment | "">("");
+  /** Draft being reviewed in the create dialog; submit converts it instead of POST /api/orders. */
+  const [reviewDraft, setReviewDraft] = useState<OrderDraft | null>(null);
+  const [draftsRefreshKey, setDraftsRefreshKey] = useState(0);
 
   useEffect(() => {
     setCart((prev) =>
@@ -433,6 +440,25 @@ export default function Orders() {
   const qtyReservedForProduct = (productId: number, excludeLineKey?: string) =>
     cart.filter((c) => c.product_id === productId && c.lineKey !== excludeLineKey).reduce((s, c) => s + c.quantity, 0);
 
+  const buildCartLine = (
+    p: Product,
+    qty: number,
+    segment: CustomerSegment | "",
+    preset: ApiCylinderTemplate | null,
+  ): CartLine => ({
+    lineKey: crypto.randomUUID(),
+    product_id: p.id,
+    name: p.name,
+    unit_price: unitPriceForSegment(p, segment || null),
+    quantity: qty,
+    owner_name: preset?.owner_name?.trim() ?? "",
+    cylinder_type: cylinderTypeFromProductName(p.name),
+    cylinder_serial: "",
+    inspection_expiry: preset?.inspection_expiry ?? "",
+    import_source: preset?.import_source?.trim() ?? "",
+    import_date: preset?.import_date ?? "",
+  });
+
   const addToCart = () => {
     if (!pickProductId) return;
     const p = products.find((x) => x.id === Number(pickProductId));
@@ -443,26 +469,7 @@ export default function Orders() {
       toast.error(`Không đủ tồn kho (${p.stock_quantity - reserved} còn lại cho mặt hàng này)`);
       return;
     }
-    const owner = selectedPreset?.owner_name?.trim() ?? "";
-    const insp = selectedPreset?.inspection_expiry ?? "";
-    const impSrc = selectedPreset?.import_source?.trim() ?? "";
-    const impD = selectedPreset?.import_date ?? "";
-    setCart((prev) => [
-      ...prev,
-      {
-        lineKey: crypto.randomUUID(),
-        product_id: p.id,
-        name: p.name,
-        unit_price: unitPriceForSegment(p, customerSegment || null),
-        quantity: pickQty,
-        owner_name: owner,
-        cylinder_type: cylinderTypeFromProductName(p.name),
-        cylinder_serial: "",
-        inspection_expiry: insp,
-        import_source: impSrc,
-        import_date: impD,
-      },
-    ]);
+    setCart((prev) => [...prev, buildCartLine(p, pickQty, customerSegment, selectedPreset)]);
     setPickProductId("");
     setPickQty(1);
   };
@@ -517,6 +524,34 @@ export default function Orders() {
     setDeliveryStatus("in_transit");
     setBorrowedShellUnits(0);
     setCustomerSegment("");
+    setReviewDraft(null);
+  };
+
+  /** Open the create dialog prefilled from an OCR draft; the admin reviews then saves via convert. */
+  const openDraftReview = (d: OrderDraft) => {
+    reset();
+    const ex = d.extraction;
+    const segment: CustomerSegment | "" = isCustomerSegment(ex.customer_segment) ? ex.customer_segment : "";
+    const phone = ex.phone ?? "";
+    const defaultTemplateId = resolveDefaultTemplateId(cylinderTemplates);
+    const preset = cylinderTemplates.find((t) => String(t.id) === defaultTemplateId) ?? null;
+    const lines: CartLine[] = [];
+    for (const li of ex.lines) {
+      const p = li.product_id != null ? products.find((x) => x.id === li.product_id) : undefined;
+      if (p && li.quantity) lines.push(buildCartLine(p, li.quantity, segment, preset));
+    }
+    const draftTotal = lines.reduce((s, i) => s + i.unit_price * i.quantity, 0);
+    const pay = paymentFromDraft(draftTotal, Number(ex.debt_amount) || null, Number(ex.paid_amount) || null);
+    setReviewDraft(d);
+    setCustomer({ name: ex.customer_name ?? "", phone, address: ex.address ?? "", note: ex.note ?? "" });
+    setDeliveryDate(ex.delivery_date ?? todayLocalIso());
+    setCustomerSegment(segment);
+    setBorrowedShellUnits(ex.borrowed_shell_units ?? 0);
+    setCart(lines);
+    setPaymentMode(pay.mode);
+    setPaidAmount(pay.paidAmount);
+    if (!segment) void prefillsSegmentFromPhone(phone, segment);
+    setOpen(true);
   };
 
   const openEditOrder = async (orderId: number) => {
@@ -682,9 +717,12 @@ export default function Orders() {
   };
 
   /** Prefill segment from the newest other order on the same phone when the field is still empty. */
-  const prefillsSegmentFromPhone = async () => {
-    const phone = customer.phone.trim();
-    if (!phone || customerSegment) return;
+  const prefillsSegmentFromPhone = async (
+    phoneRaw: string = customer.phone,
+    segment: CustomerSegment | "" = customerSegment,
+  ) => {
+    const phone = phoneRaw.trim();
+    if (!phone || segment) return;
     try {
       const res = await apiGet<OrdersListPayload>(`/api/orders?q=${encodeURIComponent(phone)}&limit=10&offset=0`);
       const match = (res.items ?? []).find(
@@ -749,7 +787,12 @@ export default function Orders() {
           import_date: i.import_date || null,
         })),
       };
-      if (editingOrderId === null) {
+      if (editingOrderId === null && reviewDraft) {
+        await apiPost<OrderRow>(`/api/order-drafts/${reviewDraft.id}/convert`, payload);
+        toast.success("Đã lưu đơn từ nháp");
+        setDraftsRefreshKey((k) => k + 1);
+        setPage(1);
+      } else if (editingOrderId === null) {
         await apiPost<OrderRow>("/api/orders", payload);
         toast.success("Đã tạo đơn hàng");
         setPage(1);
@@ -773,14 +816,18 @@ export default function Orders() {
           ? "Ghi chú giao hàng"
           : adminSection === "map"
             ? "Đơn hàng — Bản đồ giao"
-            : "Đơn hàng"
+            : adminSection === "drafts"
+              ? "Đơn nháp từ ảnh"
+              : "Đơn hàng"
       }
       description={
         adminSection === "notes"
           ? "Ghi chữ hoặc ghi âm — cùng trang với đơn hàng."
           : adminSection === "map"
             ? "Chọn đơn để xem OSM và mở Google Maps chỉ đường (tối đa 50 đơn mới nhất)."
-            : `${ordersTotal.toLocaleString("vi-VN")} đơn — gán nhân viên giao khi tạo/sửa`
+            : adminSection === "drafts"
+              ? "Chụp giấy ghi đơn → AI đọc → duyệt rồi lưu."
+              : `${ordersTotal.toLocaleString("vi-VN")} đơn — gán nhân viên giao khi tạo/sửa`
       }
       actions={
         adminSection === "orders" ? (
@@ -835,9 +882,19 @@ export default function Orders() {
         >
           Bản đồ giao
         </Button>
+        <Button
+          type="button"
+          variant={adminSection === "drafts" ? "default" : "outline"}
+          className="min-h-11"
+          onClick={() => setAdminSectionSynced("drafts")}
+        >
+          Đơn nháp OCR
+        </Button>
       </div>
 
       {adminSection === "map" && <DeliveryMapPanel />}
+
+      {adminSection === "drafts" && <OrderDraftsPanel refreshKey={draftsRefreshKey} onReview={openDraftReview} />}
 
       {adminSection === "notes" && (
         <div className="mb-6">
@@ -1057,6 +1114,8 @@ export default function Orders() {
             </div>
           </div>
         </Card>
+        </>
+      )}
 
         <Dialog
         open={open}
@@ -1068,7 +1127,9 @@ export default function Orders() {
         <DialogContent className="flex h-[min(90vh,920px)] w-[min(1100px,calc(100vw-2rem))] max-w-[1100px] flex-col gap-0 overflow-hidden p-0 sm:rounded-lg">
           <DialogHeader className="shrink-0 space-y-0 border-b px-5 py-4 pr-12 text-left">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <DialogTitle>{editingOrderId === null ? "Tạo đơn hàng" : "Cập nhật đơn hàng"}</DialogTitle>
+              <DialogTitle>
+                {editingOrderId !== null ? "Cập nhật đơn hàng" : reviewDraft ? `Duyệt đơn nháp #${reviewDraft.id}` : "Tạo đơn hàng"}
+              </DialogTitle>
               <span
                 className={`inline-block rotate-[-2deg] border-2 px-2 py-0.5 text-[11px] font-bold ${
                   liveLedgerGaps.length === 0 ? "border-[#2c8a58] text-[#2c8a58]" : "border-[#e3940f] text-[#e3940f]"
@@ -1081,6 +1142,51 @@ export default function Orders() {
 
           <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden lg:grid-cols-2">
             <div className="min-h-0 space-y-4 overflow-y-auto border-b p-4 lg:border-b-0 lg:border-r">
+              {reviewDraft && (
+                <div className="space-y-2 rounded-lg border border-amber-500/50 bg-amber-50/60 p-3 text-sm dark:bg-amber-950/30">
+                  <div className="flex gap-3">
+                    <a href={apiExportPath(reviewDraft.image_url)} target="_blank" rel="noreferrer" className="shrink-0">
+                      <img
+                        src={apiExportPath(reviewDraft.image_url)}
+                        alt="Ảnh giấy ghi đơn"
+                        className="h-20 w-20 rounded-md border object-cover"
+                      />
+                    </a>
+                    <div className="min-w-0 space-y-1">
+                      <p className="font-medium">Kiểm tra lại thông tin AI đọc từ ảnh trước khi lưu.</p>
+                      {reviewDraft.extraction.transcript && (
+                        <p className="whitespace-pre-wrap text-xs">
+                          <span className="text-muted-foreground">Dòng trên giấy: </span>
+                          {reviewDraft.extraction.transcript}
+                        </p>
+                      )}
+                      {reviewDraft.extraction.total_amount != null && Number(reviewDraft.extraction.total_amount) > 0 && (
+                        <p className="text-xs">
+                          <span className="text-muted-foreground">Tiền ghi trên giấy: </span>
+                          <span className="font-semibold">{formatVND(Number(reviewDraft.extraction.total_amount))}</span>
+                          {Number(reviewDraft.extraction.total_amount) !== total && (
+                            <span className="text-amber-700 dark:text-amber-400"> — khác tổng phiếu {formatVND(total)}</span>
+                          )}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  {reviewDraft.extraction.lines
+                    .filter((li) => li.product_id == null)
+                    .map((li, idx) => (
+                      <p key={`unmatched-${idx}`} className="text-xs text-amber-700 dark:text-amber-400">
+                        ⚠ {li.raw_text} × {li.quantity ?? "?"}
+                      </p>
+                    ))}
+                  {reviewDraft.extraction.warnings.length > 0 && (
+                    <ul className="list-disc space-y-0.5 pl-5 text-xs text-muted-foreground">
+                      {reviewDraft.extraction.warnings.map((w, idx) => (
+                        <li key={`warn-${idx}`}>{w}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="grid gap-1.5">
                   <Label>Tên khách</Label>
@@ -1523,8 +1629,6 @@ export default function Orders() {
           </DialogFooter>
         </DialogContent>
         </Dialog>
-        </>
-      )}
     </AppLayout>
   );
 }

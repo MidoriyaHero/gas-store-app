@@ -662,6 +662,56 @@ class OrderNoteResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class OrderDraftLine(BaseModel):
+    """One item on a handwritten order (e.g. ``1B`` = 1 bình)."""
+
+    raw_text: str = Field(default="", max_length=500, description="Chữ gốc của món, vd '2 bình 12kg'")
+    product_id: int | None = Field(default=None, description="Chỉ là id SP đang active; còn lại None")
+    quantity: int | None = Field(default=None, gt=0)
+
+
+class OrderDraftExtraction(BaseModel):
+    """One order the VLM read from a handwritten order sheet (one draft row each)."""
+
+    customer_name: str | None = None
+    phone: str | None = None
+    address: str | None = None
+    note: str | None = None
+    delivery_date: date | None = None
+    customer_segment: CustomerSegmentLiteral | None = None
+    total_amount: Decimal | None = Field(default=None, ge=0, description="Tiền ghi trên giấy cho đơn này")
+    debt_amount: Decimal | None = Field(default=None, ge=0, description="Tiền khách còn nợ cho đơn này")
+    paid_amount: Decimal | None = Field(default=None, ge=0, description="Tiền khách đã trả, nếu ghi")
+    borrowed_shell_units: int | None = Field(default=None, ge=0, description="Vỏ nợ / mượn")
+    lines: list[OrderDraftLine] = Field(default_factory=list)
+    #: Chữ gốc của riêng đơn này (một hoặc vài dòng trên giấy).
+    transcript: str = ""
+    warnings: list[str] = Field(default_factory=list)
+
+
+class OrderSheetExtraction(BaseModel):
+    """VLM answer for one photo: a handwritten page where each line (plus its continuation) is one order."""
+
+    #: Ngày ghi ở đầu trang; áp cho các đơn không tự ghi ngày.
+    delivery_date: date | None = None
+    orders: list[OrderDraftExtraction] = Field(default_factory=list)
+
+
+class OrderDraftResponse(BaseModel):
+    """Serialized OCR order draft for the admin web."""
+
+    id: int
+    status: Literal["processing", "parsed", "error", "converted"]
+    image_url: str
+    extraction: OrderDraftExtraction
+    error_message: str | None
+    model_name: str | None
+    sales_order_id: int | None
+    created_by_user_id: int
+    created_at: datetime
+    updated_at: datetime | None
+
+
 class ShiftSettlementIn(BaseModel):
     """Create/update payload for shift settlement."""
 

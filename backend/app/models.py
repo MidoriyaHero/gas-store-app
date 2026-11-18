@@ -263,6 +263,39 @@ class OrderNote(Base):
     created_by: Mapped["User"] = relationship(back_populates="order_notes")
 
 
+class OrderDraftStatus(str, Enum):
+    """Lifecycle of an OCR order draft (admin web only; not synced to mobile)."""
+
+    #: Placeholder while the photo is being read in the background.
+    PROCESSING = "processing"
+    PARSED = "parsed"
+    ERROR = "error"
+    CONVERTED = "converted"
+
+
+class OrderDraft(Base):
+    """Order draft extracted from a photo of a handwritten order slip."""
+
+    __tablename__ = "order_drafts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    created_by_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    #: Relative to ``media_root``, e.g. ``order-drafts/2026-11/<hex>.jpg``.
+    image_path: Mapped[str] = mapped_column(String(512), nullable=False)
+    mime_type: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default=OrderDraftStatus.PARSED.value, index=True
+    )
+    #: ``OrderDraftExtraction.model_dump(mode="json")``.
+    extraction: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    raw_model_output: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    model_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    sales_order_id: Mapped[int | None] = mapped_column(ForeignKey("sales_orders.id"), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
 class OrderChangeLog(Base):
     """Append-only audit of order edits (who changed what)."""
 

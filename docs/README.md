@@ -22,6 +22,7 @@ flowchart TB
 | Mục | Mô tả |
 |-----|--------|
 | [Kiến trúc tổng quan](./architecture/overview.md) | System context, auth, sync, Docker deploy |
+| [Service flow & module relations](./architecture/service-flow.md) | Flowchart backend/web/mobile, quan hệ module, flow nghiệp vụ, CI |
 | [Database — tổng quan](./database/overview.md) | Domain map, PostgreSQL vs SQLite |
 | [Database — quan hệ bảng PostgreSQL](./database/relations-postgresql.md) | ER diagrams đầy đủ theo domain |
 | [Database — SQLite mobile](./database/mobile-sqlite.md) | Schema local, sync mirror |
