@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { FileText, Pencil, Trash2, TrendingUp } from "lucide-react";
 import {
   Bar,
@@ -24,7 +25,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { formatDateTime, formatVND } from "@/lib/format";
 import { apiDelete, apiGet, apiPatch } from "@/lib/api";
 import type { AsyncViewState } from "@/lib/ui-foundation";
-import { FINANCE_KPI_DEFINITIONS } from "@/lib/feature-governance";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -47,10 +47,12 @@ import { ShellDebtLedgerTab } from "@/components/finance/ShellDebtLedgerTab";
 const BUCKETS = ["0-7 ngày", "8-15 ngày", "16-30 ngày", "31+ ngày"] as const;
 
 type DebtStatusFilter = "all" | "open" | "paid";
+type DebtRange = "7" | "30" | "90" | "all";
 
 interface DebtOrderRow {
   id: number;
   order_code: string;
+  customer_id?: number | null;
   customer_name: string;
   phone: string | null;
   delivery_date: string | null;
@@ -80,22 +82,28 @@ interface DebtAgingRow {
   amount: number | string;
 }
 
-function currentMonthValue(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-}
-
-function formatMonthLabel(month: string): string {
-  const [year, monthNum] = month.split("-");
-  if (!year || !monthNum) return month;
-  return `${monthNum}/${year}`;
-}
-
 function formatDeliveryDate(value: string | null): string {
   if (!value) return "—";
   const [year, month, day] = value.split("-");
   if (!year || !month || !day) return value;
   return `${day}/${month}/${year}`;
+}
+
+/** Label for sổ nợ delivery-date window. */
+function debtRangeLabel(range: DebtRange): string {
+  if (range === "all") return "Từ trước tới nay";
+  return `${range} ngày`;
+}
+
+/** Query string for GET /api/debt-orders: last N delivery days, or omit date filter. */
+function debtOrdersListPath(range: DebtRange): string {
+  const base = "/api/debt-orders?status=all&limit=500";
+  if (range === "all") return base;
+  return `${base}&days=${range}`;
+}
+
+function isDebtRange(value: string): value is DebtRange {
+  return value === "7" || value === "30" || value === "90" || value === "all";
 }
 
 /**
@@ -106,7 +114,7 @@ export default function FinanceGovernance() {
   const [error, setError] = useState<string | null>(null);
   const [summary, setSummary] = useState<DashboardSummaryResponse | null>(null);
   const [rangeDays, setRangeDays] = useState("30");
-  const [debtMonth, setDebtMonth] = useState(currentMonthValue);
+  const [debtRange, setDebtRange] = useState<DebtRange>("all");
   const [tab, setTab] = useState("overview");
   const [search, setSearch] = useState("");
   const [debtStatusFilter, setDebtStatusFilter] = useState<DebtStatusFilter>("open");
@@ -128,10 +136,9 @@ export default function FinanceGovernance() {
     setError(null);
     try {
       const rangeKey = financeRangeToSummaryKey(rangeDays);
-      const debtMonthQuery = encodeURIComponent(debtMonth);
       const [summaryData, orderRows, agingRows] = await Promise.all([
         apiGet<DashboardSummaryResponse>(`/api/dashboard/summary?range=${rangeKey}`),
-        apiGet<DebtOrderRow[]>(`/api/debt-orders?status=all&limit=200&month=${debtMonthQuery}`),
+        apiGet<DebtOrderRow[]>(debtOrdersListPath(debtRange)),
         apiGet<DebtAgingRow[]>("/api/debt-aging"),
       ]);
       setSummary(summaryData);
@@ -145,7 +152,7 @@ export default function FinanceGovernance() {
       setState("error");
       setError(e instanceof Error ? e.message : "Không tải được dữ liệu tài chính");
     }
-  }, [debtMonth, rangeDays, selectedOrderId]);
+  }, [debtRange, rangeDays, selectedOrderId]);
 
   useEffect(() => {
     void load();
@@ -208,7 +215,7 @@ export default function FinanceGovernance() {
     if (debtStatusFilter === "paid") return "Đã trả";
     return "Tất cả";
   }, [debtStatusFilter]);
-  const debtMonthLabel = useMemo(() => formatMonthLabel(debtMonth), [debtMonth]);
+  const debtRangeText = useMemo(() => debtRangeLabel(debtRange), [debtRange]);
 
   const filteredOrders = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -250,9 +257,9 @@ export default function FinanceGovernance() {
       setSelectedLedger([]);
       return;
     }
-    const detail = await apiGet<DebtDetailPayload>(`/api/debt-orders/${selectedOrderId}?month=${encodeURIComponent(debtMonth)}`);
+    const detail = await apiGet<DebtDetailPayload>(`/api/debt-orders/${selectedOrderId}`);
     setSelectedLedger(detail.ledger ?? []);
-  }, [debtMonth, selectedOrderId]);
+  }, [selectedOrderId]);
 
   useEffect(() => {
     void loadDetail();
@@ -493,7 +500,7 @@ export default function FinanceGovernance() {
     doc.text("SỔ NỢ THEO ĐƠN", 105, 14, { align: "center" });
     doc.setFont("BeVietnamPro", "normal");
     doc.setFontSize(10);
-    doc.text(`Bộ lọc: ${debtFilterLabel} · Tháng giao ${debtMonthLabel}`, 14, 22);
+    doc.text(`Bộ lọc: ${debtFilterLabel} · Ngày giao ${debtRangeText}`, 14, 22);
     doc.text(`Tổng dư nợ (theo bộ lọc): ${formatVND(filteredDebtTotal)}`, 14, 28);
     autoTable(doc, {
       startY: 34,
@@ -558,7 +565,7 @@ export default function FinanceGovernance() {
               <p className="mt-1 text-xl font-semibold">{totals.orderCount.toLocaleString("vi-VN")} / {formatVND(totals.avgOrder)}</p>
             </Card>
             <Card className="p-4 shadow-card">
-              <p className="text-xs text-muted-foreground">Nợ chưa thu (Sổ nợ) đến cuối {debtMonthLabel}</p>
+              <p className="text-xs text-muted-foreground">Nợ chưa thu (Sổ nợ) · {debtRangeText}</p>
               <p className="mt-1 text-xl font-semibold">{formatVND(debtTotal)}</p>
               <p className="mt-1 text-xs text-muted-foreground">{openDebtOrders} đơn còn nợ</p>
             </Card>
@@ -666,29 +673,6 @@ export default function FinanceGovernance() {
             </div>
           </Card>
 
-          <Card className="p-4 shadow-card">
-            <h2 className="mb-3 text-sm font-semibold">KPI tài chính - nguồn đo lường</h2>
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>KPI</TableHead>
-                    <TableHead>Mục tiêu</TableHead>
-                    <TableHead>Nguồn dữ liệu</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {FINANCE_KPI_DEFINITIONS.map((kpi) => (
-                    <TableRow key={kpi.key}>
-                      <TableCell className="font-medium">{kpi.label}</TableCell>
-                      <TableCell>{kpi.target}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground">{kpi.source}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          </Card>
           </TabsContent>
 
           <TabsContent value="accounts" className="space-y-4">
@@ -698,14 +682,19 @@ export default function FinanceGovernance() {
                   <Label>Tìm mã đơn / khách / SĐT</Label>
                   <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Ví dụ: DH-… / 0909…" />
                 </div>
-                <div className="grid min-w-[160px] gap-1.5">
-                  <Label>Tháng công nợ</Label>
-                  <Input
-                    type="month"
-                    value={debtMonth}
-                    onChange={(e) => setDebtMonth(e.target.value || currentMonthValue())}
-                    aria-label="Lọc công nợ theo tháng"
-                  />
+                <div className="grid min-w-[180px] gap-1.5">
+                  <Label>Khoảng thời gian</Label>
+                  <Select value={debtRange} onValueChange={(v) => isDebtRange(v) && setDebtRange(v)}>
+                    <SelectTrigger className="h-11 bg-background" aria-label="Lọc sổ nợ theo ngày giao">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="7">7 ngày</SelectItem>
+                      <SelectItem value="30">30 ngày</SelectItem>
+                      <SelectItem value="90">90 ngày</SelectItem>
+                      <SelectItem value="all">Từ trước tới nay</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="grid min-w-[160px] gap-1.5">
                   <Label>Trạng thái nợ</Label>
@@ -734,7 +723,7 @@ export default function FinanceGovernance() {
                 </DropdownMenu>
               </div>
               <p className="text-xs text-muted-foreground">
-                Lọc theo ngày giao trong tháng {debtMonthLabel}; mỗi dòng là một đơn nợ độc lập.
+                Lọc theo ngày giao · {debtRangeText}; mỗi dòng là một đơn nợ độc lập.
               </p>
               <div className="overflow-x-auto">
                 <Table>
@@ -760,7 +749,23 @@ export default function FinanceGovernance() {
                       >
                         <TableCell className="font-mono text-sm">{o.order_code}</TableCell>
                         <TableCell className="font-medium text-primary">{o.customer_name}</TableCell>
-                        <TableCell>{o.phone ?? "—"}</TableCell>
+                        <TableCell>
+                          {o.phone ? (
+                            <Link
+                              to={
+                                o.customer_id != null
+                                  ? `/khach-hang?id=${o.customer_id}`
+                                  : `/khach-hang?q=${encodeURIComponent(o.phone)}`
+                              }
+                              onClick={(e) => e.stopPropagation()}
+                              className="text-primary underline-offset-2 hover:underline"
+                            >
+                              {o.phone}
+                            </Link>
+                          ) : (
+                            "—"
+                          )}
+                        </TableCell>
                         <TableCell>{formatDeliveryDate(o.delivery_date)}</TableCell>
                         <TableCell>{debtStatusLabel(o.outstanding_amount)}</TableCell>
                         <TableCell className="text-right font-semibold">{formatVND(o.outstanding_amount)}</TableCell>
@@ -781,7 +786,7 @@ export default function FinanceGovernance() {
       <Sheet open={historyOpen} onOpenChange={setHistoryOpen}>
         <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-2xl">
           <SheetHeader>
-            <SheetTitle>Giao dịch công nợ trong tháng {debtMonthLabel}</SheetTitle>
+            <SheetTitle>Giao dịch công nợ</SheetTitle>
             <SheetDescription>
               {selectedOrder
                 ? `${selectedOrder.order_code} · ${selectedOrder.customer_name} · Ngày giao ${formatDeliveryDate(selectedOrder.delivery_date)} · Dư nợ: ${formatVND(selectedOrder.outstanding_amount)}`
@@ -825,7 +830,7 @@ export default function FinanceGovernance() {
                   {repaymentHistory.length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={6} className="py-8 text-center text-sm text-muted-foreground">
-                        Chưa có giao dịch công nợ trong tháng này.
+                        Chưa có giao dịch công nợ.
                       </TableCell>
                     </TableRow>
                   ) : (

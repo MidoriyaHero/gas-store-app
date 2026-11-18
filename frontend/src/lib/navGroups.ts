@@ -4,17 +4,14 @@ import {
   BookOpen,
   ClipboardList,
   FileBarChart,
-  History,
   LayoutDashboard,
   LayoutTemplate,
-  NotebookText,
   Package,
   ShoppingCart,
   SmilePlus,
   Tags,
   Users,
   WalletCards,
-  Map,
   UserSearch,
 } from "lucide-react";
 
@@ -76,25 +73,8 @@ export const adminNavGroups: ReadonlyArray<NavGroup> = [
     id: "customer",
     title: "Khách hàng",
     items: [
+      { title: "Khách hàng", url: "/khach-hang", icon: UserSearch },
       { title: "Chăm sóc khách hàng", url: "/trai-nghiem-khach-hang", icon: SmilePlus },
-      { title: "Hồ sơ khách (mock)", url: "/khach-hang-mock", icon: UserSearch },
     ],
-  },
-];
-
-/** Domain-grouped navigation for staff primary nav. */
-export const staffNavGroups: ReadonlyArray<NavGroup> = [
-  {
-    id: "customer",
-    title: "Khách hàng",
-    items: [
-      { title: "Đơn giao hàng", url: "/don-cua-toi", icon: History },
-      { title: "Ghi chú giao", url: "/ghi-chu-giao", icon: NotebookText },
-    ],
-  },
-  {
-    id: "field",
-    title: "Giao hàng",
-    items: [{ title: "Bản đồ giao", url: "/ban-do", icon: Map }],
   },
 ];

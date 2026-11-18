@@ -1,0 +1,92 @@
+# Dev stack: bind-mount source + live reload.
+# Replaces the production api/web containers in this project (same DB volume).
+#
+#   docker compose -f docker-compose.dev.yml up --build
+#
+# Web (Vite HMR): http://127.0.0.1:5173
+# API (uvicorn --reload): http://127.0.0.1:8000
+# Rebuild only when requirements.txt or package-lock.json change.
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-gas_store}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-gas_store}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command:
+      [
+        "uvicorn",
+        "app.main:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000",
+        "--reload",
+        "--reload-dir",
+        "/app/app",
+      ]
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-gas_store}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8686,http://127.0.0.1:8686,http://localhost:5173,http://127.0.0.1:5173}
+      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
+      AUTH_COOKIE_SAMESITE: ${AUTH_COOKIE_SAMESITE:-lax}
+      SEED_ADMIN_USERNAME: ${SEED_ADMIN_USERNAME:-}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-}
+      MEDIA_ROOT: /data/media
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OCR_LLM_BASE_URL: ${OCR_LLM_BASE_URL:-https://openrouter.ai/api/v1}
+      OCR_LLM_MODELS: ${OCR_LLM_MODELS:-nvidia/nemotron-3.5-super-vl:free,google/gemma-4-31b-it:free,google/gemma-4-26b-a4b-it:free}
+      WATCHFILES_FORCE_POLLING: "true"
+    volumes:
+      - ./backend/app:/app/app
+      - api_media:/data/media
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "${API_PORT:-8000}:8000"
+    restart: unless-stopped
+
+  web:
+    image: node:22-alpine
+    working_dir: /app
+    command: sh -c "npm ci && npm run dev -- --host 0.0.0.0 --port 5173"
+    environment:
+      VITE_API_PROXY: http://api:8000
+      CHOKIDAR_USEPOLLING: "true"
+      VITE_MAP_DEFAULT_LAT: ${VITE_MAP_DEFAULT_LAT:-}
+      VITE_MAP_DEFAULT_LNG: ${VITE_MAP_DEFAULT_LNG:-}
+      VITE_DEFAULT_STORE_CONTACT: ${VITE_DEFAULT_STORE_CONTACT:-}
+    volumes:
+      - ./frontend:/app
+      - web_node_modules:/app/node_modules
+    depends_on:
+      - api
+    ports:
+      - "${VITE_PORT:-5173}:5173"
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  api_media:
+  web_node_modules:

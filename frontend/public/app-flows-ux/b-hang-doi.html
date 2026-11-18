@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>B · Hàng đợi — Gas Huy Hoàng</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="./flows.css" />
+  </head>
+  <body>
+    <div class="strip">
+      <strong>Mock · 3 hướng UI · không gọi API</strong>
+      <nav>
+        <a href="./a-phieu.html">A. Phiếu</a>
+        <a class="is-here" href="./b-hang-doi.html">B. Hàng đợi</a>
+        <a href="./c-ca-hom-nay.html">C. Ca hôm nay</a>
+      </nav>
+    </div>
+
+    <header class="hero">
+      <h1>B. Hàng đợi — chọn dòng, làm việc bên phải</h1>
+      <p>
+        PC: inbox. Trái = danh sách mỏng (mã, tên, cờ). Phải = chi tiết + hành động. Điện thoại không mang bảng:
+        hàng đợi full màn, bấm vào thì sheet 2 bước tạo đơn (Khách+điểm | Chai+thu). Nhanh cho người đã thuộc flow.
+      </p>
+      <div class="badge-row">
+        <span class="pill">Chọn khi admin ngồi máy cả ngày</span>
+        <span class="pill">Phone = queue, không phải table responsive</span>
+      </div>
+    </header>
+
+    <div class="board">
+      <section>
+        <p class="cap">PC admin</p>
+        <div class="desk" id="desk">
+          <div class="desk-bar">
+            <b>Hàng đợi đơn</b>
+            <input class="input" style="max-width:220px;min-height:32px" placeholder="DH- / SĐT" />
+            <nav class="desk-tabs" data-bind="desk">
+              <button type="button" class="is-on" data-go="orders">Đơn</button>
+              <button type="button" data-go="create">Tạo</button>
+              <button type="button" data-go="cust">Khách</button>
+              <button type="button" data-go="debt">Nợ</button>
+            </nav>
+          </div>
+
+          <div data-screen="orders">
+            <div class="inbox">
+              <div class="inbox-list">
+                <button type="button" class="q-item is-on">
+                  <div class="row"><b>DH-079</b><span class="warn">Thiếu</span></div>
+                  <div class="muted">Field Admin · 120k</div>
+                </button>
+                <button type="button" class="q-item">
+                  <div class="row"><b>DH-078</b><span class="ok">Nợ</span></div>
+                  <div class="muted">Chị Lan · 840k</div>
+                </button>
+                <button type="button" class="q-item">
+                  <div class="row"><b>DH-077</b><span class="ok">Xong</span></div>
+                  <div class="muted">Cơm Phượng · 1.45tr</div>
+                </button>
+              </div>
+              <div class="inspector">
+                <h3 style="margin:0 0 8px">DH-079 · Field Admin</h3>
+                <div class="kv">
+                  <span>SĐT</span><b>0623 614 136</b>
+                  <span>Giao</span><b>Hôm nay · chưa gán NV</b>
+                  <span>Sổ gas</span><b class="warn">Thiếu loại chai, seri</b>
+                  <span>Thu</span><b>Tiền mặt 120.000đ</b>
+                </div>
+                <div class="actions" style="margin-top:16px">
+                  <button type="button" class="btn btn-primary">Sửa</button>
+                  <button type="button" class="btn">In phiếu</button>
+                  <button type="button" class="btn">Gán NV</button>
+                  <button type="button" class="btn">Xóa</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div data-screen="create" hidden>
+            <div class="inbox">
+              <div class="inspector" style="grid-column:1/-1">
+                <p class="muted">PC: 2 cột cố định — không modal cuộn 800px.</p>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+                  <div>
+                    <h3>1. Khách &amp; điểm</h3>
+                    <div class="field"><label>SĐT</label><input class="input" /></div>
+                    <div class="field"><label>Tên</label><input class="input" /></div>
+                    <div class="map-fake"></div>
+                  </div>
+                  <div>
+                    <h3>2. Chai &amp; thu</h3>
+                    <div class="field"><label>Sản phẩm</label><select class="select"><option>Gas 12kg</option></select></div>
+                    <div class="chips">
+                      <button type="button" class="chip is-on">Đủ</button>
+                      <button type="button" class="chip">Một phần</button>
+                      <button type="button" class="chip">Ghi nợ</button>
+                    </div>
+                    <div class="row" style="margin-top:16px"><span class="money">0đ</span><button type="button" class="btn btn-primary">Tạo đơn</button></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div data-screen="cust" hidden>
+            <div class="inbox">
+              <div class="inbox-list">
+                <button type="button" class="q-item is-on"><b>Chị Lan</b><div class="muted">0909… · nợ</div></button>
+                <button type="button" class="q-item"><b>Cơm Phượng</b><div class="muted">at-risk</div></button>
+              </div>
+              <div class="inspector">
+                <h3 style="margin:0 0 8px">Chị Lan</h3>
+                <div class="kv"><span>Tệp</span><b>Khách lẻ</b><span>Nợ</span><b>480.000đ</b></div>
+                <button type="button" class="btn btn-primary" style="margin-top:12px">Tạo đơn từ khách này</button>
+              </div>
+            </div>
+          </div>
+
+          <div data-screen="debt" hidden>
+            <div class="inbox">
+              <div class="inbox-list">
+                <button type="button" class="q-item is-on"><b>Chị Lan</b><div class="muted">480k · 12 ngày</div></button>
+                <button type="button" class="q-item"><b>Gara Lân</b><div class="muted">550k · 31+</div></button>
+              </div>
+              <div class="inspector">
+                <h3 style="margin:0">Thu nợ DH-078</h3>
+                <div class="field"><label>Số thu</label><input class="input" value="480000" /></div>
+                <button type="button" class="btn btn-primary">Ghi thu</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <p class="cap">Điện thoại — hàng đợi + sheet 2 bước</p>
+        <div class="phone">
+          <div class="phone-inner" id="phone">
+            <div class="notch"><span>9:41</span><span>LTE</span></div>
+            <header class="phone-head">
+              <h2 data-phone-title>Hàng đợi</h2>
+              <div class="chips" style="margin-top:6px">
+                <button type="button" class="chip is-on">Đang giao</button>
+                <button type="button" class="chip">Lịch sử</button>
+              </div>
+            </header>
+            <div class="phone-scroll">
+              <div data-screen="orders">
+                <button type="button" class="q-item" style="border-radius:10px;margin-bottom:8px;border:1px solid var(--line)">
+                  <div class="row"><b>Chị Lan</b><span class="warn">Nợ</span></div>
+                  <div class="muted">DH-078 · 1.2km</div>
+                  <div class="actions" style="margin-top:8px">
+                    <span class="btn">Gọi</span>
+                    <span class="btn btn-primary">Chỉ đường</span>
+                  </div>
+                </button>
+                <button type="button" class="q-item" style="border-radius:10px;border:1px solid var(--line)">
+                  <div class="row"><b>Field Admin</b><span class="ok">Đủ</span></div>
+                  <div class="muted">DH-079 · tap để mở sheet</div>
+                </button>
+              </div>
+              <div data-screen="create" hidden>
+                <p class="muted" style="margin-top:0">2 bước. Không 8 field một màn.</p>
+                <div class="chips" style="margin-bottom:10px">
+                  <button type="button" class="chip is-on">1. Khách + điểm</button>
+                  <button type="button" class="chip">2. Chai + thu</button>
+                </div>
+                <div class="field"><label>SĐT</label><input class="input" inputmode="tel" /></div>
+                <div class="field"><label>Tên</label><input class="input" /></div>
+                <div class="map-fake"></div>
+                <button type="button" class="btn btn-primary" style="width:100%;margin-top:10px">Tiếp: chai &amp; thu</button>
+              </div>
+              <div data-screen="cust" hidden>
+                <input class="input" placeholder="Tìm khách" style="margin-bottom:8px" />
+                <button type="button" class="q-item" style="border:1px solid var(--line);border-radius:10px"><b>Chị Lan</b><div class="muted">Tạo đơn từ đây</div></button>
+              </div>
+              <div data-screen="debt" hidden>
+                <button type="button" class="q-item" style="border:1px solid var(--line);border-radius:10px"><b>Chị Lan · 480k</b><div class="muted">Thu trên sheet</div></button>
+              </div>
+              <div data-screen="map" hidden>
+                <div class="map-fake" style="height:240px"></div>
+              </div>
+            </div>
+            <nav class="bnav" data-bind="phone">
+              <button type="button" data-go="cust"><i>👤</i>Khách</button>
+              <button type="button" data-go="create"><i>＋</i>Tạo</button>
+              <button type="button" class="is-on" data-go="orders"><i>☰</i>Đơn</button>
+              <button type="button" data-go="map"><i>⌖</i>Map</button>
+              <button type="button" data-go="debt"><i>₫</i>Nợ</button>
+            </nav>
+          </div>
+        </div>
+      </section>
+    </div>
+    <script>
+      function wire(root) {
+        root.querySelectorAll("[data-bind]").forEach((nav) => {
+          const bind = nav.getAttribute("data-bind") === "desk" ? root : document.getElementById("phone");
+          nav.addEventListener("click", (e) => {
+            const btn = e.target.closest("[data-go]");
+            if (!btn) return;
+            const go = btn.getAttribute("data-go");
+            nav.querySelectorAll("[data-go]").forEach((b) => b.classList.toggle("is-on", b === btn));
+            bind.querySelectorAll(":scope [data-screen], :scope .phone-scroll > [data-screen]").forEach(() => {});
+            const host = bind.id === "phone" ? bind.querySelector(".phone-scroll") : bind;
+            (host || bind).querySelectorAll("[data-screen]").forEach((p) => {
+              p.hidden = p.getAttribute("data-screen") !== go;
+            });
+            const t = bind.querySelector("[data-phone-title]");
+            if (t) t.textContent = { orders: "Hàng đợi", create: "Tạo đơn", cust: "Khách", debt: "Nợ", map: "Bản đồ" }[go] || go;
+          });
+        });
+      }
+      wire(document.getElementById("desk"));
+      wire(document.getElementById("phone"));
+    </script>
+  </body>
+</html>

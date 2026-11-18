@@ -798,7 +798,73 @@ def ensure_gas_schema() -> None:
         conn.execute(text("CREATE INDEX IF NOT EXISTS idx_debt_payments_order ON debt_payments(sales_order_id)"))
         conn.commit()
 
+        conn_insp = inspect(conn)
+        customer_tables = set(conn_insp.get_table_names())
+        if "customers" not in customer_tables:
+            if dialect == "sqlite":
+                conn.execute(
+                    text(
+                        """
+                        CREATE TABLE customers (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            name VARCHAR(255) NOT NULL,
+                            phone VARCHAR(32) NOT NULL,
+                            address TEXT,
+                            hamlet VARCHAR(255),
+                            notes TEXT,
+                            customer_segment VARCHAR(16),
+                            assigned_to_user_id INTEGER REFERENCES users(id),
+                            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                        )
+                        """
+                    )
+                )
+            else:
+                conn.execute(
+                    text(
+                        """
+                        CREATE TABLE customers (
+                            id SERIAL PRIMARY KEY,
+                            name VARCHAR(255) NOT NULL,
+                            phone VARCHAR(32) NOT NULL,
+                            address TEXT,
+                            hamlet VARCHAR(255),
+                            notes TEXT,
+                            customer_segment VARCHAR(16),
+                            assigned_to_user_id INTEGER REFERENCES users(id),
+                            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                        )
+                        """
+                    )
+                )
+        conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_customers_phone ON customers(phone)"))
+
+        so_cols_cust = {c["name"] for c in inspect(conn).get_columns("sales_orders")}
+        if "customer_id" not in so_cols_cust:
+            conn.execute(
+                text("ALTER TABLE sales_orders ADD COLUMN customer_id INTEGER REFERENCES customers(id)")
+            )
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_sales_orders_customer_id ON sales_orders(customer_id)"))
+
+        da_cols_cust = set()
+        try:
+            da_cols_cust = {c["name"] for c in inspect(conn).get_columns("debt_accounts")}
+        except Exception:
+            da_cols_cust = set()
+        if da_cols_cust and "customer_id" not in da_cols_cust:
+            conn.execute(
+                text("ALTER TABLE debt_accounts ADD COLUMN customer_id INTEGER REFERENCES customers(id)")
+            )
+        conn.execute(
+            text("CREATE UNIQUE INDEX IF NOT EXISTS uq_debt_accounts_customer_id ON debt_accounts(customer_id)")
+        )
+
+        conn.commit()
+
     _backfill_order_debt_links_if_needed()
+    _backfill_customers_if_needed()
 
 
 def _backfill_order_debt_links_if_needed() -> None:
@@ -823,3 +889,76 @@ def _backfill_order_debt_links_if_needed() -> None:
             if orphan_pay is None:
                 return
         backfill_order_debt_links(db)
+
+
+def _backfill_customers_if_needed() -> None:
+    """Group existing orders/accounts by normalized phone into ``customers`` rows."""
+    from collections import defaultdict
+
+    from sqlalchemy import select
+
+    from app.database import SessionLocal
+    from app.models import Customer, DebtAccount, SalesOrder
+    from app.services.phone import normalize_phone
+
+    with SessionLocal() as db:
+        needs = db.scalar(
+            select(SalesOrder.id)
+            .where(SalesOrder.customer_id.is_(None), SalesOrder.phone.is_not(None))
+            .limit(1)
+        )
+        if needs is None:
+            orphan_acc = db.scalar(select(DebtAccount.id).where(DebtAccount.customer_id.is_(None)).limit(1))
+            if orphan_acc is None:
+                return
+
+        existing = {c.phone: c for c in db.scalars(select(Customer)).all()}
+        grouped: dict[str, list[SalesOrder]] = defaultdict(list)
+        newest_active: dict[str, SalesOrder] = {}
+        for order in db.scalars(select(SalesOrder).order_by(SalesOrder.created_at.desc(), SalesOrder.id.desc())).all():
+            if not order.phone:
+                continue
+            try:
+                key = normalize_phone(order.phone)
+            except ValueError:
+                continue
+            grouped[key].append(order)
+            if order.deleted_at is None and key not in newest_active:
+                newest_active[key] = order
+
+        for key, source in newest_active.items():
+            customer = existing.get(key)
+            if customer is None:
+                customer = Customer(
+                    name=source.customer_name,
+                    phone=key,
+                    address=source.address,
+                    customer_segment=source.customer_segment,
+                )
+                db.add(customer)
+                db.flush()
+                existing[key] = customer
+            for order in grouped[key]:
+                order.customer_id = customer.id
+
+        for account in db.scalars(select(DebtAccount)).all():
+            if account.customer_id is not None:
+                continue
+            try:
+                key = normalize_phone(account.customer_key or account.phone)
+            except ValueError:
+                continue
+            customer = existing.get(key)
+            if customer is None:
+                customer = Customer(
+                    name=account.customer_name,
+                    phone=key,
+                    address=None,
+                    customer_segment=None,
+                )
+                db.add(customer)
+                db.flush()
+                existing[key] = customer
+            account.customer_id = customer.id
+
+        db.commit()

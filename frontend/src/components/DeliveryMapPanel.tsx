@@ -7,7 +7,7 @@ import { apiGet } from "@/lib/api";
 import { toast } from "sonner";
 import { MapPin, Navigation } from "lucide-react";
 import type { GeocodeHit } from "@/lib/geocode-map";
-import { googleDirectionsUrl, osmEmbedUrl } from "@/lib/geocode-map";
+import { openGoogleMapsDirections, osmEmbedUrl } from "@/lib/geocode-map";
 
 export interface DeliveryMapOrderRow {
   id: number;
@@ -196,17 +196,21 @@ export function DeliveryMapPanel() {
                         {geocodeLoading && isSel ? "Đang tìm…" : "Xem bản đồ"}
                       </Button>
                       {canMap && (
-                        <Button variant="secondary" size="sm" className="min-h-10" asChild>
-                          <a
-                            href={googleDirectionsUrl(
-                              hasGps ? `${Number(o.delivery_latitude)},${Number(o.delivery_longitude)}` : (o.address ?? "").trim()
-                            )}
-                            target="_blank"
-                            rel="noreferrer"
-                          >
-                            <Navigation className="mr-1 h-4 w-4" aria-hidden />
-                            Chỉ đường
-                          </a>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          className="min-h-10"
+                          onClick={() =>
+                            openGoogleMapsDirections(
+                              hasGps
+                                ? `${Number(o.delivery_latitude)},${Number(o.delivery_longitude)}`
+                                : (o.address ?? "").trim(),
+                            )
+                          }
+                        >
+                          <Navigation className="mr-1 h-4 w-4" aria-hidden />
+                          Chỉ đường
                         </Button>
                       )}
                     </div>
@@ -260,11 +264,14 @@ export function DeliveryMapPanel() {
                 />
               </Card>
               {directionsTarget && (
-                <Button variant="secondary" className="w-full sm:w-auto" asChild>
-                  <a href={googleDirectionsUrl(directionsTarget)} target="_blank" rel="noreferrer">
-                    <Navigation className="mr-2 h-4 w-4" aria-hidden />
-                    Google Maps chỉ đường tới điểm này
-                  </a>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="w-full sm:w-auto"
+                  onClick={() => openGoogleMapsDirections(directionsTarget)}
+                >
+                  <Navigation className="mr-2 h-4 w-4" aria-hidden />
+                  Google Maps chỉ đường tới điểm này
                 </Button>
               )}
             </>

@@ -22,6 +22,7 @@ from app.models import (
     AuditLogEntry,
     CapaItem,
     ComplaintTicket,
+    Customer,
     CylinderTemplate,
     DailyCylinderAudit,
     DebtAccount,
@@ -73,6 +74,7 @@ from app.schemas import (
     DebtPaymentUpdateIn,
     DebtWriteOffIn,
     CustomerSegmentMetric,
+    AtRiskCustomerRow,
     DashboardPayload,
     DashboardPeriodTotals,
     DashboardSummaryResponse,
@@ -113,7 +115,7 @@ from app.schemas import (
 from app.services.auth import hash_password, normalize_role
 from app.services import sales
 from app.services.order_change_log import order_snapshot, record_order_change
-from app.timezone import BUSINESS_TZ, business_date_now, to_business_date
+from app.timezone import BUSINESS_TZ, business_date_now, to_business_date, utc_now
 from app.services.stock_receipts import apply_inbound_receipt, inbound_units_on_date, record_opening_receipt, sync_audit_import_full
 from app.services.delivery_export import render_delivery_slip_html
 from app.services.gas_ledger_rules import order_line_eligible_for_gas_ledger
@@ -126,7 +128,6 @@ from app.services.debt_orders import (
     recompute_all_order_outstanding,
     recompute_single_order_outstanding,
 )
-from app.services.phone import normalize_phone
 from app.services.geocode import nominatim_reverse, nominatim_row_to_geocode_hit, nominatim_search
 from app.services.map_paste_resolve import (
     place_query_variants,
@@ -301,6 +302,7 @@ def _debt_account_to_response_with_balance(row: DebtAccount, balance: Decimal) -
         customer_key=row.customer_key,
         customer_name=row.customer_name,
         phone=row.phone,
+        customer_id=row.customer_id,
         current_balance=balance,
         status="closed" if balance <= 0 else "active",
         created_at=row.created_at,
@@ -364,15 +366,44 @@ def _recompute_debt_balance(db: Session, account: DebtAccount) -> None:
     account.status = "closed" if balance <= 0 else "active"
 
 
-def _get_or_create_debt_account(db: Session, customer_name: str, phone: str) -> DebtAccount:
-    """Resolve or create debt account by normalized phone key."""
-    key = normalize_phone(phone)
-    account = db.scalar(select(DebtAccount).where(DebtAccount.customer_key == key))
+def _customer_for_order(db: Session, order: SalesOrder) -> Customer:
+    """Load the directory customer for an order, upserting from the snapshot if needed."""
+    if order.customer_id is not None:
+        customer = db.get(Customer, order.customer_id)
+        if customer is not None:
+            return customer
+    if not order.phone:
+        raise HTTPException(status_code=400, detail="Order has no phone for debt account")
+    from app.services.customers import upsert_customer_from_order
+
+    customer = upsert_customer_from_order(
+        db,
+        name=order.customer_name,
+        phone=order.phone,
+        address=order.address,
+        customer_segment=order.customer_segment,
+    )
+    order.customer_id = customer.id
+    return customer
+
+
+def _get_or_create_debt_account(db: Session, customer: Customer) -> DebtAccount:
+    """Resolve or create the single debt account for a directory customer."""
+    account = db.scalar(select(DebtAccount).where(DebtAccount.customer_id == customer.id))
+    if account is None:
+        account = db.scalar(select(DebtAccount).where(DebtAccount.customer_key == customer.phone))
     if account is not None:
-        account.customer_name = customer_name.strip()
-        account.phone = key
+        account.customer_id = customer.id
+        account.customer_name = customer.name
+        account.phone = customer.phone
+        account.customer_key = customer.phone
         return account
-    account = DebtAccount(customer_key=key, customer_name=customer_name.strip(), phone=key)
+    account = DebtAccount(
+        customer_key=customer.phone,
+        customer_name=customer.name,
+        phone=customer.phone,
+        customer_id=customer.id,
+    )
     db.add(account)
     db.flush()
     return account
@@ -437,6 +468,7 @@ def _order_to_debt_row(order: SalesOrder) -> DebtOrderRow:
     return DebtOrderRow(
         id=order.id,
         order_code=order.order_code,
+        customer_id=order.customer_id,
         customer_name=order.customer_name,
         phone=order.phone,
         delivery_date=order.delivery_date,
@@ -555,12 +587,21 @@ def _sync_order_debt_ledger(
 
     ledger_net = _ledger_net_debt_for_order(db, order.id)
     delta = new_target - ledger_net
-    account = db.scalar(select(DebtAccount).where(DebtAccount.customer_key == after_phone))
+    account = None
+    if order.customer_id is not None:
+        account = db.scalar(select(DebtAccount).where(DebtAccount.customer_id == order.customer_id))
+    if account is None:
+        account = db.scalar(select(DebtAccount).where(DebtAccount.customer_key == after_phone))
     if delta == 0:
         _sync_account_after_order(db, account, order.id)
         return
 
-    account = account or _get_or_create_debt_account(db, order.customer_name, after_phone)
+    customer = db.get(Customer, order.customer_id) if order.customer_id is not None else None
+    if customer is None:
+        customer = db.scalar(select(Customer).where(Customer.phone == after_phone))
+    if customer is None:
+        return
+    account = account or _get_or_create_debt_account(db, customer)
     _append_order_debt_delta(db, order=order, account=account, delta=delta, actor_user_id=actor_user_id)
     _sync_account_after_order(db, account, order.id)
 
@@ -1176,7 +1217,10 @@ def create_order_with_debt(db: Session, payload: SalesOrderCreate, actor: User) 
         created = sales.create_sales_order(db, payload, created_by_user_id=actor.id)
         outstanding = Decimal(str(created.outstanding_amount))
         if outstanding > 0:
-            account = _get_or_create_debt_account(db, created.customer_name, created.phone or payload.phone)
+            customer = db.get(Customer, created.customer_id) if created.customer_id is not None else None
+            if customer is None:
+                raise ValueError("Không tìm thấy khách")
+            account = _get_or_create_debt_account(db, customer)
             _append_debt_entry(
                 db,
                 account_id=account.id,
@@ -1203,13 +1247,15 @@ def create_order_with_debt(db: Session, payload: SalesOrderCreate, actor: User) 
         raise HTTPException(status_code=400, detail=str(e)) from e
 
 
-@router.post("/orders", response_model=SalesOrderResponse, dependencies=[Depends(require_admin_user)])
+@router.post("/orders", response_model=SalesOrderResponse, dependencies=[Depends(require_any_role("admin", "user"))])
 def create_order_route(
     payload: SalesOrderCreate,
     db: Session = Depends(get_db),
     actor: User = Depends(get_current_user),
 ) -> SalesOrderResponse:
-    """Create a VAT sales order (admin only); optional delivery staff assignment."""
+    """Create a VAT sales order; staff is always assigned to self."""
+    if actor.role == UserRole.USER.value:
+        payload = payload.model_copy(update={"assigned_to_user_id": actor.id})
     return create_order_with_debt(db, payload, actor)
 
 
@@ -1304,12 +1350,13 @@ def delete_order_route(order_id: int, db: Session = Depends(get_db)) -> dict[str
 def list_debt_orders(
     status: str = Query(default="all"),
     month: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}$"),
+    days: int | None = Query(default=None, ge=1, le=3650),
     search: str | None = Query(default=None),
     limit: int = Query(default=200, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ) -> list[DebtOrderRow]:
-    """List orders with debt history; filter by delivery month and open/paid status."""
+    """List orders with debt history; filter by delivery month, last N days, or all time."""
     stmt = _debt_orders_base_stmt().order_by(
         SalesOrder.delivery_date.desc().nullslast(),
         SalesOrder.created_at.desc(),
@@ -1317,6 +1364,10 @@ def list_debt_orders(
     )
     if month:
         start_d, end_d = delivery_month_date_bounds(month)
+        stmt = stmt.where(SalesOrder.delivery_date >= start_d, SalesOrder.delivery_date <= end_d)
+    elif days is not None:
+        end_d = business_date_now()
+        start_d = end_d - timedelta(days=days - 1)
         stmt = stmt.where(SalesOrder.delivery_date >= start_d, SalesOrder.delivery_date <= end_d)
     if status == "open":
         stmt = stmt.where(SalesOrder.outstanding_amount > 0)
@@ -1518,7 +1569,7 @@ def create_debt_payment(
     outstanding = Decimal(str(order.outstanding_amount or 0))
     if amount > outstanding:
         raise HTTPException(status_code=400, detail="Amount exceeds order outstanding balance")
-    account = _get_or_create_debt_account(db, order.customer_name, order.phone)
+    account = _get_or_create_debt_account(db, _customer_for_order(db, order))
     row = DebtPayment(
         debt_account_id=account.id,
         sales_order_id=order.id,
@@ -1673,7 +1724,7 @@ def create_debt_write_off(
     outstanding = Decimal(str(order.outstanding_amount or 0))
     if amount > outstanding:
         raise HTTPException(status_code=400, detail="Amount exceeds order outstanding balance")
-    account = _get_or_create_debt_account(db, order.customer_name, order.phone)
+    account = _get_or_create_debt_account(db, _customer_for_order(db, order))
     wo = DebtWriteOff(
         debt_account_id=account.id,
         amount=amount,
@@ -2528,6 +2579,40 @@ def dashboard_summary(
     current_totals, series, customer_segments = _dashboard_aggregate(db, start_d, end_d)
     previous_totals, _, _ = _dashboard_aggregate(db, prev_start, prev_end)
 
+    cutoff = utc_now() - timedelta(days=45)
+    last_sq = (
+        select(
+            SalesOrder.customer_id.label("customer_id"),
+            func.max(SalesOrder.created_at).label("last_order_at"),
+        )
+        .where(sales.active_order_clause(SalesOrder.customer_id.is_not(None)))
+        .group_by(SalesOrder.customer_id)
+        .subquery()
+    )
+    at_risk_rows = db.execute(
+        select(Customer, last_sq.c.last_order_at)
+        .outerjoin(last_sq, last_sq.c.customer_id == Customer.id)
+        .where(or_(last_sq.c.last_order_at.is_(None), last_sq.c.last_order_at < cutoff))
+    ).all()
+    today_utc = utc_now().date()
+    ranked: list[AtRiskCustomerRow] = []
+    for customer, last_at in at_risk_rows:
+        if last_at is None:
+            days_since = 9999
+        else:
+            last_date = last_at.date() if hasattr(last_at, "date") else last_at
+            days_since = (today_utc - last_date).days
+        ranked.append(
+            AtRiskCustomerRow(
+                id=customer.id,
+                name=customer.name,
+                phone=customer.phone,
+                last_order_at=last_at,
+                days_since=days_since,
+            )
+        )
+    ranked.sort(key=lambda row: (row.days_since, row.id), reverse=True)
+
     return DashboardSummaryResponse(
         range=range,
         revenue=current_totals.revenue,
@@ -2538,6 +2623,8 @@ def dashboard_summary(
         series=series,
         previous=previous_totals,
         customer_segments=customer_segments,
+        at_risk_count=len(ranked),
+        at_risk_customers=ranked[:8],
     )
 
 

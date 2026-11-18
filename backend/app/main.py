@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
 
 from app.api.auth import router as auth_router
+from app.api.customers import router as customers_router
 from app.api.order_drafts import fail_interrupted_drafts, router as order_drafts_router
 from app.api.routes import reconcile_all_orders_debt_from_headers, router
 from app.api.sync import router as sync_router
@@ -150,6 +151,7 @@ def create_app() -> FastAPI:
     app.include_router(router, prefix="/api")
     app.include_router(sync_router, prefix="/api")
     app.include_router(order_drafts_router, prefix="/api")
+    app.include_router(customers_router, prefix="/api")
     media_dir = Path(get_settings().media_root).resolve()
     media_dir.mkdir(parents=True, exist_ok=True)
     app.mount("/media", StaticFiles(directory=str(media_dir)), name="media")

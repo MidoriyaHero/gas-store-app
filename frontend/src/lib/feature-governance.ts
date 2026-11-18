@@ -11,27 +11,6 @@ export const CORE_FEATURE_SCOPE = {
   shouldHave: ["Gợi ý gom đơn theo khu vực", "Cảnh báo bất thường thu thiếu/chưa chốt trạng thái"],
 } as const;
 
-export const FINANCE_KPI_DEFINITIONS = [
-  {
-    key: "report_latency_d1",
-    label: "Độ trễ báo cáo nội bộ",
-    target: "<= D+1",
-    source: "Đơn hàng đã chốt và báo cáo tài chính ngày",
-  },
-  {
-    key: "cash_reconcile_delta",
-    label: "Sai lệch doanh thu - ngân quỹ",
-    target: "<= 0.5%",
-    source: "Đối soát ca giao, tổng thu theo phương thức",
-  },
-  {
-    key: "forecast_stockout_rate",
-    label: "Tỷ lệ thiếu hàng do dự báo sai",
-    target: "Giảm >= 20%",
-    source: "Tồn kho theo SKU + tốc độ bán",
-  },
-] as const;
-
 export const CUSTOMER_JOURNEY_STEPS = [
   { key: "remind", title: "Nhắc định kỳ", sla: "Tự động theo chu kỳ tiêu thụ" },
   { key: "reorder", title: "Đặt lại 1 chạm", sla: "<= 15 giây thao tác" },

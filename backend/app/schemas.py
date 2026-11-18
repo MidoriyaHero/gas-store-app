@@ -212,6 +212,7 @@ class SalesOrderResponse(BaseModel):
 
     id: int
     order_code: str
+    customer_id: int | None = None
     customer_name: str
     phone: str | None
     address: str | None
@@ -277,6 +278,7 @@ class DebtAccountResponse(BaseModel):
     customer_key: str
     customer_name: str
     phone: str
+    customer_id: int | None = None
     current_balance: Decimal
     status: str
     created_at: datetime
@@ -308,6 +310,7 @@ class DebtOrderRow(BaseModel):
 
     id: int
     order_code: str
+    customer_id: int | None = None
     customer_name: str
     phone: str | None
     delivery_date: date | None
@@ -443,6 +446,16 @@ class CustomerSegmentMetric(BaseModel):
     revenue: Decimal
 
 
+class AtRiskCustomerRow(BaseModel):
+    """Dashboard row for a customer past the 45-day purchase gap."""
+
+    id: int
+    name: str
+    phone: str
+    last_order_at: datetime | None
+    days_since: int
+
+
 class DashboardSummaryResponse(BaseModel):
     """Aggregated KPIs and daily series for dashboard charts."""
 
@@ -455,6 +468,8 @@ class DashboardSummaryResponse(BaseModel):
     series: list[DailyMetricRow]
     previous: DashboardPeriodTotals | None = None
     customer_segments: list[CustomerSegmentMetric] = Field(default_factory=list)
+    at_risk_count: int = 0
+    at_risk_customers: list[AtRiskCustomerRow] = Field(default_factory=list)
 
 
 class TaxReportRow(BaseModel):
@@ -969,3 +984,63 @@ class OrderChangeLogEntry(BaseModel):
     after_json: dict | None
 
     model_config = {"from_attributes": True}
+
+
+class CustomerCreate(BaseModel):
+    """Create a directory customer; phone is normalized server-side."""
+
+    name: str = Field(..., max_length=255)
+    phone: str = Field(..., min_length=1, max_length=64)
+    address: str | None = None
+    hamlet: str | None = Field(default=None, max_length=255)
+    notes: str | None = None
+    customer_segment: CustomerSegmentLiteral | None = None
+    assigned_to_user_id: int | None = None
+
+
+class CustomerUpdate(BaseModel):
+    """Partial update for a directory customer."""
+
+    name: str | None = Field(default=None, max_length=255)
+    phone: str | None = Field(default=None, min_length=1, max_length=64)
+    address: str | None = None
+    hamlet: str | None = Field(default=None, max_length=255)
+    notes: str | None = None
+    customer_segment: CustomerSegmentLiteral | None = None
+    assigned_to_user_id: int | None = None
+
+
+class CustomerResponse(BaseModel):
+    """Directory customer with purchase aggregates for list and detail."""
+
+    id: int
+    name: str
+    phone: str
+    address: str | None
+    hamlet: str | None
+    notes: str | None
+    customer_segment: CustomerSegmentLiteral | None
+    assigned_to_user_id: int | None
+    last_order_at: datetime | None = None
+    order_count: int = 0
+    outstanding: Decimal = Decimal("0")
+    computed_group: Literal["loyal", "at_risk", "active"]
+    typical_product_name: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class CustomerListResponse(BaseModel):
+    """Paginated customer directory."""
+
+    items: list[CustomerResponse]
+    total: int
+
+
+class CustomerDetailResponse(BaseModel):
+    """Customer profile plus the newest 20 active orders."""
+
+    customer: CustomerResponse
+    recent_orders: list[SalesOrderResponse]

@@ -3,8 +3,9 @@ import { LogOut } from "lucide-react";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import { AppSidebar } from "./AppSidebar";
-import { StaffPrimaryNav } from "./StaffPrimaryNav";
+import { FieldBottomNav } from "./FieldBottomNav";
 import { useAuth } from "@/lib/auth";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 interface Props {
   title: string;
@@ -15,6 +16,7 @@ interface Props {
 
 export function AppLayout({ title, description, actions, children }: Props) {
   const { user, logout } = useAuth();
+  const isMobile = useIsMobile();
 
   useEffect(() => {
     const previous = document.title;
@@ -24,7 +26,7 @@ export function AppLayout({ title, description, actions, children }: Props) {
     };
   }, [title]);
 
-  if (user?.role === "user") {
+  if (user?.role !== "admin") {
     return (
       <div className="flex min-h-screen w-full flex-col bg-gradient-soft">
         <a
@@ -52,10 +54,10 @@ export function AppLayout({ title, description, actions, children }: Props) {
             <LogOut className="h-4 w-4" />
           </Button>
         </header>
-        <StaffPrimaryNav />
-        <main id="app-main-content" className="flex-1 animate-fade-in p-4 md:p-6">
+        <main id="app-main-content" className="flex-1 animate-fade-in p-4 pb-[calc(4.75rem+env(safe-area-inset-bottom))] md:p-6 md:pb-[calc(4.75rem+env(safe-area-inset-bottom))]">
           {children}
         </main>
+        <FieldBottomNav />
       </div>
     );
   }
@@ -79,11 +81,19 @@ export function AppLayout({ title, description, actions, children }: Props) {
             </div>
             {actions && <div className="flex items-center gap-2">{actions}</div>}
           </header>
-          <main id="app-main-content" className="flex-1 animate-fade-in p-4 md:p-6">
+          <main
+            id="app-main-content"
+            className={
+              isMobile
+                ? "flex-1 animate-fade-in p-4 pb-[calc(4.75rem+env(safe-area-inset-bottom))] md:p-6 md:pb-[calc(4.75rem+env(safe-area-inset-bottom))]"
+                : "flex-1 animate-fade-in p-4 md:p-6"
+            }
+          >
             {children}
           </main>
         </div>
       </div>
+      {isMobile ? <FieldBottomNav /> : null}
     </SidebarProvider>
   );
 }

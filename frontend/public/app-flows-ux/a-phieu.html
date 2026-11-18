@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>A · Phiếu — Gas Huy Hoàng</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="./flows.css" />
+  </head>
+  <body data-approach="a">
+    <div class="strip">
+      <strong>Mock · 3 hướng UI · không gọi API</strong>
+      <nav>
+        <a class="is-here" href="./a-phieu.html">A. Phiếu</a>
+        <a href="./b-hang-doi.html">B. Hàng đợi</a>
+        <a href="./c-ca-hom-nay.html">C. Ca hôm nay</a>
+      </nav>
+    </div>
+
+    <header class="hero">
+      <h1>A. Mọi màn là một phiếu giao</h1>
+      <p>
+        Bỏ bảng 8 cột. PC: phiếu xếp 3 cột trạng thái như C (Chưa giao / Đang giao / Xong). Điện thoại: thẻ phiếu + tạo
+        đơn 4 bước — không co dialog web.
+      </p>
+      <div class="badge-row">
+        <span class="pill">Chọn khi hay thiếu sổ gas vì cuộn sót</span>
+        <span class="pill">Tạo đơn phone ≠ UI PC</span>
+      </div>
+    </header>
+
+    <div class="board">
+      <section>
+        <p class="cap">PC admin</p>
+        <div class="desk" id="desk">
+          <div class="desk-bar">
+            <b>Gas Huy Hoàng</b>
+            <nav class="desk-tabs" data-bind="desk">
+              <button type="button" class="is-on" data-go="orders">Đơn</button>
+              <button type="button" data-go="create">Tạo phiếu</button>
+              <button type="button" data-go="cust">Khách</button>
+              <button type="button" data-go="debt">Sổ nợ</button>
+            </nav>
+          </div>
+
+          <div data-screen="orders">
+            <p class="note">Phiếu theo cột trạng thái. Chưa giao = chưa gán NV. Đang giao = đã gán. Xong = completed.</p>
+            <div class="cols">
+              <div class="col">
+                <h3>Chưa giao (1)</h3>
+                <article class="ticket is-on">
+                  <div class="row"><span class="muted">DH-079</span><span class="stamp gap">Thiếu sổ gas</span></div>
+                  <b>Field Admin</b>
+                  <div class="muted">12kg × 1 · chưa gán</div>
+                  <div class="money">120.000đ</div>
+                  <div class="actions" style="margin-top:8px">
+                    <button type="button" class="btn btn-primary">Sửa</button>
+                    <button type="button" class="btn">In</button>
+                  </div>
+                </article>
+              </div>
+              <div class="col">
+                <h3>Đang giao (1)</h3>
+                <article class="ticket">
+                  <div class="row"><span class="muted">DH-078</span><span class="stamp ok">Đủ sổ gas</span></div>
+                  <b>Chị Lan</b>
+                  <div class="muted">Minh · 12kg × 2 · nợ</div>
+                  <div class="money">840.000đ</div>
+                  <div class="actions" style="margin-top:8px">
+                    <button type="button" class="btn btn-primary">Sửa</button>
+                    <button type="button" class="btn">In</button>
+                  </div>
+                </article>
+              </div>
+              <div class="col">
+                <h3>Xong (1)</h3>
+                <article class="ticket">
+                  <div class="row"><span class="muted">DH-077</span><span class="stamp ok">Đủ sổ gas</span></div>
+                  <b>Quán cơm Phượng</b>
+                  <div class="muted">Hùng · đã thu</div>
+                  <div class="money">1.450.000đ</div>
+                </article>
+              </div>
+            </div>
+          </div>
+
+          <div data-screen="create" hidden>
+            <div class="split">
+              <div style="padding:16px">
+                <nav class="steps" style="margin-bottom:12px">
+                  <button type="button" class="is-on">Khách</button>
+                  <button type="button">Điểm</button>
+                  <button type="button">Chai</button>
+                  <button type="button">Thu</button>
+                </nav>
+                <div class="field"><label>SĐT</label><input class="input" value="0909 123 456" /></div>
+                <div class="field"><label>Tên</label><input class="input" value="Chị Lan" /></div>
+                <div class="chips">
+                  <button type="button" class="chip">Đại lý sỉ</button>
+                  <button type="button" class="chip is-on">Khách lẻ</button>
+                  <button type="button" class="chip">Quán ăn</button>
+                </div>
+                <div class="actions" style="margin-top:16px">
+                  <button type="button" class="btn btn-primary">Tiếp: Điểm giao</button>
+                </div>
+              </div>
+              <aside class="split-side">
+                <p class="muted">Phiếu sống</p>
+                <b>Chị Lan</b>
+                <div class="muted">0909 123 456</div>
+                <p class="warn">Chưa ghim điểm</p>
+                <p class="warn">Chưa thêm chai</p>
+                <div class="money" style="margin-top:12px">0đ</div>
+              </aside>
+            </div>
+          </div>
+
+          <div data-screen="cust" hidden>
+            <div class="tickets">
+              <article class="ticket">
+                <div class="row"><b>Chị Lan</b><span class="muted">Loyal</span></div>
+                <div class="muted">0909 123 456 · còn nợ 480.000đ</div>
+                <div class="actions"><button type="button" class="btn btn-primary">Tạo phiếu</button><button type="button" class="btn">Gọi</button></div>
+              </article>
+              <article class="ticket">
+                <div class="row"><b>Quán cơm Phượng</b><span class="muted">At-risk</span></div>
+                <div class="muted">0967… · lâu không mua</div>
+                <div class="actions"><button type="button" class="btn btn-primary">Tạo phiếu</button></div>
+              </article>
+            </div>
+          </div>
+
+          <div data-screen="debt" hidden>
+            <div class="tickets">
+              <article class="ticket">
+                <div class="row"><b>DH-078 · Chị Lan</b><span class="money">480.000đ</span></div>
+                <div class="muted">Ghi nợ · 12 ngày</div>
+                <div class="actions"><button type="button" class="btn btn-primary">Thu nợ</button></div>
+              </article>
+              <article class="ticket">
+                <div class="row"><b>DH-070 · Gara Lân</b><span class="money">550.000đ</span></div>
+                <div class="muted">Ghi nợ · 31+ ngày</div>
+                <div class="actions"><button type="button" class="btn btn-primary">Thu nợ</button></div>
+              </article>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <p class="cap">Điện thoại — UI riêng, không co bảng PC</p>
+        <div class="phone">
+          <div class="phone-inner" id="phone">
+            <div class="notch"><span>9:41</span><span>LTE</span></div>
+            <header class="phone-head">
+              <h2 data-phone-title>Đơn</h2>
+              <p class="muted" style="margin:0">3 phiếu hôm nay</p>
+            </header>
+            <div class="phone-scroll">
+              <div data-screen="orders">
+                <article class="ticket">
+                  <div class="row"><b>Chị Lan</b><span class="stamp gap">Thiếu GPS</span></div>
+                  <div class="muted">DH-078 · 12kg × 2</div>
+                  <div class="row"><span class="money">840.000đ</span></div>
+                  <div class="actions" style="margin-top:8px">
+                    <button type="button" class="btn">Gọi</button>
+                    <button type="button" class="btn btn-primary">Chỉ đường</button>
+                  </div>
+                </article>
+                <article class="ticket">
+                  <div class="row"><b>Field Admin</b><span class="stamp ok">Đủ</span></div>
+                  <div class="muted">DH-079 · đang giao</div>
+                  <div class="actions" style="margin-top:8px">
+                    <button type="button" class="btn btn-primary">Đã giao xong</button>
+                  </div>
+                </article>
+              </div>
+              <div data-screen="create" hidden>
+                <nav class="steps" style="margin-bottom:10px">
+                  <button type="button" class="is-on">Khách</button>
+                  <button type="button">Điểm</button>
+                  <button type="button">Chai</button>
+                  <button type="button">Thu</button>
+                </nav>
+                <button type="button" class="btn" style="width:100%;margin-bottom:10px">Chọn từ danh bạ máy</button>
+                <div class="field"><label>SĐT</label><input class="input" inputmode="tel" placeholder="0909…" /></div>
+                <div class="field"><label>Tên</label><input class="input" placeholder="Chị Lan" /></div>
+                <div class="chips">
+                  <button type="button" class="chip is-on">Khách lẻ</button>
+                  <button type="button" class="chip">Quán ăn</button>
+                  <button type="button" class="chip">Đại lý sỉ</button>
+                </div>
+                <p class="muted">Bước Điểm = bản đồ full; không nhét map vào form khách.</p>
+              </div>
+              <div data-screen="cust" hidden>
+                <input class="input" placeholder="Tìm SĐT / tên" style="margin-bottom:10px" />
+                <article class="ticket"><b>Chị Lan</b><div class="muted">0909… · nợ 480k</div><button type="button" class="btn btn-primary" style="margin-top:8px">Tạo phiếu</button></article>
+              </div>
+              <div data-screen="debt" hidden>
+                <article class="ticket"><div class="row"><b>Chị Lan</b><span class="money">480k</span></div><button type="button" class="btn btn-primary">Thu</button></article>
+              </div>
+              <div data-screen="map" hidden>
+                <div class="map-fake" style="height:220px"></div>
+                <p class="muted" style="margin-top:8px">Một đơn một ghim. Chỉ đường = Google Maps, không iframe.</p>
+              </div>
+            </div>
+            <nav class="bnav" data-bind="phone">
+              <button type="button" data-go="cust"><i>👤</i>Khách</button>
+              <button type="button" data-go="create"><i>＋</i>Tạo</button>
+              <button type="button" class="is-on" data-go="orders"><i>☰</i>Đơn</button>
+              <button type="button" data-go="map"><i>⌖</i>Bản đồ</button>
+              <button type="button" data-go="debt"><i>₫</i>Nợ</button>
+            </nav>
+          </div>
+        </div>
+      </section>
+    </div>
+    <script>
+      function wire(root, titleSel) {
+        root.querySelectorAll("[data-bind]").forEach((nav) => {
+          const bind = nav.getAttribute("data-bind") === "desk" ? root : document.getElementById("phone");
+          nav.addEventListener("click", (e) => {
+            const btn = e.target.closest("[data-go]");
+            if (!btn) return;
+            const go = btn.getAttribute("data-go");
+            nav.querySelectorAll("button").forEach((b) => b.classList.toggle("is-on", b === btn));
+            bind.querySelectorAll("[data-screen]").forEach((p) => {
+              p.hidden = p.getAttribute("data-screen") !== go;
+            });
+            const t = bind.querySelector("[data-phone-title]");
+            if (t) t.textContent = { orders: "Đơn", create: "Tạo phiếu", cust: "Khách", debt: "Sổ nợ", map: "Bản đồ" }[go] || go;
+          });
+        });
+      }
+      wire(document.getElementById("desk"));
+      wire(document.getElementById("phone"));
+    </script>
+  </body>
+</html>

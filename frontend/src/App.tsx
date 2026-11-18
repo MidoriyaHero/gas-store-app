@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
-import { ReactElement } from "react";
+import { lazy, ReactElement, Suspense } from "react";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -20,7 +20,7 @@ import CoreOperations from "./pages/CoreOperations";
 import FinanceGovernance from "./pages/FinanceGovernance";
 import CustomerExperience from "./pages/CustomerExperience";
 import StaffDeliveryMap from "./pages/StaffDeliveryMap";
-import CustomerProfilesMock from "./pages/CustomerProfilesMock";
+import Customers from "./pages/Customers";
 import NotFound from "./pages/NotFound.tsx";
 import PlanRedirect from "./pages/PlanRedirect";
 import TnPlanRedirect from "./pages/TnPlanRedirect";
@@ -28,6 +28,7 @@ import { AuthProvider, useAuth } from "@/lib/auth";
 import { ADMIN_HOME_PATH, ERP_LOGIN_PATH, STAFF_HOME_PATH } from "@/lib/appPaths";
 import StoreLanding from "./pages/StoreLanding";
 
+const FieldCreateOrder = lazy(() => import("./pages/FieldCreateOrder"));
 const queryClient = new QueryClient();
 
 /** Admin bookmarks ``/ban-do`` → Đơn hàng tab bản đồ; staff vẫn xem trang bản đồ. */
@@ -186,13 +187,24 @@ const App = () => (
               }
             />
             <Route
-              path="/khach-hang-mock"
+              path="/khach-hang"
               element={
-                <GuardedRoute allowedRoles={["admin"]}>
-                  <CustomerProfilesMock />
+                <GuardedRoute allowedRoles={["admin", "user"]}>
+                  <Customers />
                 </GuardedRoute>
               }
             />
+            <Route
+              path="/tao-don"
+              element={
+                <GuardedRoute allowedRoles={["admin", "user"]}>
+                  <Suspense fallback={<div className="p-6 text-sm text-muted-foreground">Đang tải…</div>}>
+                    <FieldCreateOrder />
+                  </Suspense>
+                </GuardedRoute>
+              }
+            />
+            <Route path="/khach-hang-mock" element={<Navigate to="/khach-hang" replace />} />
             <Route
               path="/ban-do"
               element={

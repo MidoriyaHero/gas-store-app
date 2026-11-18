@@ -1,5 +1,5 @@
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { AppLayout } from "@/components/AppLayout";
 import { DestructiveConfirmDialog } from "@/components/DestructiveConfirmDialog";
 import { DeliveryNotesPanel } from "@/components/DeliveryNotesPanel";
@@ -8,19 +8,15 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Card } from "@/components/ui/card";
+import { OrderQueue } from "@/components/order-board/OrderQueue";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
   Plus,
   Trash2,
   ShoppingBag,
-  FileText,
-  Pencil,
   ChevronDown,
-  AlertTriangle,
-  CheckCircle,
   MapPin,
   Navigation,
   ClipboardPaste,
@@ -32,8 +28,7 @@ import { OrderDraftsPanel } from "@/components/OrderDraftsPanel";
 import { paymentFromDraft, type OrderDraft } from "@/lib/order-draft";
 import { OrderSlip } from "@/components/order-composer/OrderSlip";
 import { DeliveryMapPanel } from "@/components/DeliveryMapPanel";
-import { Badge } from "@/components/ui/badge";
-import { formatVND, formatDateTime } from "@/lib/format";
+import { formatVND } from "@/lib/format";
 import { toast } from "sonner";
 import { apiDelete, apiExportPath, apiGet, apiPatch, apiPost } from "@/lib/api";
 import {
@@ -43,6 +38,7 @@ import {
   phonesLikelyMatch,
   type CustomerSegment,
 } from "@/lib/customer-segment";
+import type { CustomerResponse } from "@/lib/customer";
 import { unitPriceForSegment } from "@/lib/product-price";
 
 /** ``YYYY-MM-DD`` theo giờ máy (dùng cho ``<input type="date" />``). */
@@ -119,6 +115,7 @@ interface Product {
 interface OrderRow {
   id: number;
   order_code: string;
+  customer_id?: number | null;
   customer_name: string;
   phone: string | null;
   customer_segment?: CustomerSegment | null;
@@ -278,7 +275,8 @@ export default function Orders() {
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [ordersTotal, setOrdersTotal] = useState(0);
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
+  const [pageSize, setPageSize] = useState(50);
+  const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
   const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [products, setProducts] = useState<Product[]>([]);
@@ -739,6 +737,39 @@ export default function Orders() {
     }
   };
 
+  /** Fill empty name/address/segment from the customer directory; 404 falls back to order-history segment. */
+  const lookupCustomerProfile = async (phoneRaw: string) => {
+    const phone = phoneRaw.trim();
+    if (!phone) return;
+    try {
+      const profile = await apiGet<CustomerResponse>(
+        `/api/customers/by-phone?phone=${encodeURIComponent(phone)}`,
+      );
+      setCustomer((prev) => ({
+        ...prev,
+        name: prev.name.trim() ? prev.name : profile.name,
+        address: prev.address.trim() ? prev.address : (profile.address ?? ""),
+      }));
+      setCustomerSegment((seg) =>
+        seg ? seg : isCustomerSegment(profile.customer_segment) ? profile.customer_segment : "",
+      );
+      toast.success("Đã điền từ hồ sơ khách");
+    } catch {
+      void prefillsSegmentFromPhone(phone);
+    }
+  };
+
+  const phonePrefillDone = useRef(false);
+  useEffect(() => {
+    const phone = searchParams.get("phone");
+    if (!phone || phonePrefillDone.current || open) return;
+    phonePrefillDone.current = true;
+    reset();
+    setCustomer({ name: "", phone, address: "", note: "" });
+    setOpen(true);
+    void lookupCustomerProfile(phone);
+  }, [searchParams, open]);
+
   const submit = async () => {
     if (!customer.name.trim()) {
       toast.error("Vui lòng nhập tên khách hàng");
@@ -916,152 +947,24 @@ export default function Orders() {
             />
           </div>
         </Card>
-        <Card className="shadow-card">
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="min-w-[11rem] whitespace-normal">Mã đơn / sổ gas</TableHead>
-                  <TableHead>Khách hàng</TableHead>
-                  <TableHead>Nhân viên giao</TableHead>
-                  <TableHead>Trạng thái giao</TableHead>
-                  <TableHead>SP</TableHead>
-                  <TableHead className="text-right">Tổng tiền</TableHead>
-                  <TableHead>Thời gian</TableHead>
-                  <TableHead className="min-w-[260px] text-center">Phiếu, xuất &amp; CRUD</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {orders.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={8} className="py-12 text-center">
-                      <ShoppingBag className="mx-auto mb-2 h-8 w-8 text-muted-foreground" />
-                      <p className="text-sm text-muted-foreground">
-                        {searchQuery.trim() ? "Không tìm thấy đơn phù hợp." : "Chưa có đơn hàng nào."}
-                      </p>
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  orders.map((o) => {
-                    const gasReady = o.gas_ledger_ready === true;
-                    const gasGaps = gasLedgerGapsForDisplay(o, gasReady);
-                    const gapsId = `order-${o.id}-gas-gaps`;
-                    return (
-                    <Fragment key={o.id}>
-                    <TableRow
-                      className={
-                        gasReady
-                          ? "border-l-4 border-l-emerald-600 bg-emerald-50/90 dark:border-l-emerald-500 dark:bg-emerald-950/30"
-                          : "border-l-4 border-l-amber-600 bg-amber-50/90 dark:border-l-amber-500 dark:bg-amber-950/35"
-                      }
-                      aria-label={
-                        gasReady
-                          ? `Đơn ${o.order_code}: đủ hồ sơ sổ gas`
-                          : `Đơn ${o.order_code}: thiếu thông tin sổ gas — xem hàng chi tiết ngay bên dưới`
-                      }
-                      aria-describedby={!gasReady ? gapsId : undefined}
-                    >
-                      <TableCell className="align-top">
-                        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-start">
-                          <span className="font-mono text-xs leading-normal">{o.order_code}</span>
-                          {gasReady ? (
-                            <Badge
-                              variant="outline"
-                              className="w-fit shrink-0 gap-1 border-emerald-700 text-emerald-950 dark:border-emerald-400 dark:text-emerald-50"
-                            >
-                              <CheckCircle className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                              Đủ sổ gas
-                            </Badge>
-                          ) : (
-                            <Badge
-                              variant="outline"
-                              className="w-fit shrink-0 gap-1 border-amber-800 text-amber-950 dark:border-amber-400 dark:text-amber-50"
-                            >
-                              <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                              Thiếu sổ gas
-                            </Badge>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="font-medium">{o.customer_name}</div>
-                        {o.phone && <div className="text-xs text-muted-foreground">{o.phone}</div>}
-                        <Badge variant="outline" className="mt-1 w-fit text-xs">
-                          {isCustomerSegment(o.customer_segment)
-                            ? CUSTOMER_SEGMENT_LABEL[o.customer_segment]
-                            : CUSTOMER_SEGMENT_LABEL.unspecified}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">
-                        {o.assigned_to_username ?? "—"}
-                      </TableCell>
-                      <TableCell>
-                        {o.delivery_status === "completed" ? (
-                          <Badge variant="outline" className="text-xs">
-                            Hoàn thành
-                          </Badge>
-                        ) : (
-                          <Badge variant="secondary" className="text-xs">
-                            Đang giao
-                          </Badge>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">{o.order_items?.length ?? 0} mặt hàng</TableCell>
-                      <TableCell className="text-right font-semibold">{formatVND(o.total)}</TableCell>
-                      <TableCell className="text-xs text-muted-foreground">{formatDateTime(o.created_at)}</TableCell>
-                      <TableCell className="text-center">
-                        <div className="flex flex-wrap justify-center gap-1">
-                          <Button variant="outline" size="sm" className="gap-1" asChild>
-                            <Link to={`/don-hang/phieu/${o.id}`} target="_blank" rel="noopener noreferrer">
-                              <FileText className="h-3.5 w-3.5" /> In
-                            </Link>
-                          </Button>
-                          <Button variant="outline" size="sm" className="gap-1" onClick={() => void openEditOrder(o.id)}>
-                            <Pencil className="h-3.5 w-3.5" /> Sửa
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => setOrderToDelete({ id: o.id, order_code: o.order_code })}
-                            aria-label={`Xóa đơn ${o.order_code}`}
-                          >
-                            <Trash2 className="h-3.5 w-3.5 text-destructive" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                    {!gasReady && (
-                      <TableRow
-                        className="border-l-4 border-l-amber-600 bg-amber-50/90 dark:border-l-amber-500 dark:bg-amber-950/35"
-                        aria-label={`Chi tiết thiếu sót sổ gas cho đơn ${o.order_code}`}
-                      >
-                        <TableCell colSpan={8} className="py-3">
-                          <div
-                            id={gapsId}
-                            className="rounded-md border border-amber-800/40 bg-card px-3 py-2 shadow-sm dark:border-amber-400/40"
-                          >
-                            <p className="mb-1.5 text-sm font-semibold text-foreground">Cần bổ sung cho sổ gas</p>
-                            {gasGaps.length > 0 ? (
-                              <ul className="list-inside list-disc space-y-1 text-sm leading-relaxed text-foreground">
-                                {gasGaps.map((line, i) => (
-                                  <li key={i}>{line}</li>
-                                ))}
-                              </ul>
-                            ) : (
-                              <p className="text-sm text-muted-foreground">Mở Sửa để kiểm tra các trường sổ gas.</p>
-                            )}
-                            <p className="mt-2 text-xs text-muted-foreground">Bấm Sửa trên đơn này để điền đủ rồi lưu — dòng sẽ tự đủ điều kiện xuất sổ gas.</p>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    )}
-                    </Fragment>
-                    );
-                  })
-                )}
-              </TableBody>
-            </Table>
-          </div>
+        <Card className="p-3 shadow-card">
+          {orders.length === 0 ? (
+            <div className="py-12 text-center">
+              <ShoppingBag className="mx-auto mb-2 h-8 w-8 text-muted-foreground" />
+              <p className="text-sm text-muted-foreground">
+                {searchQuery.trim() ? "Không tìm thấy đơn phù hợp." : "Chưa có đơn hàng nào."}
+              </p>
+            </div>
+          ) : (
+            <OrderQueue
+              orders={orders}
+              gapsFor={(o) => gasLedgerGapsForDisplay(o, o.gas_ledger_ready === true)}
+              selectedId={selectedOrderId}
+              onSelect={setSelectedOrderId}
+              onEdit={(id) => void openEditOrder(id)}
+              onDelete={setOrderToDelete}
+            />
+          )}
           <div className="flex flex-col gap-3 border-t px-4 py-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
             <p className="text-sm text-muted-foreground">
               {ordersTotal === 0
@@ -1201,7 +1104,7 @@ export default function Orders() {
                   <Input
                     value={customer.phone}
                     onChange={(e) => setCustomer({ ...customer, phone: e.target.value })}
-                    onBlur={() => void prefillsSegmentFromPhone()}
+                    onBlur={() => void lookupCustomerProfile(customer.phone)}
                     placeholder="0909 123 456"
                     inputMode="tel"
                   />

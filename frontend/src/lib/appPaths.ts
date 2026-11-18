@@ -5,4 +5,4 @@ export const ERP_LOGIN_PATH = "/admin";
 export const ADMIN_HOME_PATH = "/tong-quan";
 
 /** Staff home after sign-in. */
-export const STAFF_HOME_PATH = "/ghi-chu-giao";
+export const STAFF_HOME_PATH = "/khach-hang";

@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Thẻ kiểm tra an toàn A5 — Gas Huy Hoàng</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=Literata:opsz,wght@7..72,500;7..72,650;7..72,700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      /**
+       * A5 safety card. Palette follows the logo flame: orange-red, cyan, blue.
+       */
+      :root {
+        --paper: #f7f8f6;
+        --ink: #1a2330;
+        --ink-soft: #4a5564;
+        --flame: #ff5a14;
+        --flame-mid: #ff8a1a;
+        --cyan: #2eb4ef;
+        --blue: #1877e0;
+        --blue-deep: #0d4fb8;
+        --steel: #b7c2c8;
+        --white: #ffffff;
+        --serif: "Literata", "Times New Roman", serif;
+        --sans: "Be Vietnam Pro", system-ui, sans-serif;
+        --grad-flame: linear-gradient(180deg, #ff8a1a 0%, #ff5a14 38%, #2eb4ef 72%, #0d4fb8 100%);
+        --grad-stamp: linear-gradient(155deg, #ff8a1a 0%, #ff5a14 42%, #1877e0 100%);
+        --grad-head: linear-gradient(180deg, #2eb4ef 0%, #1877e0 48%, #0d4fb8 100%);
+      }
+
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        background: #1e2a44;
+        color: var(--ink);
+        font-family: var(--sans);
+      }
+
+      .chrome {
+        max-width: 320mm;
+        margin: 0 auto;
+        padding: 18px 20px 8px;
+        color: #e8ecef;
+        font-size: 13px;
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 16px;
+      }
+
+      .chrome p {
+        margin: 0;
+        line-height: 1.45;
+      }
+
+      .chrome button {
+        font: inherit;
+        border: 1px solid #8aa0a8;
+        background: transparent;
+        color: #e8ecef;
+        padding: 6px 12px;
+        cursor: pointer;
+      }
+
+      .chrome button:focus-visible {
+        outline: 2px solid var(--cyan);
+        outline-offset: 2px;
+      }
+
+      .stage {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        align-items: flex-start;
+        gap: 22px;
+        padding: 12px 20px 36px;
+      }
+
+      .sheet {
+        width: 148mm;
+        height: 210mm;
+        flex: 0 0 148mm;
+        background: var(--paper);
+        color: var(--ink);
+        position: relative;
+        overflow: hidden;
+        box-shadow: 0 18px 40px -18px rgba(0, 0, 0, 0.45);
+        padding: 9mm 8mm 7mm;
+        display: flex;
+        flex-direction: column;
+        print-color-adjust: exact;
+        -webkit-print-color-adjust: exact;
+      }
+
+      .cover {
+        padding: 0;
+      }
+
+      .cover::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        width: 7mm;
+        background: var(--grad-flame);
+      }
+
+      .cover-inner {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        padding: 7mm 8mm 6mm 13mm;
+        min-height: 0;
+      }
+
+      .face-no {
+        position: absolute;
+        top: 6mm;
+        right: 8mm;
+        font-size: 9px;
+        color: var(--ink-soft);
+      }
+
+      .brand {
+        position: relative;
+        width: 58mm;
+        margin: 2mm auto 0;
+      }
+
+      .logo {
+        width: 58mm;
+        mix-blend-mode: multiply;
+      }
+
+      .stamp {
+        position: absolute;
+        right: -15mm;
+        top: 0;
+        width: 27mm;
+        height: 27mm;
+        border: 2px solid var(--white);
+        outline: 1.4px solid var(--flame);
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        color: var(--white);
+        background: var(--grad-stamp);
+        transform: rotate(-9deg);
+        font-family: var(--serif);
+        line-height: 1;
+        box-shadow: 0 2mm 4mm rgba(13, 79, 184, 0.28);
+      }
+
+      .stamp strong {
+        display: block;
+        font-size: 17px;
+        font-weight: 700;
+        text-align: center;
+      }
+
+      .stamp span {
+        display: block;
+        font-size: 10px;
+        font-weight: 500;
+        margin-top: 1mm;
+        text-align: center;
+      }
+
+      .cover-kicker {
+        margin: 2.5mm 0 0;
+        font-family: var(--serif);
+        font-size: 20px;
+        font-weight: 700;
+        line-height: 1.12;
+      }
+
+      .cover-kicker em {
+        display: block;
+        margin-top: 1.2mm;
+        font-style: italic;
+        font-weight: 500;
+        font-size: 12px;
+        color: var(--ink-soft);
+      }
+
+      .name-field {
+        position: relative;
+        margin-top: 4mm;
+        padding: 2.4mm 3.5mm 2mm 4.5mm;
+        background: var(--white);
+        border: 0.5px solid var(--steel);
+      }
+
+      .name-field::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        width: 2.2mm;
+        background: var(--grad-flame);
+      }
+
+      .name-field label {
+        display: block;
+        font-size: 10px;
+        color: var(--blue-deep);
+        margin-bottom: 1mm;
+      }
+
+      .name-field .line {
+        border-bottom: 1px solid var(--ink);
+        height: 7mm;
+      }
+
+      .steps {
+        list-style: none;
+        margin: 5mm 0 0;
+        padding: 0;
+        display: grid;
+        grid-template-columns: repeat(6, 1fr);
+        gap: 2.4mm;
+      }
+
+      .steps li {
+        grid-column: span 2;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 1.2mm;
+        background: var(--white);
+        border: 0.5px solid var(--steel);
+        padding: 0 0 2mm;
+        text-align: center;
+        overflow: hidden;
+      }
+
+      .steps li:nth-child(4) {
+        grid-column: 2 / span 2;
+      }
+
+      .steps li:nth-child(5) {
+        grid-column: 4 / span 2;
+      }
+
+      .step-photo {
+        width: 100%;
+        height: 28mm;
+        object-fit: cover;
+        display: block;
+        background: #eef1f4;
+      }
+
+      .step-photo.bep {
+        object-position: 55% 42%;
+      }
+
+      .step-photo.day {
+        object-position: 78% 72%;
+      }
+
+      .step-photo.van {
+        object-position: 50% 50%;
+      }
+
+      .step-photo.clamp {
+        object-position: 50% 50%;
+      }
+
+      .step-photo.flame {
+        object-position: 50% 70%;
+      }
+
+      .steps b {
+        font-family: var(--serif);
+        font-weight: 700;
+        color: var(--flame);
+        font-size: 11px;
+        line-height: 1;
+      }
+
+      .steps span {
+        font-size: 10px;
+        font-weight: 600;
+        line-height: 1.15;
+      }
+
+      .cover-foot {
+        margin-top: auto;
+        padding-top: 3.5mm;
+        font-size: 10.5px;
+        color: var(--ink-soft);
+        border-top: 1px solid var(--steel);
+      }
+
+      .ledger-head {
+        margin-bottom: 4mm;
+      }
+
+      .ledger-head h1 {
+        margin: 0;
+        font-family: var(--serif);
+        font-size: 15px;
+        font-weight: 650;
+        line-height: 1.2;
+      }
+
+      .ledger-head .shop {
+        margin: 1mm 0 0;
+        font-size: 10px;
+        color: var(--ink-soft);
+      }
+
+      table.visits {
+        width: 100%;
+        border-collapse: collapse;
+        table-layout: fixed;
+        font-size: 8.5px;
+      }
+
+      table.visits col.date {
+        width: 21mm;
+      }
+
+      table.visits col.check {
+        width: 12.5mm;
+      }
+
+      table.visits col.staff {
+        width: 13mm;
+      }
+
+      table.visits col.note {
+        width: auto;
+      }
+
+      table.visits th,
+      table.visits td {
+        border: 0.4px solid var(--steel);
+        vertical-align: middle;
+      }
+
+      table.visits thead th {
+        background: var(--grad-head);
+        color: var(--white);
+        font-weight: 700;
+        font-size: 10.5px;
+        line-height: 1.15;
+        height: 13mm;
+        padding: 1mm 0.5mm;
+        text-align: center;
+      }
+
+      table.visits tbody td {
+        height: 16.5mm;
+        background: var(--white);
+      }
+
+      .tick {
+        width: 6mm;
+        height: 6mm;
+        margin: 0 auto;
+        border: 0.45px solid var(--ink);
+        background: transparent;
+      }
+
+      .ledger-foot {
+        margin-top: auto;
+        padding-top: 3.5mm;
+        font-size: 8.5px;
+        color: var(--ink-soft);
+      }
+
+      @page {
+        size: A5 portrait;
+        margin: 0;
+      }
+
+      @media print {
+        html,
+        body {
+          background: var(--paper);
+        }
+
+        .chrome {
+          display: none;
+        }
+
+        .stage {
+          padding: 0;
+          gap: 0;
+        }
+
+        .sheet {
+          box-shadow: none;
+          page-break-after: always;
+        }
+
+        .sheet:last-child {
+          page-break-after: auto;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="chrome">
+      <p>Thẻ kiểm tra an toàn — khổ A5, 2 tờ / 4 mặt. In chọn khổ A5, không canh lề.</p>
+      <button type="button" onclick="window.print()">In thử</button>
+    </div>
+
+    <main class="stage">
+      <article class="sheet cover" aria-label="Mặt 1 — bìa">
+        <div class="cover-inner">
+          <span class="face-no">1 / 4</span>
+          <div class="brand">
+            <img class="logo" src="../brand/logo-stacked.png" alt="Gas Huy Hoàng" />
+            <div class="stamp" aria-hidden="true">
+              <div>
+                <strong>5</strong>
+                <span>bước</span>
+              </div>
+            </div>
+          </div>
+          <p class="cover-kicker">
+            Kiểm tra an toàn<br />5 bước
+            <em>Khách lẻ giữ thẻ này tại nhà</em>
+          </p>
+          <div class="name-field">
+            <label>Tên khách</label>
+            <div class="line"></div>
+          </div>
+          <ol class="steps">
+            <li>
+              <img class="step-photo bep" src="bep.png?v=2" alt="Bếp gas" />
+              <b>1</b>
+              <span>Bếp</span>
+            </li>
+            <li>
+              <img class="step-photo day" src="day.png" alt="Dây gas" />
+              <b>2</b>
+              <span>Dây</span>
+            </li>
+            <li>
+              <img class="step-photo van" src="van.png" alt="Van điều áp" />
+              <b>3</b>
+              <span>Van</span>
+            </li>
+            <li>
+              <img class="step-photo clamp" src="co-de.png" alt="Cổ dê" />
+              <b>4</b>
+              <span>Cổ dê</span>
+            </li>
+            <li>
+              <img class="step-photo flame" src="lua-do.png" alt="Lửa đỏ" />
+              <b>5</b>
+              <span>Lửa đỏ</span>
+            </li>
+          </ol>
+          <p class="cover-foot">Nhân viên đánh dấu mỗi lần giao bình. Ghi chú nếu cần thay phụ kiện.</p>
+        </div>
+      </article>
+
+      <article class="sheet ledger" aria-label="Mặt 2 — lần giao" data-face="2 / 4"></article>
+      <article class="sheet ledger" aria-label="Mặt 3 — lần giao" data-face="3 / 4"></article>
+      <article class="sheet ledger" aria-label="Mặt 4 — lần giao" data-face="4 / 4"></article>
+    </main>
+
+    <template id="ledger-face">
+      <span class="face-no"></span>
+      <header class="ledger-head">
+        <h1>Kiểm tra an toàn</h1>
+        <p class="shop">Gas Huy Hoàng — khách lẻ</p>
+      </header>
+      <table class="visits">
+        <colgroup>
+          <col class="date" />
+          <col class="check" />
+          <col class="check" />
+          <col class="check" />
+          <col class="check" />
+          <col class="check" />
+          <col class="staff" />
+          <col class="note" />
+        </colgroup>
+        <thead>
+          <tr>
+            <th>Ngày<br />giao</th>
+            <th>Bếp</th>
+            <th>Dây</th>
+            <th>Van</th>
+            <th>Cổ<br />dê</th>
+            <th>Lửa<br />đỏ</th>
+            <th>NV<br />giao</th>
+            <th>Ghi chú</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <p class="ledger-foot">Đánh dấu ô khi đạt. Ghi chú nếu cần thay dây, van, hoặc cổ dê.</p>
+    </template>
+
+    <template id="visit-row">
+      <tr>
+        <td></td>
+        <td><div class="tick"></div></td>
+        <td><div class="tick"></div></td>
+        <td><div class="tick"></div></td>
+        <td><div class="tick"></div></td>
+        <td><div class="tick"></div></td>
+        <td></td>
+        <td></td>
+      </tr>
+    </template>
+
+    <script>
+      /**
+       * Fill faces 2–4 with the same 9-row visit table.
+       */
+      (function fillLedgers() {
+        const faceTpl = document.getElementById("ledger-face");
+        const rowTpl = document.getElementById("visit-row");
+        document.querySelectorAll(".ledger").forEach((sheet) => {
+          sheet.append(faceTpl.content.cloneNode(true));
+          sheet.querySelector(".face-no").textContent = sheet.dataset.face;
+          const body = sheet.querySelector("tbody");
+          for (let i = 0; i < 9; i += 1) {
+            body.append(rowTpl.content.cloneNode(true));
+          }
+        });
+      })();
+    </script>
+  </body>
+</html>

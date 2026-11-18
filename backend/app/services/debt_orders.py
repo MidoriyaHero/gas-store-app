@@ -54,9 +54,13 @@ def recompute_account_balance_from_orders(db: Session, account: DebtAccount) -> 
     """Derive account cache from sum of active order outstanding on the same phone."""
     # SUM runs in SQL and misses outstanding values still pending on the session.
     db.flush()
+    if account.customer_id is not None:
+        cond = SalesOrder.customer_id == account.customer_id
+    else:
+        cond = SalesOrder.phone == account.customer_key
     balance = db.scalar(
         select(func.coalesce(func.sum(SalesOrder.outstanding_amount), 0)).where(
-            sales.active_order_clause(SalesOrder.phone == account.customer_key)
+            sales.active_order_clause(cond)
         )
     )
     account.current_balance = Decimal(str(balance or 0))

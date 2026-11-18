@@ -110,6 +110,28 @@ class CustomerSegment(str, Enum):
     RETAIL = "retail"
 
 
+class Customer(Base):
+    """Directory customer keyed by normalized phone; no soft-delete."""
+
+    __tablename__ = "customers"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    phone: Mapped[str] = mapped_column(String(32), nullable=False, unique=True, index=True)
+    address: Mapped[str | None] = mapped_column(Text, nullable=True)
+    hamlet: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    customer_segment: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    assigned_to_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    orders: Mapped[list["SalesOrder"]] = relationship(back_populates="customer")
+    assigned_to: Mapped["User | None"] = relationship(foreign_keys=[assigned_to_user_id])
+
+
 class SalesOrder(Base):
     """Sales order header with VAT summary (matches UI đơn hàng)."""
 
@@ -119,6 +141,7 @@ class SalesOrder(Base):
     order_code: Mapped[str] = mapped_column(String(40), unique=True, index=True)
     customer_name: Mapped[str] = mapped_column(String(255), nullable=False)
     phone: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    customer_id: Mapped[int | None] = mapped_column(ForeignKey("customers.id"), nullable=True, index=True)
     #: ``wholesale`` / ``restaurant`` / ``retail``; null on orders created before this field.
     customer_segment: Mapped[str | None] = mapped_column(String(16), nullable=True, index=True)
     address: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -148,6 +171,7 @@ class SalesOrder(Base):
     lines: Mapped[list["SalesOrderItem"]] = relationship(
         back_populates="order", cascade="all, delete-orphan"
     )
+    customer: Mapped["Customer | None"] = relationship(back_populates="orders")
     created_by: Mapped["User | None"] = relationship(
         back_populates="orders_created", foreign_keys=[created_by_user_id]
     )
@@ -442,6 +466,7 @@ class DebtAccount(Base):
     customer_key: Mapped[str] = mapped_column(String(32), nullable=False, unique=True, index=True)
     customer_name: Mapped[str] = mapped_column(String(255), nullable=False)
     phone: Mapped[str] = mapped_column(String(32), nullable=False)
+    customer_id: Mapped[int | None] = mapped_column(ForeignKey("customers.id"), nullable=True, unique=True, index=True)
     current_balance: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=Decimal("0"), index=True)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="active", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

@@ -135,6 +135,20 @@ cd backend && pytest tests/integration/test_smoke.py -q
 
 ## Local Development
 
+### Docker Dev (hot reload)
+
+Bind-mount source. API `uvicorn --reload`, frontend Vite HMR. Cùng Postgres volume với compose production.
+
+```powershell
+docker compose -f docker-compose.dev.yml up --build
+```
+
+- Web: `http://127.0.0.1:5173`
+- API: `http://127.0.0.1:8000`
+- Sửa `backend/app` hoặc `frontend/` là container nhận — không cần `--build` lại (trừ `requirements.txt` / `package-lock.json`).
+
+Lần đầu `web` chạy `npm ci` vào volume `web_node_modules` (chậm). Cùng project name với `docker-compose.yml` nên `api`/`web` production bị thay; `db` giữ data.
+
 ### 1) Start DB only
 
 ```bash

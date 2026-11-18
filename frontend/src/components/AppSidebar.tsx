@@ -17,7 +17,7 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth";
 import { adminNavGroups } from "@/lib/navGroups";
 
-/** Sidebar is only mounted for admin layout; staff uses `StaffPrimaryNav` in `AppLayout`. */
+/** Sidebar is only mounted for admin layout. */
 export function AppSidebar() {
   const { state } = useSidebar();
   const collapsed = state === "collapsed";

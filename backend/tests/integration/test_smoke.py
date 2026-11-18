@@ -358,6 +358,14 @@ def test_debt_orders_month_filter_by_delivery_date():
         assert june_rows.status_code == 200
         assert not any(row["id"] == oid for row in june_rows.json())
 
+        week_rows = client.get("/api/debt-orders", params={"status": "all", "days": 7})
+        assert week_rows.status_code == 200
+        assert not any(row["id"] == oid for row in week_rows.json())
+
+        all_rows = client.get("/api/debt-orders", params={"status": "all"})
+        assert all_rows.status_code == 200
+        assert any(row["id"] == oid for row in all_rows.json())
+
 
 def test_cash_order_patch_to_debt_syncs_debt_ledger():
     """PATCH cash order to debt must create ledger entry and matching account balance."""

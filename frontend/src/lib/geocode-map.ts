@@ -11,6 +11,28 @@ export function googleDirectionsUrl(destination: string): string {
   return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destination)}`;
 }
 
+/** Prefer saved GPS; otherwise the delivery address text. Empty when neither is usable. */
+export function deliveryDestination(o: {
+  delivery_latitude?: number | null;
+  delivery_longitude?: number | null;
+  address?: string | null;
+}): string {
+  const la = o.delivery_latitude;
+  const lo = o.delivery_longitude;
+  if (typeof la === "number" && Number.isFinite(la) && typeof lo === "number" && Number.isFinite(lo)) {
+    return `${la},${lo}`;
+  }
+  return (o.address ?? "").trim();
+}
+
+/** Open Google Maps driving directions; fall back to the same tab if the popup is blocked. */
+export function openGoogleMapsDirections(destination: string): void {
+  const url = googleDirectionsUrl(destination);
+  if (!url) return;
+  const w = window.open(url, "_blank", "noopener,noreferrer");
+  if (w == null) window.location.assign(url);
+}
+
 /** Build an OSM embed URL centered on ``lat``/``lng`` with a marker. */
 export function osmEmbedUrl(lat: number, lng: number, delta = 0.02): string {
   const minLng = lng - delta;

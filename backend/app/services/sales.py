@@ -98,6 +98,15 @@ def create_sales_order(
     grand_total = cart_subtotal + vat_amount
 
     phone = normalize_phone(payload.phone)
+    from app.services.customers import upsert_customer_from_order
+
+    customer = upsert_customer_from_order(
+        db,
+        name=payload.customer_name,
+        phone=phone,
+        address=_strip_opt(payload.address),
+        customer_segment=customer_segment,
+    )
     payment_mode = payload.payment_mode
     if payment_mode == "cash":
         paid_amount = grand_total
@@ -119,6 +128,7 @@ def create_sales_order(
         order_code="TEMP",
         customer_name=payload.customer_name.strip(),
         phone=phone,
+        customer_id=customer.id,
         address=(payload.address or "").strip() or None,
         delivery_latitude=payload.delivery_latitude,
         delivery_longitude=payload.delivery_longitude,
@@ -244,7 +254,23 @@ def update_sales_order(
         if paid_amount > grand_total:
             raise ValueError("Paid amount cannot exceed order total")
     order.customer_name = payload.customer_name.strip()
-    order.phone = normalize_phone(payload.phone)
+    phone = normalize_phone(payload.phone)
+    order.phone = phone
+    from app.services.customers import upsert_customer_from_order
+
+    segment_for_customer = (
+        _require_customer_segment(payload.customer_segment)
+        if payload.customer_segment is not None
+        else order.customer_segment
+    )
+    customer = upsert_customer_from_order(
+        db,
+        name=payload.customer_name,
+        phone=phone,
+        address=_strip_opt(payload.address),
+        customer_segment=segment_for_customer,
+    )
+    order.customer_id = customer.id
     order.address = _strip_opt(payload.address)
     order.delivery_latitude = payload.delivery_latitude
     order.delivery_longitude = payload.delivery_longitude
@@ -333,6 +359,7 @@ def order_to_response(order: SalesOrder) -> SalesOrderResponse:
     return SalesOrderResponse(
         id=order.id,
         order_code=order.order_code,
+        customer_id=order.customer_id,
         customer_name=order.customer_name,
         phone=order.phone,
         address=order.address,

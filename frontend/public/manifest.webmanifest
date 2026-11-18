@@ -1,0 +1,9 @@
+{
+  "name": "Gas Huy Hoàng",
+  "short_name": "Gas HH",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f766e",
+  "theme_color": "#0f766e",
+  "icons": [{ "src": "/brand/logo.png", "sizes": "512x512", "type": "image/png" }]
+}

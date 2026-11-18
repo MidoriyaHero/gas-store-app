@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowDownRight, ArrowUpRight, DollarSign, Scale, TrendingUp } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, DollarSign, Scale, TrendingUp, UserSearch } from "lucide-react";
 import {
   Bar,
   BarChart,
@@ -249,7 +249,7 @@ export default function Dashboard() {
 
       {!loading && (
         <>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <Card className="p-5 shadow-card">
               <div className="flex items-start justify-between">
                 <div>
@@ -291,7 +291,38 @@ export default function Dashboard() {
                 </div>
               </div>
             </Card>
+            <Card className="p-5 shadow-card">
+              <div className="flex items-start justify-between">
+                <div>
+                  <p className="text-xs text-muted-foreground">Khách lâu không mua</p>
+                  <p className="mt-2 text-2xl font-semibold">{formatNumber(summary?.at_risk_count ?? 0)}</p>
+                  <Link to="/khach-hang" className="text-xs text-primary underline-offset-2 hover:underline">
+                    Xem hồ sơ khách
+                  </Link>
+                </div>
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-muted/40 text-muted-foreground" aria-hidden>
+                  <UserSearch className="h-5 w-5" />
+                </div>
+              </div>
+            </Card>
           </div>
+          {(summary?.at_risk_customers?.length ?? 0) > 0 && (
+            <Card className="mt-4 p-5 shadow-card">
+              <h3 className="mb-3 text-base font-semibold">Khách lâu không mua</h3>
+              <ul className="space-y-2 text-sm">
+                {(summary?.at_risk_customers ?? []).map((row) => (
+                  <li key={row.id} className="flex flex-wrap items-baseline justify-between gap-2">
+                    <Link to={`/khach-hang?id=${row.id}`} className="font-medium text-primary underline-offset-2 hover:underline">
+                      {row.name}
+                    </Link>
+                    <span className="text-muted-foreground">
+                      {row.last_order_at ? `${row.days_since} ngày` : "Chưa có đơn"} · {row.phone}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          )}
 
       <div className="mt-6 grid gap-4 lg:grid-cols-3">
         <Card className="p-5 shadow-card lg:col-span-2">

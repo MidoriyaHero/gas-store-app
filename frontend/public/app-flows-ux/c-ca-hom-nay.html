@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>C · Ca hôm nay — Gas Huy Hoàng</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="./flows.css" />
+  </head>
+  <body>
+    <div class="strip">
+      <strong>Mock · 3 hướng UI · không gọi API</strong>
+      <nav>
+        <a href="./a-phieu.html">A. Phiếu</a>
+        <a href="./b-hang-doi.html">B. Hàng đợi</a>
+        <a class="is-here" href="./c-ca-hom-nay.html">C. Ca hôm nay</a>
+      </nav>
+    </div>
+
+    <header class="hero">
+      <h1>C. Ca hôm nay — việc trước, sổ sau</h1>
+      <p>
+        PC: 3 cột Chưa giao / Đang đi / Xong. Lịch sử là ô tìm, không chiếm màn. Điện thoại: mỗi đơn một thẻ to,
+        3 nút Gọi / Chỉ đường / Xong. Tạo đơn = 1 ngón cái (khách xong rồi chai+thu; map chỉ bung khi cần).
+      </p>
+      <div class="badge-row">
+        <span class="pill">Chọn khi staff ngoài đường là user chính</span>
+        <span class="pill">Ít chrome, nút lớn</span>
+      </div>
+    </header>
+
+    <div class="board">
+      <section>
+        <p class="cap">PC — bảng ca</p>
+        <div class="desk" id="desk">
+          <div class="desk-bar">
+            <b>Ca 18/11</b>
+            <span class="muted">12 đơn · 3 thiếu sổ gas</span>
+            <nav class="desk-tabs" data-bind="desk">
+              <button type="button" class="is-on" data-go="orders">Ca</button>
+              <button type="button" data-go="create">Tạo</button>
+              <button type="button" data-go="cust">Khách</button>
+              <button type="button" data-go="debt">Nợ hôm nay</button>
+            </nav>
+          </div>
+
+          <div data-screen="orders">
+            <div class="cols">
+              <div class="col">
+                <h3>Chưa giao (2)</h3>
+                <article class="job">
+                  <b>Chị Lan</b>
+                  <div class="muted">12kg × 2 · thiếu GPS</div>
+                  <div class="actions" style="margin-top:6px"><button type="button" class="btn">Gán Minh</button></div>
+                </article>
+                <article class="job">
+                  <b>Field Admin</b>
+                  <div class="muted">12kg × 1</div>
+                </article>
+              </div>
+              <div class="col">
+                <h3>Đang đi (1)</h3>
+                <article class="job">
+                  <b>Cơm Phượng</b>
+                  <div class="muted">Minh · 10:40</div>
+                  <button type="button" class="btn btn-primary" style="margin-top:6px">Đánh dấu xong</button>
+                </article>
+              </div>
+              <div class="col">
+                <h3>Xong (9)</h3>
+                <article class="job"><b>Gara Lân</b><div class="muted ok">Đã thu</div></article>
+                <p class="muted">Lịch sử khác: ô tìm trên thanh, không nhét bảng 8 cột vào ca.</p>
+              </div>
+            </div>
+          </div>
+
+          <div data-screen="create" hidden>
+            <div style="padding:16px;display:grid;grid-template-columns:1fr 1fr;gap:16px">
+              <div>
+                <h3>Khách trong 4 field</h3>
+                <div class="field"><label>SĐT</label><input class="input" /></div>
+                <div class="field"><label>Tên</label><input class="input" /></div>
+                <div class="field"><label>Địa chỉ</label><input class="input" placeholder="Có thể để trống — vẫn tạo đơn" /></div>
+                <button type="button" class="btn">Bung bản đồ nếu cần ghim</button>
+              </div>
+              <div>
+                <h3>Chai + thu trên cùng tấm</h3>
+                <div class="field"><label>Chai</label><select class="select"><option>Gas 12kg × 1</option></select></div>
+                <div class="chips">
+                  <button type="button" class="chip is-on">Đủ</button>
+                  <button type="button" class="chip">Nợ</button>
+                </div>
+                <button type="button" class="btn btn-primary" style="margin-top:12px">Tạo + chỉ đường</button>
+              </div>
+            </div>
+          </div>
+
+          <div data-screen="cust" hidden>
+            <div style="padding:16px" class="stack">
+              <input class="input" placeholder="SĐT — tìm là thấy, không bảng" />
+              <article class="job"><b>Chị Lan</b><div class="muted">Nợ 480k</div><button type="button" class="btn btn-primary">Tạo đơn ca này</button></article>
+            </div>
+          </div>
+
+          <div data-screen="debt" hidden>
+            <div style="padding:16px">
+              <p class="muted">Nợ của ca / 7 / 30 / 90 / từ trước tới nay — 3 số to, không bảng KPI.</p>
+              <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:12px 0">
+                <article class="job"><div class="muted">Chưa thu</div><b class="money">1.2tr</b></article>
+                <article class="job"><div class="muted">Đơn nợ</div><b>4</b></article>
+                <article class="job"><div class="muted">Quá 30 ngày</div><b class="warn">1</b></article>
+              </div>
+              <article class="job"><div class="row"><b>Chị Lan</b><button type="button" class="btn btn-primary">Thu</button></div></article>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <p class="cap">Điện thoại — nút lớn, một việc</p>
+        <div class="phone">
+          <div class="phone-inner" id="phone">
+            <div class="notch"><span>9:41</span><span>LTE</span></div>
+            <header class="phone-head">
+              <h2 data-phone-title>Ca hôm nay</h2>
+              <p class="muted" style="margin:0">Còn 2 điểm</p>
+            </header>
+            <div class="phone-scroll">
+              <div data-screen="orders">
+                <article class="job">
+                  <b style="font-size:18px">Chị Lan</b>
+                  <div class="muted">12kg × 2 · nợ 840k</div>
+                  <div class="actions" style="margin-top:10px">
+                    <button type="button" class="btn fat">Gọi</button>
+                    <button type="button" class="btn fat btn-primary">Chỉ đường</button>
+                  </div>
+                  <button type="button" class="btn" style="width:100%;margin-top:8px;min-height:44px">Đã giao xong</button>
+                </article>
+                <article class="job">
+                  <b style="font-size:18px">Field Admin</b>
+                  <div class="muted">12kg × 1</div>
+                  <div class="actions" style="margin-top:10px">
+                    <button type="button" class="btn fat">Gọi</button>
+                    <button type="button" class="btn fat btn-primary">Chỉ đường</button>
+                  </div>
+                </article>
+              </div>
+              <div data-screen="create" hidden>
+                <p class="muted" style="margin-top:0">Một ngón. Map không chiếm nửa form.</p>
+                <div class="field"><label>SĐT</label><input class="input" inputmode="tel" style="min-height:48px" /></div>
+                <div class="field"><label>Tên</label><input class="input" style="min-height:48px" /></div>
+                <div class="field"><label>Chai</label><select class="select" style="min-height:48px"><option>Gas 12kg</option></select></div>
+                <div class="chips">
+                  <button type="button" class="chip is-on">Thu đủ</button>
+                  <button type="button" class="chip">Ghi nợ</button>
+                </div>
+                <button type="button" class="btn" style="width:100%;margin:8px 0">Ghim điểm nếu cần</button>
+                <button type="button" class="btn btn-primary fat" style="width:100%">Tạo đơn + chỉ đường</button>
+              </div>
+              <div data-screen="cust" hidden>
+                <input class="input" placeholder="SĐT" style="min-height:48px;margin-bottom:10px" />
+                <article class="job"><b>Chị Lan</b><button type="button" class="btn btn-primary fat" style="width:100%;margin-top:8px">Tạo đơn</button></article>
+              </div>
+              <div data-screen="debt" hidden>
+                <article class="job"><div class="muted">Chưa thu</div><b class="money" style="font-size:22px">1.2tr</b></article>
+                <article class="job"><div class="row"><b>Lan 480k</b><button type="button" class="btn fat btn-primary">Thu</button></div></article>
+              </div>
+              <div data-screen="map" hidden>
+                <div class="map-fake" style="height:260px"></div>
+                <button type="button" class="btn btn-primary fat" style="width:100%;margin-top:10px">Chỉ đường điểm đang chọn</button>
+              </div>
+            </div>
+            <nav class="bnav" data-bind="phone">
+              <button type="button" data-go="cust"><i>👤</i>Khách</button>
+              <button type="button" data-go="create"><i>＋</i>Tạo</button>
+              <button type="button" class="is-on" data-go="orders"><i>☰</i>Ca</button>
+              <button type="button" data-go="map"><i>⌖</i>Map</button>
+              <button type="button" data-go="debt"><i>₫</i>Nợ</button>
+            </nav>
+          </div>
+        </div>
+      </section>
+    </div>
+    <script>
+      function wire(root) {
+        root.querySelectorAll("[data-bind]").forEach((nav) => {
+          const bind = nav.getAttribute("data-bind") === "desk" ? root : document.getElementById("phone");
+          nav.addEventListener("click", (e) => {
+            const btn = e.target.closest("[data-go]");
+            if (!btn) return;
+            const go = btn.getAttribute("data-go");
+            nav.querySelectorAll("[data-go]").forEach((b) => b.classList.toggle("is-on", b === btn));
+            const host = bind.querySelector(".phone-scroll") || bind;
+            host.querySelectorAll("[data-screen]").forEach((p) => {
+              p.hidden = p.getAttribute("data-screen") !== go;
+            });
+            const t = bind.querySelector("[data-phone-title]");
+            if (t) t.textContent = { orders: "Ca hôm nay", create: "Tạo đơn", cust: "Khách", debt: "Nợ", map: "Bản đồ" }[go] || go;
+          });
+        });
+      }
+      wire(document.getElementById("desk"));
+      wire(document.getElementById("phone"));
+    </script>
+  </body>
+</html>

@@ -9,10 +9,11 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { ShoppingBag, CheckCircle2 } from "lucide-react";
+import { ShoppingBag, CheckCircle2, Navigation, Phone } from "lucide-react";
 import { formatVND, formatDateTime } from "@/lib/format";
 import { toast } from "sonner";
 import { apiGet, apiPatch } from "@/lib/api";
+import { deliveryDestination, openGoogleMapsDirections } from "@/lib/geocode-map";
 
 interface OrderLine {
   product_name: string;
@@ -33,6 +34,8 @@ interface OrderRow {
   customer_name: string;
   phone: string | null;
   address?: string | null;
+  delivery_latitude?: number | null;
+  delivery_longitude?: number | null;
   note?: string | null;
   delivery_date?: string | null;
   store_contact?: string | null;
@@ -246,6 +249,29 @@ export default function StaffOrderHistory() {
                     <CheckCircle2 className="h-4 w-4" aria-hidden />
                     {completeLoadingId === detail.id ? "Đang lưu…" : "Đánh dấu đã giao xong"}
                   </Button>
+                )}
+                {(deliveryDestination(detail) || (detail.phone ?? "").trim()) && (
+                  <div className="flex flex-wrap gap-2">
+                    {deliveryDestination(detail) ? (
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        className="min-h-11 flex-1 gap-2"
+                        onClick={() => openGoogleMapsDirections(deliveryDestination(detail))}
+                      >
+                        <Navigation className="h-4 w-4" aria-hidden />
+                        Chỉ đường
+                      </Button>
+                    ) : null}
+                    {(detail.phone ?? "").trim() ? (
+                      <Button asChild variant="outline" className="min-h-11 flex-1 gap-2">
+                        <a href={`tel:${(detail.phone ?? "").trim()}`}>
+                          <Phone className="h-4 w-4" aria-hidden />
+                          Gọi
+                        </a>
+                      </Button>
+                    ) : null}
+                  </div>
                 )}
                 <div>
                   <Label className="text-xs text-muted-foreground">Khách hàng</Label>

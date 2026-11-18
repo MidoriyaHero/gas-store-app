@@ -33,6 +33,14 @@ export interface DashboardPeriodTotals {
   unit_quantity: number;
 }
 
+export interface AtRiskCustomerRow {
+  id: number;
+  name: string;
+  phone: string;
+  last_order_at: string | null;
+  days_since: number;
+}
+
 export interface DashboardSummaryResponse {
   range: string;
   revenue: number | string;
@@ -43,6 +51,8 @@ export interface DashboardSummaryResponse {
   series: DailyMetricRow[];
   previous?: DashboardPeriodTotals | null;
   customer_segments?: CustomerSegmentMetric[];
+  at_risk_count?: number;
+  at_risk_customers?: AtRiskCustomerRow[];
 }
 
 export interface CustomerSegmentMetric {
